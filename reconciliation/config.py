@@ -39,6 +39,30 @@ SAGE_CSV_ENCODING = "utf-8-sig"
 SAGE_CSV_FALLBACK_ENCODING = "cp1252"
 SAGE_CSV_DECIMAL = ","
 
+# Paramètres métier de l'étape 3.
+ATLAS_STATUS_SENT_TO_SAGE = "Envoyé SAGE"
+ATLAS_STATUS_ACCOUNTED = "Comptabilisé"
+AMOUNT_TOLERANCE = 0.01
+FUZZY_HIGH_THRESHOLD = 0.95
+FUZZY_REVIEW_THRESHOLD = 0.85
+MATCH_AMOUNT_CONFIDENCE = 0.90
+MATCH_WITHOUT_LABEL_CONFIDENCE = 0.70
+MATCHING_FULL_KEY = ("project_code", "label", "third_party_code", "matching_reference")
+MATCHING_BLOCK_KEY = ("project_code", "third_party_code", "matching_reference")
+MATCHING_SOURCE_COLUMNS = {
+    "ATLAS": {
+        "matching_reference": "N° BAP (SAGE)",
+        "third_party_code": "Code tiers SAGE",
+        "matching_amount": "Total charges projet (€)",
+        "source_status": "Statut BAP",
+        "confirmed_amount": "Total charges SAGE (€)",
+    },
+    "SAGE": {
+        "third_party_code": "Code Tiers - Tiers doc Orig",
+        "matching_amount": "Charges (Dépenses)",
+    },
+}
+
 # Aucun choix implicite pour les montants et la référence Atlas à confirmer.
 ATLAS_CANONICAL_COLUMNS = {
     "project_code": "Code projet",

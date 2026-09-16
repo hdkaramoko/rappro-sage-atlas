@@ -34,7 +34,8 @@ def aggregate(frame: pd.DataFrame, prefix: str) -> pd.DataFrame:
         date_count=("accounting_date", "count"),
     ).reset_index()
     result["amount"] = result.amount.where(result.amount_count == result.row_count)
-    result["group_id"] = [f"{prefix}:{i}" for i in range(len(result))]
+    numbers = grouped["_group_number"].first().to_numpy() if "_group_number" in frame else range(len(result))
+    result["group_id"] = [f"{prefix}:{int(i)}" for i in numbers]
     return result
 
 
@@ -47,9 +48,12 @@ class CandidateIndex:
 
     def __init__(self, sage_groups: pd.DataFrame):
         blocks = defaultdict(list)
+        self.block_counts = defaultdict(int)
         self.groups = {}
         for group in sage_groups.to_dict("records"):
             self.groups[group["group_id"]] = group
+            if valid_key(group, MATCHING_BLOCK_KEY):
+                self.block_counts[tuple(group[k] for k in MATCHING_BLOCK_KEY)] += 1
             if valid_key(group, MATCHING_BLOCK_KEY) and pd.notna(group["amount"]):
                 blocks[tuple(group[k] for k in MATCHING_BLOCK_KEY)].append(group)
         self.blocks = {}

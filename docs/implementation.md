@@ -1,5 +1,28 @@
 # Implémentation du rapprochement Atlas et Sage
 
+Le [guide des contrôles et statuts](controles_et_statuts.md) présente la suite
+des vérifications et le sens métier des décisions, règles et propositions BAP.
+
+La restitution Excel est maintenant disponible : voir [le guide d'export et des
+tentatives](export_excel.md). L'option `--output` produit les trois feuilles de
+contrôle, sans modifier les sources. Les mentions d'export hors périmètre plus
+bas décrivent le périmètre historique de l'étape 3, avant cette évolution.
+
+Le préfiltrage Sage est activé par défaut (`MatchingConfig.prefilter_sage=True`).
+Après préparation et avant agrégation, seules les lignes des blocs non vides
+projet/tiers/BAP présents dans Atlas à rechercher sont conservées. Toutes les
+lignes de chaque bloc restent présentes, même sans montant ou avec un libellé
+différent. Les positions originales et la numérotation globale des groupes Sage
+sont conservées. Les compteurs `FILTRE_STRUCTURE` du journal restent globaux.
+`prefilter_sage=False` permet une comparaison avec l'ancien calcul intégral.
+
+La synthèse expose `sage_rows_total`, `sage_rows_retained`,
+`sage_rows_excluded_by_prefilter`, `sage_groups_total` et `sage_prefilter_applied`.
+`sage_groups` et le catalogue `sage_candidates` décrivent les groupes retenus.
+Sans recherche Atlas nécessaire, le préfiltrage n'est pas exécuté : les groupes
+ne sont pas comptés et `sage_prefilter_applied` vaut faux. Le filtre ne porte
+ni sur l'année, ni sur le libellé, ni sur le montant.
+
 ## Installation et exécution
 
 Le projet utilise Python 3.12, pandas, openpyxl et RapidFuzz. pytest est une dépendance de

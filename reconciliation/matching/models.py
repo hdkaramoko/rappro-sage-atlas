@@ -31,6 +31,7 @@ class MatchingConfig:
     fuzzy_method: str = "token_set_ratio"
     enable_fuzzy: bool = True
     enable_without_label: bool = True
+    prefilter_sage: bool = True
     auto_account_rules: frozenset[str] = frozenset()
 
     def __post_init__(self):

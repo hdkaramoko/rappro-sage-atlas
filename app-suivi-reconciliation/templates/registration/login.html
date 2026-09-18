@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% block title %}Connexion — Atlas × Sage X3{% endblock %}{% block content %}
+<div class="login-page">
+  <section class="login-showcase" aria-labelledby="login-product-title">
+    <div class="login-brand"><span class="login-brand-mark" aria-hidden="true">A×S</span><span>Atlas × Sage X3</span></div>
+    <div><p class="eyebrow light-eyebrow">Suivi des rapprochements</p><h1 id="login-product-title">Vos données comptables,<br>claires et maîtrisées.</h1><p>Consultez les écarts, validez les corrections et pilotez votre portefeuille depuis un espace sécurisé.</p></div>
+    <p class="login-assurance"><svg aria-hidden="true"><use href="#icon-check"></use></svg>Accès sécurisé et limité à votre périmètre</p>
+  </section>
+  <section class="login-panel">
+    <div class="login-form-wrap">
+      <div class="login-mobile-brand"><span class="login-brand-mark" aria-hidden="true">A×S</span><strong>Atlas × Sage X3</strong></div>
+      <p class="eyebrow">Espace sécurisé</p><h2>Bienvenue</h2><p class="login-intro">Connectez-vous pour accéder à vos rapprochements.</p>
+      <form method="post" class="login-form">{% csrf_token %}
+        {% if form.non_field_errors %}<div class="login-error" role="alert">Identifiant ou mot de passe incorrect. Veuillez réessayer.</div>{% endif %}
+        <div class="field"><label for="{{ form.username.id_for_label }}">Identifiant</label>{{ form.username }}{% for error in form.username.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</div>
+        <div class="field"><label for="{{ form.password.id_for_label }}">Mot de passe</label>{{ form.password }}{% for error in form.password.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</div>
+        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+        <button type="submit" class="login-submit">Se connecter <svg aria-hidden="true"><use href="#icon-arrow-right"></use></svg></button>
+      </form>
+      <p class="login-help">Un problème d’accès ? Contactez votre administrateur.</p>
+    </div>
+  </section>
+</div>{% endblock %}
+

@@ -1,0 +1,26 @@
+[project]
+name = "suivi-reconciliation"
+version = "0.1.0"
+description = "Suivi des rapprochements comptables Atlas / Sage X3"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "django>=5.2,<6",
+  "openpyxl>=3.1,<4",
+  "psycopg[binary]>=3.2,<4",
+  "python-dotenv>=1.1,<2",
+]
+
+[dependency-groups]
+dev = ["coverage>=7.10,<8", "ruff>=0.12,<1"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".venv", "**/migrations/*.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.coverage.run]
+source = ["accounts", "projects", "reconciliation", "imports_app", "dashboard"]

@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from reconciliation.exporters.excel import export_reconciliation
+from reconciliation.exporters.review import export_review_bundle
 from reconciliation.matching import match_reconciliations
 from reconciliation.transformations.atlas import transform_atlas
 from reconciliation.transformations.sage import transform_sage
@@ -47,6 +48,8 @@ def main():
     result = match_reconciliations(atlas, sage, collect_trace=True)
     path = export_reconciliation(atlas, result, Path("data") / "exemple_rapprochement.xlsx")
     print(f"Démonstration synthétique : {path}")
+    bundle = export_review_bundle(atlas, sage, result, Path("data") / "exemple_validation.jsonl")
+    print(f"Propositions pour l'application : {bundle}")
 
 
 if __name__ == "__main__":

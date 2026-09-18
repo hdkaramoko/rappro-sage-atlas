@@ -13,6 +13,7 @@ from reconciliation.transformations.common import TransformationError
 from reconciliation.matching import match_reconciliations, summarize_matching
 from reconciliation.exporters.excel import export_reconciliation, ExportError
 from reconciliation.matching.trace import TraceError
+from reconciliation.exporters.review import export_review_bundle
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -23,6 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", help="Classeur .xlsx de résultats et tentatives (optionnel)")
     parser.add_argument("--trace", help="Journal JSONL ; par défaut <output>.tentatives.jsonl")
     parser.add_argument("--trace-mode", choices=("compact", "detailed"), default="compact")
+    parser.add_argument("--review-output", help="Propositions JSONL pour l'application de validation")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
     try:
@@ -31,8 +33,10 @@ def main(argv: list[str] | None = None) -> int:
             ("Atlas", load_atlas, transform_atlas, args.atlas),
             ("Sage", load_sage, transform_sage, args.sage),
         ):
+            logging.info("Chargement de l'extraction %s", name)
             frame = loader(path)
             summary = frame.attrs["load_summary"]
+            logging.info("Normalisation de l'extraction %s", name)
             frame = transform(frame)
             print(f"{name} :")
             if summary["valid_sheets"] is not None:
@@ -47,10 +51,21 @@ def main(argv: list[str] | None = None) -> int:
         trace_path = args.trace or (str(Path(args.output).with_suffix(".tentatives.jsonl")) if args.output else None)
         if trace_path and any(Path(trace_path).resolve() == Path(p).resolve() for p in (args.atlas, args.sage, args.output) if p):
             raise TraceError("Le journal ne doit pas remplacer une source ou le classeur de sortie")
+        logging.info("Recherche des correspondances Atlas / SAGE")
         result = match_reconciliations(frames["Atlas"], frames["Sage"], trace_path=trace_path, trace_mode=args.trace_mode)
         print("Rapprochement :")
         for rule, count in summarize_matching(result).items():
             print(f"- {rule} : {count}")
+        if args.review_output:
+            protected = [args.atlas, args.sage, args.output, trace_path]
+            if any(Path(args.review_output).resolve() == Path(p).resolve() for p in protected if p):
+                raise ExportError("Le fichier de validation doit être distinct des sources et autres sorties")
+            try:
+                logging.info("Ecriture des propositions pour validation")
+                path = export_review_bundle(frames["Atlas"], frames["Sage"], result, args.review_output)
+            except (ValueError, OSError) as exc:
+                raise ExportError(str(exc)) from exc
+            print(f"Propositions pour validation : {path}")
         if args.output:
             path = export_reconciliation(frames["Atlas"], result, args.output,
                                          source_paths={"Atlas": args.atlas, "Sage": args.sage})

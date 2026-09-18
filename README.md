@@ -24,6 +24,11 @@ Les tentatives sont écrites progressivement dans un fichier `.tentatives.jsonl`
 adjacent, en mode compact par défaut (`--trace-mode detailed` pour le détail).
 Le moteur préfiltre désormais Sage sur les blocs projet/tiers/BAP recherchés par
 Atlas avant agrégation, en conservant les positions et identifiants Sage d'origine.
+L'option `--review-output "output/propositions.jsonl"` produit les groupes,
+les lignes Atlas et leurs preuves Sage pour l'application de validation métier.
+Dans `app-suivi-reconciliation`, la commande
+`uv run python manage.py import_review_bundle "../scriptsRappro/output/propositions.jsonl"`
+charge ces propositions dans le nouveau parcours **Validation métier**.
 Voir [le guide de restitution](docs/export_excel.md) pour l'API et les journaux.
 Pour voir un exemple fictif : `uv run python -m examples.demo_export` crée
 `data/exemple_rapprochement.xlsx`.

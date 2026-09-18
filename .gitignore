@@ -1,7 +1,9 @@
 .venv/
+.work_app/
 .pytest_cache/
 __pycache__/
 *.py[cod]
 dist/
 data/
 prompts/
+app-suivi-reconciliation/

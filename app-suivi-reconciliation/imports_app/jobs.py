@@ -133,7 +133,7 @@ def run_job(job_id, resume=False):
                 ):
                     job.state = "DUPLICATE"
                 else:
-                    job.groups_imported = import_bundle(directory / "propositions.jsonl")
+                    job.groups_imported = import_bundle(directory / "propositions.jsonl", job=job)
                     job.state = "SUCCESS"
                 job.active = False
                 job.finished_at = timezone.now()

@@ -37,6 +37,20 @@ Attribuer les projets aux utilisateurs, puis ouvrir **Mes rapprochements**.
 Le tableau de bord suit les brouillons, validations, refus et décisions à réexaminer.
 L’export de conservation provient uniquement des validations métier à jour.
 
+## Campagnes et réimports
+
+Le moteur produit désormais un **unique JSONL v2**, contenant l’inventaire Atlas complet
+et les propositions. Le menu **Campagnes** donne accès aux photographies précédentes,
+aux changements de montants/statuts et aux absences. Les validations inchangées sont
+reprises avec leur date, auteur et campagne d’origine. Les modifications du groupe ou
+des preuves imposent une nouvelle revue. Les anciennes campagnes restent en lecture seule.
+
+Au premier import v2, les données déjà présentes sont photographiées dans une archive
+signalée sans inventaire complet. Aucun historique absent ne peut être reconstitué.
+Après ce passage, les fichiers v1 sans inventaire sont refusés.
+
+Voir le [guide technique et métier des campagnes](../docs/campagnes_rapprochement.md).
+
 Voir le [guide de validation](docs/validation-metier.md).
 
 La [note de refonte UI/UX](docs/refonte-ui-ux.md) décrit les écrans, les filtres,

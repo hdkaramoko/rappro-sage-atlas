@@ -13,16 +13,26 @@ from django.urls import reverse
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 
-from .models import LineReview, ReconciliationTransaction
+from .models import Campaign, LineReview, ReconciliationTransaction
 from .presentation import RULE_LABELS, decorate, history_rows
 from .review import decide, effective, is_current, signature
 from .review_forms import LineReviewForm
 
 
 def visible(user):
-    return LineReview.objects.filter(
+    items = LineReview.objects.filter(
         transaction__in=ReconciliationTransaction.objects.visible_for(user)
-    ).select_related("transaction", "transaction__project", "group")
+    ).select_related(
+        "transaction",
+        "transaction__project",
+        "group",
+        "campaign",
+        "validation_origin",
+        "updated_by",
+    )
+    if Campaign.objects.filter(is_current=True).exists():
+        items = items.filter(campaign__is_current=True)
+    return items
 
 
 @login_required
@@ -82,6 +92,7 @@ def review_list(request):
         "reconciliation/reviews.html",
         {
             "page": page,
+            "campaign": Campaign.objects.filter(is_current=True).first(),
             "project": project,
             "state": state,
             "rule": rule,
@@ -210,6 +221,9 @@ def review_detail(request, pk):
             "missing": missing,
             "gap": total - line.group.sage_total if line.group.sage_total is not None else None,
             "stale": bool(line.version and not is_current(line)),
+            "campaign_snapshot": line.campaign_reviews.filter(campaign_id=line.campaign_id).first()
+            if line.campaign_id
+            else None,
             "candidates": candidates,
             "events": list(history_rows(line.events.select_related("actor")[:50])),
             "allocation_context": {
@@ -230,6 +244,11 @@ def review_detail(request, pk):
 
 @login_required
 def conservation_export(request):
+    campaign = Campaign.objects.filter(is_current=True).first()
+    if campaign:
+        from .campaign_views import campaign_export
+
+        return campaign_export(request, campaign.pk)
     response = HttpResponse(
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )

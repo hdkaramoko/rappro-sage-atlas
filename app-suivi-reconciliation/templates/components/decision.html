@@ -1,1 +1,1 @@
-<span class="badge {{ item.decision_tone }}">{{ item.decision_label }}</span>
+<span class="badge {{ item.decision_tone }}">{{ item.decision_label }}</span>{% if item.validated_at %}<small class="cell-sub">{% if item.stale %}Précédente validation{% else %}Validation{% endif %} du {{ item.validated_at|date:"d/m/Y" }}{% if item.validation_origin_id and item.validation_origin_id != item.campaign_id %} · reprise{% endif %}</small>{% endif %}

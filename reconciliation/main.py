@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trace", help="Journal JSONL ; par défaut <output>.tentatives.jsonl")
     parser.add_argument("--trace-mode", choices=("compact", "detailed"), default="compact")
     parser.add_argument("--review-output", help="Propositions JSONL pour l'application de validation")
+    parser.add_argument("--campaign-name", help="Nom de la campagne de validation")
+    parser.add_argument("--campaign-scope", default="atlas-complet", help="Périmètre cumulatif stable de l'extraction")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
     try:
@@ -62,7 +64,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise ExportError("Le fichier de validation doit être distinct des sources et autres sorties")
             try:
                 logging.info("Ecriture des propositions pour validation")
-                path = export_review_bundle(frames["Atlas"], frames["Sage"], result, args.review_output)
+                path = export_review_bundle(frames["Atlas"], frames["Sage"], result, args.review_output,
+                                           campaign_name=args.campaign_name, scope=args.campaign_scope,
+                                           source_paths={"Atlas": args.atlas, "SAGE": args.sage})
             except (ValueError, OSError) as exc:
                 raise ExportError(str(exc)) from exc
             print(f"Propositions pour validation : {path}")

@@ -24,10 +24,13 @@ Les tentatives sont écrites progressivement dans un fichier `.tentatives.jsonl`
 adjacent, en mode compact par défaut (`--trace-mode detailed` pour le détail).
 Le moteur préfiltre désormais Sage sur les blocs projet/tiers/BAP recherchés par
 Atlas avant agrégation, en conservant les positions et identifiants Sage d'origine.
-L'option `--review-output "output/propositions.jsonl"` produit les groupes,
-les lignes Atlas et leurs preuves Sage pour l'application de validation métier.
+L'option `--review-output "output/propositions.jsonl"` produit une campagne JSONL v2 :
+inventaire Atlas complet, groupes, lignes Atlas rapprochées et preuves SAGE.
+`--campaign-name "Septembre 2026"` nomme la campagne ; `--campaign-scope "atlas-complet"`
+identifie le périmètre cumulatif stable. Voir le [guide des campagnes](docs/campagnes_rapprochement.md)
+pour la comparaison, les absences, le report des validations et les limites de volumétrie.
 Dans `app-suivi-reconciliation`, la commande
-`uv run python manage.py import_review_bundle "../scriptsRappro/output/propositions.jsonl"`
+`uv run python manage.py import_review_bundle "../output/propositions.jsonl"`
 charge ces propositions dans le nouveau parcours **Validation métier**.
 Voir [le guide de restitution](docs/export_excel.md) pour l'API et les journaux.
 Pour voir un exemple fictif : `uv run python -m examples.demo_export` crée

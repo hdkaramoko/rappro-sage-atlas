@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -111,3 +112,42 @@ class ManualImportTests(TransactionTestCase):
         job.refresh_from_db()
         self.assertEqual(job.state, "FAILED")
         self.assertIn("changé depuis son transfert", job.error)
+
+    @patch("imports_app.views.launch")
+    def test_campaign_upload_links_job_and_publishes_inventory(self, launch):
+        from reconciliation.models import Campaign
+
+        content = [
+            {
+                "type": "campaign",
+                "schema_version": 2,
+                "name": "Septembre",
+                "scope": "atlas-complet",
+            },
+            {
+                "type": "inventory",
+                "atlas": {
+                    "Code projet": "P",
+                    "Année": 2026,
+                    "Id": "A",
+                    "Statut BAP": "Comptabilisé",
+                    "Total charges projet (€)": "100",
+                    "Total charges SAGE (€)": "100",
+                    "N° pièce SAGE": "D",
+                    "Date comptable": "2026-09-01",
+                },
+            },
+            {"complete": 0, "inventory_count": 1},
+        ]
+        self.upload(("\n".join(json.dumps(row) for row in content) + "\n").encode())
+        job = MatchingJob.objects.get()
+        run_job(job.pk)
+        job.refresh_from_db()
+        self.assertEqual(job.state, "SUCCESS")
+        campaign = Campaign.objects.get(job=job)
+        self.assertTrue(campaign.is_current)
+        self.assertEqual(campaign.file_hash, job.file_hash)
+        self.assertEqual(campaign.inventory.count(), 1)
+        self.assertContains(
+            self.client.get(reverse("imports:detail", args=[job.pk])), "Consulter la campagne"
+        )

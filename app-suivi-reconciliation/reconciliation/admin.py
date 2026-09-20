@@ -2,7 +2,16 @@
 
 from django.contrib import admin
 
-from .models import LineReview, ReconciliationTransaction, ReviewEvent, ReviewGroup
+from .models import (
+    Campaign,
+    CampaignGroup,
+    CampaignInventory,
+    CampaignReview,
+    LineReview,
+    ReconciliationTransaction,
+    ReviewEvent,
+    ReviewGroup,
+)
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -39,3 +48,5 @@ class TransactionAdmin(ReadOnlyAdmin):
 admin.site.register(ReviewGroup, ReadOnlyAdmin)
 admin.site.register(LineReview, ReadOnlyAdmin)
 admin.site.register(ReviewEvent, ReadOnlyAdmin)
+for model in (Campaign, CampaignGroup, CampaignInventory, CampaignReview):
+    admin.site.register(model, ReadOnlyAdmin)

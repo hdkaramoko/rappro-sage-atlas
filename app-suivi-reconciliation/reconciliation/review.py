@@ -7,8 +7,9 @@ from decimal import Decimal
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.utils import timezone
 
-from .models import LineReview, ReconciliationTransaction, ReviewEvent, ReviewGroup
+from .models import Campaign, LineReview, ReconciliationTransaction, ReviewEvent, ReviewGroup
 
 FIELDS = {
     "status": "bap_status",
@@ -25,6 +26,8 @@ def source_snapshot(line):
         if isinstance(value, Decimal):
             return format(value.quantize(Decimal("0.01")), "f")
         return str(value)
+
+    from .campaigns import stable_evidence
 
     return {
         "atlas": {
@@ -47,7 +50,10 @@ def source_snapshot(line):
             "rule": line.group.rule,
             "status": line.group.match_status,
             "total": stable(line.group.sage_total),
-            "evidence": line.group.evidence,
+            "evidence": stable_evidence(line.group.evidence)
+            if line.group.context_signature
+            else line.group.evidence,
+            **({"members": line.group.context_signature} if line.group.context_signature else {}),
         },
     }
 
@@ -94,6 +100,17 @@ def decide(
 ):
     """Verrouille le groupe pour éviter deux répartitions concurrentes incompatibles."""
     entry = LineReview.objects.get(pk=line_id)
+    # Verrouiller une identité stable : après attente d'un import concurrent,
+    # la campagne lue doit être recontrôlée, même si elle vient d'être close.
+    campaign = (
+        Campaign.objects.select_for_update().get(pk=entry.campaign_id)
+        if entry.campaign_id
+        else Campaign.objects.select_for_update().filter(is_current=True).first()
+    )
+    if campaign and (not campaign.is_current or entry.campaign_id != campaign.pk):
+        raise ValidationError(
+            "Cette ligne appartient à une campagne close. Consultez la campagne courante."
+        )
     group = ReviewGroup.objects.select_for_update().get(pk=entry.group_id)
     line = LineReview.objects.select_for_update().select_related("transaction").get(pk=line_id)
     if line.group_id != group.pk:
@@ -174,12 +191,19 @@ def decide(
     line.source_signature = signature(line)
     line.version += 1
     line.updated_by = user
+    if state == "VALIDATED":
+        line.validated_at = timezone.now()
+        line.validation_origin = campaign
+    else:
+        line.validated_at = None
+        line.validation_origin = None
     line.save()
     group.version += 1
     group.save(update_fields=["version", "updated_at"])
     ReviewEvent.objects.create(
         line=line,
         actor=user,
+        campaign=campaign,
         snapshot={
             "before": before,
             "state": state,
@@ -191,4 +215,7 @@ def decide(
             "derogation": bool(warnings and acknowledge),
         },
     )
+    from .campaigns import save_decision_snapshot
+
+    save_decision_snapshot(line)
     return line

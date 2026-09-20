@@ -2,6 +2,11 @@
 
 État du code étudié : 18 septembre 2026. Document destiné aux développeurs, mainteneurs et responsables fonctionnels souhaitant comprendre les arbitrages de l'implémentation.
 
+**Évolution du 20 septembre 2026 :** le [contrat de campagne JSONL v2](campagnes_rapprochement.md)
+remplace le contrat v1 décrit en section 9.2. Il ajoute un en-tête de campagne et l'inventaire
+minimal de toutes les lignes Atlas, puis les propositions et un double compteur de fin.
+La cascade de matching et les sorties Excel d'analyse restent celles décrites ici.
+
 Les justifications ci-dessous expliquent la conception observable dans le code et les besoins auxquels elle répond. Elles ne prétendent pas reconstituer des décisions historiques qui n'auraient pas été consignées. Les évolutions envisagées sont distinguées des mécanismes effectivement présents.
 
 ## 1. Traduction technique des spécifications

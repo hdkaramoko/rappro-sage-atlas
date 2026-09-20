@@ -12,8 +12,24 @@ def test_bundle_contains_individual_sources_and_complete_sage_evidence(tmp_path)
     result = match_reconciliations(a, s)
     path = export_review_bundle(a, s, result, tmp_path / "review.jsonl")
     records = [json.loads(row) for row in path.read_text(encoding="utf-8").splitlines()]
-    assert records[-1] == {"complete": 1}
-    assert [row["Id"] for row in records[0]["atlas"]] == ["A", "B"]
-    assert records[0]["sage_total"] == 1000
-    assert records[0]["evidence"][0]["rows"][0]["Projet"] == "P"
-    assert records[0]["evidence"][0]["rows"][0]["Numéro pièce"] == "DOC-01"
+    assert records[0]["schema_version"] == 2
+    assert records[-1] == {"complete": 1, "inventory_count": 2}
+    record = next(row for row in records if row.get("type") == "proposal")
+    assert [row["Id"] for row in record["atlas"]] == ["A", "B"]
+    assert record["sage_total"] == 1000
+    assert record["evidence"][0]["rows"][0]["Projet"] == "P"
+    assert record["evidence"][0]["rows"][0]["Numéro pièce"] == "DOC-01"
+
+
+def test_inventory_includes_accounted_lines_and_both_amounts(tmp_path):
+    a, s = frames([atlas_row(Id="A", **{"Année": 2026}),
+                   atlas_row(Id="B", **{"Année": 2026, "Statut BAP": "Comptabilisé", "Total charges SAGE (€)": 900})])
+    path = export_review_bundle(a, s, match_reconciliations(a, s), tmp_path / "campaign.jsonl",
+                               campaign_name="Septembre", scope="complet")
+    records = [json.loads(row) for row in path.read_text(encoding="utf-8").splitlines()]
+    inventory = [row["atlas"] for row in records if row.get("type") == "inventory"]
+    assert records[0]["name"] == "Septembre"
+    assert len(inventory) == 2
+    assert inventory[1]["Statut BAP"] == "Comptabilisé"
+    assert inventory[1]["Total charges SAGE (€)"] == 900
+    assert records[-1] == {"complete": 1, "inventory_count": 2}

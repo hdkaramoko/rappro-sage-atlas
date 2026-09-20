@@ -88,6 +88,7 @@ def detail(request, pk):
         "imports/detail.html",
         {
             "job": job,
+            "campaign": getattr(job, "campaign", None),
             "log": log_tail(job),
             "stalled": stalled(job),
             "has_log": (job_directory(job) / "import.log").is_file(),

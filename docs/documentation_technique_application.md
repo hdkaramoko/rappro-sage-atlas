@@ -2,6 +2,12 @@
 
 État du code étudié : 18 septembre 2026. Périmètre : application Django du répertoire [app-suivi-reconciliation](../app-suivi-reconciliation), située dans `scriptsRappro`.
 
+**Évolution du 20 septembre 2026 :** les campagnes, les inventaires complets et le report traçable
+des validations sont maintenant implémentés. Le [guide des campagnes](campagnes_rapprochement.md)
+décrit le fonctionnement actuel et remplace les limites « absence de campagnes » des sections 8
+et 13 de ce document de conception initial. Les exports de campagne utilisent désormais les
+photographies, et non les sources courantes. Le contrat d'import actif est JSONL v2.
+
 Ce document explique les responsabilités, les mécanismes et les arbitrages observables dans l'implémentation. Les raisons présentées relient le code aux besoins exprimés ; elles ne constituent pas une reconstitution de décisions historiques non documentées. Le [document du moteur](documentation_technique_rapprochement.md) décrit le calcul des propositions.
 
 ## 1. Traduction technique des spécifications

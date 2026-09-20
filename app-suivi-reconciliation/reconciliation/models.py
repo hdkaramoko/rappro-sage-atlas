@@ -199,7 +199,7 @@ class CorrectionHistory(models.Model):
     version = models.PositiveIntegerField("version", default=1)
 
     class Meta:
-        ordering = ("-changed_at",)
+        ordering = ("-changed_at", "-pk")
 
 
 class ReviewGroup(models.Model):
@@ -213,6 +213,7 @@ class ReviewGroup(models.Model):
     evidence = models.JSONField(default=list)
     version = models.PositiveIntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
+    context_signature = models.CharField(max_length=64, blank=True)
 
 
 class LineReview(models.Model):
@@ -229,6 +230,15 @@ class LineReview(models.Model):
     version = models.PositiveIntegerField(default=0)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     updated_at = models.DateTimeField(auto_now=True)
+    campaign = models.ForeignKey("Campaign", null=True, blank=True, on_delete=models.PROTECT)
+    validated_at = models.DateTimeField(null=True, blank=True)
+    validation_origin = models.ForeignKey(
+        "Campaign",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="origin_validations",
+    )
 
 
 class ReviewEvent(models.Model):
@@ -238,6 +248,88 @@ class ReviewEvent(models.Model):
     snapshot = models.JSONField()
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
+    campaign = models.ForeignKey("Campaign", null=True, blank=True, on_delete=models.PROTECT)
 
     class Meta:
         ordering = ("-created_at", "-pk")
+
+
+class Campaign(models.Model):
+    """Photographie publiée atomiquement ; les campagnes closes sont en lecture seule."""
+
+    name = models.CharField(max_length=200)
+    scope = models.CharField(max_length=200)
+    created_at = models.DateTimeField(auto_now_add=True)
+    metadata = models.JSONField(default=dict)
+    previous = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT)
+    is_current = models.BooleanField(default=False)
+    inventory_complete = models.BooleanField(default=True)
+    file_hash = models.CharField(max_length=64, blank=True, db_index=True)
+    job = models.OneToOneField(
+        "imports_app.MatchingJob", null=True, blank=True, on_delete=models.PROTECT
+    )
+
+    class Meta:
+        ordering = ("-pk",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=("is_current",), condition=Q(is_current=True), name="one_current_campaign"
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class CampaignInventory(models.Model):
+    """Inventaire minimal, comparé en lots ; les absences restent des observations."""
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.PROTECT, related_name="inventory")
+    business_key = models.CharField(max_length=255)
+    project_code = models.CharField(max_length=100, db_index=True)
+    source_id = models.CharField(max_length=120)
+    fiscal_year = models.PositiveSmallIntegerField()
+    data = models.JSONField(default=dict)
+    present = models.BooleanField(default=True)
+    change = models.CharField(max_length=16, default="NEW")
+    differences = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("campaign", "business_key"), name="campaign_inventory_key"
+            )
+        ]
+        indexes = [models.Index(fields=("campaign", "change"))]
+
+
+class CampaignGroup(models.Model):
+    """Preuves stockées une seule fois par groupe et par campagne."""
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.PROTECT)
+    key = models.CharField(max_length=64)
+    data = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("campaign", "key"), name="campaign_group_key")
+        ]
+
+
+class CampaignReview(models.Model):
+    """Source et décision photographiées, indépendantes des lignes courantes."""
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.PROTECT, related_name="reviews")
+    line = models.ForeignKey(LineReview, on_delete=models.PROTECT, related_name="campaign_reviews")
+    group = models.ForeignKey(CampaignGroup, on_delete=models.PROTECT, related_name="reviews")
+    project = models.ForeignKey(Project, on_delete=models.PROTECT)
+    source = models.JSONField(default=dict)
+    decision = models.JSONField(default=dict)
+    comparison = models.CharField(max_length=24, default="NEW")
+    reasons = models.JSONField(default=list)
+    fingerprint = models.CharField(max_length=64)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("campaign", "line"), name="campaign_review_line")
+        ]

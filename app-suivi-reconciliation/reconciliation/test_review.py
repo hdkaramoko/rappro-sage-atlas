@@ -20,6 +20,23 @@ from .review_import import import_bundle
 
 
 class ReviewTests(TestCase):
+    def test_status_is_a_choice_and_arbitrary_values_are_rejected(self):
+        response = self.client.get(reverse("reconciliation:review-detail", args=[self.line.pk]))
+        form = response.context["form"]
+        self.assertEqual(
+            list(form.fields["status"].choices),
+            [
+                ("", "Choisir un statut"),
+                ("Envoyé SAGE", "Envoyé SAGE"),
+                ("Comptabilisé", "Comptabilisé"),
+            ],
+        )
+        self.values["status"]["value"] = "AUTRE"
+        with self.assertRaises(ValidationError):
+            self.save(state="DRAFT")
+        with self.assertRaises(ValidationError):
+            self.save()
+
     def setUp(self):
         self.user = User.objects.create_user("reviewer", password="test")
         self.other = User.objects.create_user("other", password="test")

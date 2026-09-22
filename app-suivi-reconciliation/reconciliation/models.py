@@ -259,6 +259,7 @@ class Campaign(models.Model):
 
     name = models.CharField(max_length=200)
     scope = models.CharField(max_length=200)
+    fiscal_year = models.PositiveSmallIntegerField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     metadata = models.JSONField(default=dict)
     previous = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT)

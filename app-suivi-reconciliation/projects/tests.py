@@ -2,6 +2,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import User
+from reconciliation.models import Campaign, CampaignInventory
 
 from .models import Project, ProjectPortfolio
 
@@ -13,6 +14,16 @@ class PortfolioViewsTests(TestCase):
         """Crée un compte connecté et un projet de référentiel."""
         self.user = User.objects.create_user("rwanda", password="test")
         self.project = Project.objects.create(code="RW-01", label="Projet Rwanda")
+        campaign = Campaign.objects.create(
+            name="Inventaire", scope="atlas-complet", is_current=True
+        )
+        CampaignInventory.objects.create(
+            campaign=campaign,
+            business_key="RW-01::2026::A",
+            project_code="RW-01",
+            source_id="A",
+            fiscal_year=2026,
+        )
         self.client.login(username="rwanda", password="test")
 
     def test_add_existing_project_and_reject_duplicate(self) -> None:

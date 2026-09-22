@@ -25,11 +25,12 @@ def validate_atlas_columns(columns: pd.Index) -> None:
         raise AtlasLoaderError(str(exc)) from exc
 
 
-def load_atlas(path: str | Path) -> pd.DataFrame:
+def load_atlas(path: str | Path, *, year: int | None = None) -> pd.DataFrame:
     """Empile les feuilles valides puis conserve le premier exemplaire de chaque Id."""
     try:
         source = validate_path(path, ".xlsx")
         frames = []
+        source_rows = 0
         with pd.ExcelFile(source, engine="openpyxl") as workbook:
             for sheet in workbook.sheet_names:
                 header = pd.read_excel(workbook, sheet_name=sheet, nrows=0)
@@ -43,9 +44,20 @@ def load_atlas(path: str | Path) -> pd.DataFrame:
                     workbook, sheet_name=sheet, dtype="string", keep_default_na=False,
                     na_values=[""],
                 ).dropna(how="all")
+                source_rows += len(frame)
+                if year is not None:
+                    if "Année" not in frame:
+                        raise AtlasLoaderError(f"Feuille '{sheet}' : colonne Année requise pour --year")
+                    years = pd.to_numeric(frame["Année"].str.replace(r"[ \u00a0\u202f]", "", regex=True), errors="coerce")
+                    invalid = int(years.isna().sum())
+                    if invalid:
+                        logger.warning("Atlas '%s' : %s années absentes/invalides exclues", sheet, invalid)
+                    frame = frame.loc[years.eq(year)].copy()
                 if not frame.empty:
                     frames.append(frame)
         if not frames:
+            if year is not None:
+                raise AtlasLoaderError(f"Aucune ligne Atlas pour l'année {year}")
             raise AtlasLoaderError(
                 "Aucune feuille Atlas valide non vide ; colonnes obligatoires attendues : "
                 + ", ".join(config.ATLAS_REQUIRED_COLUMNS)
@@ -62,6 +74,10 @@ def load_atlas(path: str | Path) -> pd.DataFrame:
         rows_read = len(result)
         result = result.drop_duplicates(subset=["Id"], keep="first", ignore_index=True)
         record_summary(result, "Atlas", rows_read, valid_sheets)
+        if year is not None:
+            result.attrs["load_summary"].update(rows_read=source_rows,
+                rows_excluded_by_year=source_rows - rows_read, fiscal_year=year)
+            logger.info("Atlas : %s lignes hors année %s exclues", source_rows - rows_read, year)
         return result
     except AtlasLoaderError:
         raise

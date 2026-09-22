@@ -2,6 +2,11 @@
 
 Implémentation du 20 septembre 2026. Ce document complète et actualise les [choix du moteur](documentation_technique_rapprochement.md) et les [choix de l'application](documentation_technique_application.md).
 
+**Complément annuel :** le [guide du filtre annuel et des portefeuilles](filtre_annuel_et_portefeuilles.md)
+décrit `--year`, la comparaison avec la précédente campagne du même exercice et le référentiel
+de projets dérivé des inventaires. L'année est maintenant une dimension explicite du périmètre
+de comparaison ; la campagne de travail reste unique et correspond au dernier import réussi.
+
 ## 1. Ce qui change pour le métier
 
 Chaque nouveau rapprochement importé devient une campagne nommée. La campagne courante alimente « Mes rapprochements » et le tableau de bord. Les campagnes précédentes restent consultables dans **Campagnes**, avec les sources, propositions, preuves et décisions qui leur appartiennent. Il n'y a pas de restauration d'une ancienne base ni de modification d'une campagne close depuis les écrans.

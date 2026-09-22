@@ -7,6 +7,10 @@ remplace le contrat v1 décrit en section 9.2. Il ajoute un en-tête de campagne
 minimal de toutes les lignes Atlas, puis les propositions et un double compteur de fin.
 La cascade de matching et les sorties Excel d'analyse restent celles décrites ici.
 
+Le paramètre facultatif `--year` filtre désormais les deux sources avant le matching :
+`Année` côté Atlas et année de `Date comptable` côté SAGE. Voir le
+[guide du filtre annuel](filtre_annuel_et_portefeuilles.md) pour les contrôles, compteurs et effets sur les campagnes.
+
 Les justifications ci-dessous expliquent la conception observable dans le code et les besoins auxquels elle répond. Elles ne prétendent pas reconstituer des décisions historiques qui n'auraient pas été consignées. Les évolutions envisagées sont distinguées des mécanismes effectivement présents.
 
 ## 1. Traduction technique des spécifications

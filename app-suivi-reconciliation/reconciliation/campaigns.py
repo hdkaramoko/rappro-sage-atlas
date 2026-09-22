@@ -192,6 +192,7 @@ def decision_record(line):
             "current": is_current(line),
             "effective": effective(line),
             "actor": str(line.updated_by) if line.updated_by_id else "",
+            "actor_id": line.updated_by_id,
             "updated_at": line.updated_at,
             "validated_at": line.validated_at,
             "origin_id": line.validation_origin_id,
@@ -304,16 +305,23 @@ def import_campaign(header, stream, *, job=None):
         or len(scope) > 200
     ):
         raise ValidationError("Nom et périmètre de campagne requis (200 caractères maximum)")
-    previous = Campaign.objects.select_for_update().filter(is_current=True).first()
-    if previous and previous.scope != scope:
+    year = header.get("year")
+    if year is not None and (type(year) is not int or not 2000 <= year <= 2200):
+        raise ValidationError("Année de campagne invalide")
+    active = Campaign.objects.select_for_update().filter(is_current=True).first()
+    if active and active.scope != scope:
         raise ValidationError(
             "Périmètre différent : fournissez une extraction cumulative du même périmètre."
         )
-    if previous is None:
-        previous = archive_legacy(scope)
+    if active is None and not Campaign.objects.exists():
+        active = archive_legacy(scope)
+    previous = Campaign.objects.filter(scope=scope, fiscal_year=year).first()
+    if previous is None and active and not active.inventory_complete:
+        previous = active  # Reprise du travail antérieur, sans comparaison d'inventaires.
     campaign = Campaign.objects.create(
         name=name.strip(),
         scope=scope,
+        fiscal_year=year,
         metadata=header,
         previous=previous,
         job=job,
@@ -333,7 +341,10 @@ def import_campaign(header, stream, *, job=None):
                 raise ValidationError("Compteurs de campagne incohérents")
             complete = True
         elif payload.get("type") == "inventory" and not proposals_started:
-            batch.append(normalize_inventory(payload.get("atlas")))
+            data = normalize_inventory(payload.get("atlas"))
+            if year is not None and data["fiscal_year"] != year:
+                raise ValidationError("L'inventaire contient une ligne hors de l'année de campagne")
+            batch.append(data)
             inventory_count += 1
             if len(batch) == BATCH_SIZE:
                 insert_inventory(campaign, batch)
@@ -341,6 +352,21 @@ def import_campaign(header, stream, *, job=None):
         elif payload.get("type") == "proposal":
             if payload.get("schema_version") != 2:
                 raise ValidationError("Une proposition de campagne doit utiliser le schéma v2")
+            if year is not None:
+                from datetime import date
+
+                for candidate in payload.get("evidence", []):
+                    for row in candidate.get("rows", []):
+                        try:
+                            accounting_year = date.fromisoformat(
+                                str(row.get("Date comptable"))[:10]
+                            ).year
+                        except ValueError as exc:
+                            raise ValidationError(
+                                "Date comptable SAGE invalide dans la campagne annuelle"
+                            ) from exc
+                        if accounting_year != year:
+                            raise ValidationError("Preuve SAGE hors de l'année de campagne")
             if batch:
                 insert_inventory(campaign, batch)
                 batch = []
@@ -389,9 +415,28 @@ def import_campaign(header, stream, *, job=None):
                 else {}
             )
             for line in lines:
-                line.campaign = campaign
                 line.group = group
                 old = previous_reviews.get(line.pk)
+                if old and line.campaign_id != previous.pk:
+                    # Le retour d'un exercice/périmètre toutes années reprend sa propre
+                    # photographie, pas une décision faite dans un autre contexte.
+                    from django.contrib.auth import get_user_model
+                    from django.utils.dateparse import parse_datetime
+
+                    prior = old.decision
+                    line.state = prior["state"]
+                    line.values = prior["values"]
+                    line.comment = prior["comment"]
+                    line.source_signature = prior["source_signature"]
+                    line.validated_at = parse_datetime(prior.get("validated_at") or "")
+                    line.validation_origin_id = prior.get("origin_id")
+                    author = get_user_model().objects.filter(pk=prior.get("actor_id")).first()
+                    if author is None and "actor_id" not in prior:
+                        author = (
+                            get_user_model().objects.filter(username=prior.get("actor", "")).first()
+                        )
+                    line.updated_by = author
+                line.campaign = campaign
                 fingerprint = signature(line)
                 unchanged = bool(old and old.fingerprint == fingerprint)
                 comparison = "UNCHANGED" if unchanged else "CHANGED" if old else "NEW"
@@ -419,7 +464,18 @@ def import_campaign(header, stream, *, job=None):
                 elif line.version and not unchanged:
                     # Même un retour à une ancienne signature ne réactive pas une validation.
                     line.source_signature = ""
-                line.save(update_fields=["campaign", "source_signature"])
+                line.save(
+                    update_fields=[
+                        "campaign",
+                        "source_signature",
+                        "state",
+                        "values",
+                        "comment",
+                        "validated_at",
+                        "validation_origin",
+                        "updated_by",
+                    ]
+                )
                 decision = decision_record(line)
                 if comparison == "CARRIED":
                     decision["actor"] = old.decision.get("actor", decision["actor"])
@@ -439,15 +495,17 @@ def import_campaign(header, stream, *, job=None):
             raise ValidationError("Ordre ou type d'enregistrement de campagne invalide")
     if not complete:
         raise ValidationError("Campagne interrompue : marqueur de fin absent")
+    if year is not None and inventory_count == 0:
+        raise ValidationError("La campagne annuelle ne contient aucune ligne Atlas")
     expected_reviews = campaign.inventory.filter(
         present=True, data__bap_status="Envoyé SAGE"
     ).count()
     if expected_reviews != len(seen):
         raise ValidationError("Des lignes Envoyé SAGE de l'inventaire n'ont pas de proposition")
     add_absences(campaign)
-    if previous:
-        previous.is_current = False
-        previous.save(update_fields=["is_current"])
+    if active:
+        active.is_current = False
+        active.save(update_fields=["is_current"])
     campaign.is_current = True
     campaign.save(update_fields=["is_current"])
     return count

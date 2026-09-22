@@ -52,6 +52,54 @@ def proposal(rows, key="group", **changes):
 
 
 class CampaignTests(TestCase):
+    def test_annual_campaigns_compare_only_the_same_year(self):
+        first = self.load(year=2026)
+        self.validate()
+        older = atlas(**{"Année": 2025})
+        other = proposal(
+            [older],
+            key="year-2025",
+            evidence=[
+                {"id": "S25", "rows": [{"Numéro pièce": "D25", "Date comptable": "2025-12-31"}]}
+            ],
+        )
+        second = self.load(year=2025, inventory=[older], proposals=[other])
+        self.assertIsNone(second.previous_id)
+        self.assertEqual(second.inventory.count(), 1)
+        current = self.load(year=2026)
+        self.assertEqual(current.previous_id, first.pk)
+        self.assertEqual(current.reviews.get().comparison, "CARRIED")
+        self.assertEqual(current.inventory.get().change, "UNCHANGED")
+        self.assertFalse(Campaign.objects.get(pk=second.pk).is_current)
+
+    def test_annual_scope_rejects_other_years_empty_inventory_and_wrong_sage_dates(self):
+        for kwargs in (
+            {"year": 2025},
+            {"year": 2026, "inventory": [], "proposals": []},
+            {
+                "year": 2026,
+                "proposals": [
+                    proposal([atlas()], evidence=[{"rows": [{"Date comptable": "2025-12-31"}]}])
+                ],
+            },
+            {"year": True},
+        ):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValidationError):
+                self.load(**kwargs)
+        self.assertEqual(Campaign.objects.count(), 0)
+
+    def test_all_years_and_annual_decisions_do_not_get_mixed(self):
+        original = self.load()
+        self.validate()
+        annual = self.load(year=2026)
+        self.assertIsNone(annual.previous_id)
+        self.validate(state="REJECTED")
+        current = self.load()
+        self.assertEqual(current.previous_id, original.pk)
+        self.assertEqual(current.reviews.get().decision["state"], "VALIDATED")
+        self.assertEqual(current.reviews.get().comparison, "CARRIED")
+        self.assertEqual(annual.reviews.get().decision["state"], "REJECTED")
+
     def setUp(self):
         self.user = User.objects.create_user("reviewer")
         self.project = Project.objects.create(code="P", label="Projet")
@@ -60,7 +108,9 @@ class CampaignTests(TestCase):
         self.folder = TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
 
-    def bundle(self, inventory=None, proposals=None, *, scope="atlas-complet", complete=True):
+    def bundle(
+        self, inventory=None, proposals=None, *, scope="atlas-complet", complete=True, year=None
+    ):
         inventory = [atlas()] if inventory is None else inventory
         proposals = [proposal([atlas()])] if proposals is None else proposals
         records = [
@@ -69,6 +119,7 @@ class CampaignTests(TestCase):
                 "schema_version": 2,
                 "name": f"Campagne {Campaign.objects.count() + 1}",
                 "scope": scope,
+                "year": year,
                 "sources": {"Atlas": "JDD.xlsx"},
             }
         ]

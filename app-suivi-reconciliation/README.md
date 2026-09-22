@@ -51,6 +51,20 @@ Après ce passage, les fichiers v1 sans inventaire sont refusés.
 
 Voir le [guide technique et métier des campagnes](../docs/campagnes_rapprochement.md).
 
+## Exercice et portefeuilles
+
+Le moteur accepte `--year 2026` pour limiter Atlas et SAGE au même exercice.
+Les campagnes sont comparées à la précédente du même exercice ; la dernière importée
+reste la campagne courante de travail.
+
+Le menu administrateur **Importer des portefeuilles** accepte un Excel avec les colonnes
+`username` et `codes projets`. Un modèle est téléchargeable. Les utilisateurs doivent
+exister ; les projets sont contrôlés dans les inventaires Atlas, également lors des
+ajouts depuis **Mon portefeuille**. L'import ajoute des accès sans en supprimer.
+
+Le statut BAP de correction propose exclusivement **Envoyé SAGE** et **Comptabilisé**.
+Voir le [guide complet](../docs/filtre_annuel_et_portefeuilles.md).
+
 Voir le [guide de validation](docs/validation-metier.md).
 
 La [note de refonte UI/UX](docs/refonte-ui-ux.md) décrit les écrans, les filtres,

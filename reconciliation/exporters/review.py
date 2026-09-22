@@ -16,7 +16,7 @@ INVENTORY_COLUMNS = ("Code projet", "Année", "Id", "Statut BAP", "Total charges
 
 
 def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None,
-                        scope="atlas-complet", source_paths=None):
+                        scope="atlas-complet", source_paths=None, year=None):
     """Un enregistrement par groupe, sources Atlas et lignes Sage complètes incluses."""
     target = Path(output_path).resolve()
     if target.suffix != ".jsonl":
@@ -34,7 +34,8 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
 
             now = datetime.now(timezone.utc).isoformat()
             emit({"type": "campaign", "schema_version": 2,
-                  "name": campaign_name or f"Rapprochement {now[:10]}",
+                  "name": campaign_name or f"Rapprochement {year or 'toutes années'} — {now[:10]}",
+                  "year": year,
                   "scope": scope, "generated_at": now,
                   "sources": {name: Path(path).name for name, path in (source_paths or {}).items()}})
             for values in canonical[list(INVENTORY_COLUMNS)].itertuples(index=False, name=None):
@@ -46,7 +47,10 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                     if hasattr(value, "date") and str(value) != "NaT":
                         row["Date comptable"] = value.date().isoformat()
                 project = str(rows[0]["Code projet"]).strip().upper()
-                key = hashlib.sha256(json.dumps([project, sorted(str(row["Id"]) for row in rows)], ensure_ascii=False).encode()).hexdigest()
+                identity = [project, sorted(str(row["Id"]) for row in rows)]
+                if year is not None:
+                    identity.insert(1, year)
+                key = hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()
                 evidence = []
                 for candidate in record["candidate_ids"]:
                     group = candidates[candidate]

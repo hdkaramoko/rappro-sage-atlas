@@ -8,6 +8,10 @@ décrit le fonctionnement actuel et remplace les limites « absence de campagnes
 et 13 de ce document de conception initial. Les exports de campagne utilisent désormais les
 photographies, et non les sources courantes. Le contrat d'import actif est JSONL v2.
 
+Le [guide du filtre annuel et des portefeuilles](filtre_annuel_et_portefeuilles.md) complète
+ce socle : comparaison par exercice, initialisation des accès par Excel, validation des codes
+dans l'inventaire et liste de choix contrôlée pour le statut BAP.
+
 Ce document explique les responsabilités, les mécanismes et les arbitrages observables dans l'implémentation. Les raisons présentées relient le code aux besoins exprimés ; elles ne constituent pas une reconstitution de décisions historiques non documentées. Le [document du moteur](documentation_technique_rapprochement.md) décrit le calcul des propositions.
 
 ## 1. Traduction technique des spécifications

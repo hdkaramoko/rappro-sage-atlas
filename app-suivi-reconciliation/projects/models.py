@@ -39,3 +39,17 @@ class ProjectPortfolio(models.Model):
     def __str__(self) -> str:
         """Décrit l'association de portefeuille."""
         return f"{self.user} / {self.project.code}"
+
+
+class PortfolioImport(models.Model):
+    """Journal des affectations Excel réussies ; aucun mot de passe dans le fichier."""
+
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+    filename = models.CharField(max_length=255)
+    created_count = models.PositiveIntegerField(default=0)
+    existing_count = models.PositiveIntegerField(default=0)
+    assignments = models.JSONField(default=list)
+
+    class Meta:
+        ordering = ("-created_at", "-pk")

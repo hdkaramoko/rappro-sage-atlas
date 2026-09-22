@@ -1,11 +1,15 @@
 from django import forms
 
+from .statuses import BAP_CHOICES
+
 MODES = [("KEEP", "Conserver"), ("SET", "Modifier"), ("CLEAR", "Effacer")]
 
 
 class LineReviewForm(forms.Form):
     status_mode = forms.ChoiceField(label="Action sur le statut", choices=MODES)
-    status = forms.CharField(label="Statut BAP", required=False, max_length=100)
+    status = forms.ChoiceField(
+        label="Statut BAP", required=False, choices=[("", "Choisir un statut"), *BAP_CHOICES]
+    )
     amount_mode = forms.ChoiceField(label="Action sur le montant", choices=MODES)
     amount = forms.DecimalField(
         label="Montant Sage affecté à cette ligne", required=False, max_digits=18, decimal_places=2

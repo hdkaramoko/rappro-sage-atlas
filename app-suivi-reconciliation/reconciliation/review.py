@@ -10,6 +10,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import Campaign, LineReview, ReconciliationTransaction, ReviewEvent, ReviewGroup
+from .statuses import BAP_STATUSES
 
 FIELDS = {
     "status": "bap_status",
@@ -137,6 +138,10 @@ def decide(
         if entry["mode"] == "SET" and entry.get("value") in (None, ""):
             raise ValidationError("Une valeur est requise pour remplacer un champ.")
     resolved = effective(line, values)
+    if (values["status"]["mode"] == "SET" or state == "VALIDATED") and resolved[
+        "status"
+    ] not in BAP_STATUSES:
+        raise ValidationError("Le statut BAP doit être Envoyé SAGE ou Comptabilisé.")
     if resolved["amount"] is not None and not resolved["amount"].is_finite():
         raise ValidationError("Montant invalide.")
     if resolved["date"]:

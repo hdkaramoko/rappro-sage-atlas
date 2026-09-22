@@ -14,9 +14,12 @@ uv sync
 uv run pytest
 uv run python -m reconciliation.main --atlas "data/JDD.xlsx" --sage "data/LISTPJT4.csv"
 uv run python -m reconciliation.main --atlas "data/JDD.xlsx" --sage "data/LISTPJT4.csv" --output "output/rapprochement.xlsx"
+uv run python -m reconciliation.main --atlas "data/JDD.xlsx" --sage "data/LISTPJT4.csv" --year 2026 --review-output "output/campagne_2026.jsonl"
 ```
 
 La CLI affiche une synthèse ; l'API Python retourne les résultats détaillés.
+`--year` filtre Atlas sur `Année` et SAGE sur l'année de `Date comptable`.
+Voir le [guide du filtre annuel et des portefeuilles](docs/filtre_annuel_et_portefeuilles.md).
 Avec `--output`, elle produit un classeur avec les feuilles `Résultats`, `Tentatives`
 et `Synthèse`. Les 19 champs Atlas sont restitués dans l'ordre métier, suivis du
 rapprochement. Toutes les lignes Atlas sont conservées, y compris hors périmètre.

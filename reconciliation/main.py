@@ -26,8 +26,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trace-mode", choices=("compact", "detailed"), default="compact")
     parser.add_argument("--review-output", help="Propositions JSONL pour l'application de validation")
     parser.add_argument("--campaign-name", help="Nom de la campagne de validation")
+    parser.add_argument("--year", type=int, help="Année Atlas et année de la date comptable SAGE (2000–2200)")
     parser.add_argument("--campaign-scope", default="atlas-complet", help="Périmètre cumulatif stable de l'extraction")
     args = parser.parse_args(argv)
+    if args.year is not None and not 2000 <= args.year <= 2200:
+        parser.error("--year doit être compris entre 2000 et 2200")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
     try:
         frames = {}
@@ -36,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
             ("Sage", load_sage, transform_sage, args.sage),
         ):
             logging.info("Chargement de l'extraction %s", name)
-            frame = loader(path)
+            frame = loader(path, year=args.year) if args.year is not None else loader(path)
             summary = frame.attrs["load_summary"]
             logging.info("Normalisation de l'extraction %s", name)
             frame = transform(frame)
@@ -45,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"- {summary['valid_sheets']} feuilles valides chargées")
             print(f"- {summary['rows_read']} lignes lues")
             print(f"- {summary['duplicates_removed']} doublons supprimés")
+            if args.year is not None:
+                print(f"- {summary['rows_excluded_by_year']} lignes exclues par le filtre annuel {args.year}")
             print(f"- {summary['rows_final']} lignes finales")
             transformed = frame.attrs["transformation_summary"]
             print(f"- {transformed['rows_transformed']} lignes transformées")
@@ -55,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
             raise TraceError("Le journal ne doit pas remplacer une source ou le classeur de sortie")
         logging.info("Recherche des correspondances Atlas / SAGE")
         result = match_reconciliations(frames["Atlas"], frames["Sage"], trace_path=trace_path, trace_mode=args.trace_mode)
+        if args.year is not None:
+            result.attrs["population_summary"]["fiscal_year"] = args.year
         print("Rapprochement :")
         for rule, count in summarize_matching(result).items():
             print(f"- {rule} : {count}")
@@ -66,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
                 logging.info("Ecriture des propositions pour validation")
                 path = export_review_bundle(frames["Atlas"], frames["Sage"], result, args.review_output,
                                            campaign_name=args.campaign_name, scope=args.campaign_scope,
+                                           year=args.year,
                                            source_paths={"Atlas": args.atlas, "SAGE": args.sage})
             except (ValueError, OSError) as exc:
                 raise ExportError(str(exc)) from exc

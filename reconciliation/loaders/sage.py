@@ -52,6 +52,7 @@ def load_sage(
     separator: str | None = config.SAGE_CSV_SEPARATOR,
     encoding: str = config.SAGE_CSV_ENCODING,
     decimal: str = config.SAGE_CSV_DECIMAL,
+    year: int | None = None,
 ) -> pd.DataFrame:
     """Charge une année et supprime seulement les lignes sources identiques."""
     try:
@@ -73,6 +74,18 @@ def load_sage(
             config.SAGE_NUMERIC_COLUMNS, config.SAGE_INTEGER_COLUMNS, decimal,
         )
         record_summary(result, "Sage", rows_read)
+        if year is not None:
+            summary = result.attrs["load_summary"].copy()
+            before = len(result)
+            invalid = int(result["Date comptable"].isna().sum())
+            result = result.loc[result["Date comptable"].dt.year.eq(year)].copy().reset_index(drop=True)
+            if result.empty:
+                raise SageLoaderError(f"Aucune ligne SAGE avec une date comptable dans l'année {year}")
+            summary.update(rows_final=len(result), rows_excluded_by_year=before - len(result),
+                           invalid_accounting_dates=invalid, fiscal_year=year)
+            result.attrs["load_summary"] = summary
+            logger.info("SAGE : %s lignes exclues par l'année %s, dont %s dates absentes/invalides",
+                        before - len(result), year, invalid)
         return result
     except SageLoaderError:
         raise

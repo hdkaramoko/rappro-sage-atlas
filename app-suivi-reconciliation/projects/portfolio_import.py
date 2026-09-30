@@ -1,6 +1,5 @@
 """Affectations additives : comptes existants et projets attestés par l'inventaire."""
 
-import re
 import unicodedata
 from zipfile import BadZipFile, ZipFile
 
@@ -16,7 +15,6 @@ from reconciliation.models import Campaign, CampaignInventory
 from .models import PortfolioImport, Project, ProjectPortfolio
 
 MAX_ROWS = 20_000
-MAX_ASSIGNMENTS = 50_000
 
 
 def reference_inventory():
@@ -73,17 +71,16 @@ def parse_workbook(uploaded):
         if sheet.max_column != 2:
             raise ValidationError(
                 "La première feuille doit contenir exactement deux colonnes : "
-                "username et codes projets."
+                "username et code projet."
             )
         rows = sheet.iter_rows()
         header = next(rows, ())
         if (
             len(header) != 2
             or header_name(header[0].value) != "username"
-            or header_name(header[1].value)
-            not in ("codeprojet", "codesprojets", "projectcode", "projectcodes")
+            or header_name(header[1].value) != "codeprojet"
         ):
-            raise ValidationError("En-têtes attendus : username et codes projets.")
+            raise ValidationError("En-têtes attendus : username et code projet.")
         assignments = {}
         for number, row in enumerate(rows, 2):
             if number > MAX_ROWS + 1:
@@ -95,19 +92,24 @@ def parse_workbook(uploaded):
                 raise ValidationError(f"Ligne {number} : les formules ne sont pas acceptées.")
             if any(not isinstance(value, str) or not value.strip() for value in values):
                 raise ValidationError(
-                    f"Ligne {number} : username et codes projets "
+                    f"Ligne {number} : username et code projet "
                     "doivent être renseignés comme textes."
                 )
             username = values[0].strip()
-            codes = [
-                code.strip().upper() for code in re.split(r"[;,\n\r]+", values[1]) if code.strip()
-            ]
-            if not codes or len(username) > 150 or any(len(code) > 50 for code in codes):
+            if any(separator in values[1] for separator in (";", ",", "\n", "\r")):
+                raise ValidationError(
+                    f"Ligne {number} : renseignez un seul code projet par ligne, sans séparateur."
+                )
+            code = values[1].strip().upper()
+            if len(username) > 150 or len(code) > 50:
                 raise ValidationError(f"Ligne {number} : username ou code projet invalide.")
-            for code in codes:
-                assignments.setdefault((username, code), number)
-            if len(assignments) > MAX_ASSIGNMENTS:
-                raise ValidationError(f"Le fichier dépasse {MAX_ASSIGNMENTS} affectations.")
+            key = (username, code)
+            if key in assignments:
+                raise ValidationError(
+                    f"Ligne {number} : doublon du couple « {username} / {code} » "
+                    f"déjà renseigné à la ligne {assignments[key]}. Chaque couple doit être unique."
+                )
+            assignments[key] = number
         if not assignments:
             raise ValidationError("Le classeur ne contient aucune affectation.")
         return assignments

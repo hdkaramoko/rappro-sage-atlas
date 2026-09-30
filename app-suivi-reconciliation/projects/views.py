@@ -79,7 +79,7 @@ def portfolio_template(request):
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Portefeuilles"
-    sheet.append(["username", "codes projets"])
+    sheet.append(["username", "code projet"])
     sheet.column_dimensions["A"].width = 30
     sheet.column_dimensions["B"].width = 70
     response = HttpResponse(

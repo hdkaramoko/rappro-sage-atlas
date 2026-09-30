@@ -16,6 +16,40 @@ from .portfolio_import import import_portfolios, project_from_inventory
 
 
 class PortfolioImportTests(TestCase):
+    def test_duplicate_pairs_reject_entire_file(self):
+        """Les doublons exacts ou normalisés bloquent tout ajout et indiquent les deux lignes."""
+        for repeated in (("marie", "P1"), (" marie ", " p1 ")):
+            with (
+                self.subTest(repeated=repeated),
+                self.assertRaisesRegex(ValidationError, "Ligne 4.*doublon.*ligne 2"),
+            ):
+                import_portfolios(
+                    self.workbook([("marie", "P1"), ("marie", "P2"), repeated]), self.admin
+                )
+            self.assertFalse(ProjectPortfolio.objects.exists())
+            self.assertFalse(Project.objects.exists())
+            self.assertFalse(PortfolioImport.objects.exists())
+
+    def test_same_project_for_different_users_is_allowed(self):
+        """L'unicité porte sur le couple, pas sur ses deux éléments séparément."""
+        report = import_portfolios(self.workbook([("marie", "P1"), ("admin", "P1")]), self.admin)
+        self.assertEqual(report.created_count, 2)
+
+    def test_multicode_cells_and_old_headers_are_rejected(self):
+        """Les listes de codes et la maquette plurielle ne sont plus acceptées."""
+        for separator in (";", ",", "\n", "\r"):
+            with (
+                self.subTest(separator=separator),
+                self.assertRaisesRegex(ValidationError, "un seul code projet"),
+            ):
+                import_portfolios(self.workbook([("marie", f"P1{separator}P2")]), self.admin)
+        with self.assertRaisesRegex(ValidationError, "En-têtes attendus"):
+            import_portfolios(
+                self.workbook([("marie", "P1")], headers=("username", "codes projets")),
+                self.admin,
+            )
+        self.assertFalse(PortfolioImport.objects.exists())
+
     def setUp(self):
         self.admin = User.objects.create_user("admin", is_staff=True)
         self.reader = User.objects.create_user("marie")
@@ -32,7 +66,7 @@ class PortfolioImportTests(TestCase):
             )
         self.client.force_login(self.admin)
 
-    def workbook(self, rows, headers=("username", "codes projets")):
+    def workbook(self, rows, headers=("username", "code projet")):
         book = Workbook()
         sheet = book.active
         sheet.append(headers)
@@ -43,10 +77,8 @@ class PortfolioImportTests(TestCase):
         book.close()
         return SimpleUploadedFile("portefeuilles.xlsx", content.getvalue())
 
-    def test_additive_multicode_idempotent_and_audited(self):
-        report = import_portfolios(
-            self.workbook([("marie", "p1; P2\nP1"), ("marie", "P2")]), self.admin
-        )
+    def test_additive_single_project_idempotent_and_audited(self):
+        report = import_portfolios(self.workbook([("marie", "p1"), ("marie", "P2")]), self.admin)
         self.assertEqual(report.created_count, 2)
         self.assertEqual(report.existing_count, 0)
         self.assertEqual(ProjectPortfolio.objects.filter(user=self.reader).count(), 2)
@@ -67,7 +99,7 @@ class PortfolioImportTests(TestCase):
         self.assertEqual(self.client.get(reverse("projects:portfolio-import")).status_code, 200)
         response = self.client.get(reverse("projects:portfolio-template"))
         book = load_workbook(BytesIO(response.content))
-        self.assertEqual(list(book.active.values), [("username", "codes projets")])
+        self.assertEqual(list(book.active.values), [("username", "code projet")])
         book.close()
         response = self.client.post(
             reverse("projects:portfolio-import"), {"workbook": self.workbook([("marie", "P1")])}
@@ -144,7 +176,7 @@ class PortfolioImportTests(TestCase):
                 import_portfolios(self.workbook(rows), self.admin)
         with self.assertRaises(ValidationError):
             import_portfolios(
-                self.workbook([("marie", "P1")], headers=("incorrect", "codes projets")), self.admin
+                self.workbook([("marie", "P1")], headers=("incorrect", "code projet")), self.admin
             )
         with self.assertRaises(ValidationError):
             import_portfolios(SimpleUploadedFile("bad.xlsx", b"not excel"), self.admin)

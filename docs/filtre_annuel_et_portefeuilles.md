@@ -53,15 +53,16 @@ L'administrateur dispose du menu **Importer des portefeuilles**, également acce
 
 La première feuille contient exactement deux colonnes :
 
-| username | codes projets |
+| username | code projet |
 | --- | --- |
-| marie.dupont | PROJET01; PROJET02 |
+| marie.dupont | PROJET01 |
+| marie.dupont | PROJET02 |
 | paul.martin | PROJET03 |
 | marie.dupont | PROJET04 |
 
 Les comptes doivent déjà exister et être actifs. Le username est comparé exactement après retrait des espaces de bord ; il n'est pas converti en minuscules. Les codes projet sont normalisés en majuscules. Le fichier ne crée pas de compte et ne contient aucun mot de passe.
 
-Un username peut apparaître sur plusieurs lignes. Plusieurs codes peuvent figurer dans une cellule, séparés par un point-virgule, une virgule ou un saut de ligne. Les identifiants doivent être stockés comme **texte** dans Excel, notamment pour préserver d'éventuels zéros initiaux. Les formules ne sont pas acceptées.
+Un username peut apparaître sur plusieurs lignes. Chaque ligne contient un seul projet. Les listes séparées par un point-virgule, une virgule ou un saut de ligne sont refusées, ainsi que l’ancien en-tête « codes projets ». Les identifiants doivent être stockés comme **texte** dans Excel, notamment pour préserver d'éventuels zéros initiaux. Les formules ne sont pas acceptées.
 
 ### Règles d'application
 
@@ -71,9 +72,9 @@ Un username peut apparaître sur plusieurs lignes. Plusieurs codes peuvent figur
 4. Si tout est valide, ajout des associations manquantes dans une transaction.
 5. Affichage des nombres d'accès créés et déjà présents ; enregistrement d'un journal d'import réussi.
 
-L'import est **additif** : il ne retire pas les projets absents du fichier. Les doublons dans le classeur sont dédupliqués, et renvoyer les mêmes affectations ne crée pas de doublons. Les retraits restent des actions explicites dans le parcours existant.
+L'import est **additif** : il ne retire pas les projets absents du fichier. Tout couple username/projet répété dans le classeur bloque le fichier entier, avec les numéros des deux lignes. Le contrôle intervient après retrait des espaces de bord et conversion du code projet en majuscules ; le username reste sensible à la casse. Renvoyer un fichier valide dont les accès existent déjà ne crée pas de doublons en base. Les retraits restent des actions explicites dans le parcours existant.
 
-Limites du formulaire : fichier `.xlsx` de 10 Mo maximum, 20 000 lignes et 50 000 affectations distinctes ; taille décompressée limitée à 50 Mo. Seule la première feuille est lue. Le fichier original n'est pas archivé par cette brique : le journal garde le nom, l'administrateur, la date, les compteurs et les couples username/projet appliqués.
+Limites du formulaire : fichier `.xlsx` de 10 Mo maximum, 20 000 lignes, soit au plus 20 000 affectations uniques ; taille décompressée limitée à 50 Mo. Seule la première feuille est lue. Le fichier original n'est pas archivé par cette brique : le journal garde le nom, l'administrateur, la date, les compteurs et les couples username/projet appliqués.
 
 L'import est synchrone et convient à l'initialisation des portefeuilles. Il ne réutilise pas le worker du rapprochement, car il ne charge pas des millions de lignes sources. Un import très important d'affectations peut néanmoins prendre du temps ; les limites ne constituent pas une garantie de durée.
 

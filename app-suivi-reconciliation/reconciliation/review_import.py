@@ -15,7 +15,7 @@ from .models import Campaign, LineReview, ReconciliationTransaction, ReviewGroup
 
 def upsert_group(payload, number, seen):
     """Met à jour la projection de travail ; campaigns.py conserve les photographies."""
-    if payload.get("schema_version") not in (1, 2) or not payload.get("atlas"):
+    if payload.get("schema_version") not in (1, 2, 3) or not payload.get("atlas"):
         raise ValidationError("Format de propositions invalide")
     project, _ = Project.objects.get_or_create(
         code=payload["project"].strip().upper(), defaults={"label": "Projet importé"}
@@ -81,7 +81,8 @@ def upsert_group(payload, number, seen):
 
 
 @transaction.atomic
-def import_bundle(path, *, job=None):
+def import_bundle(path, *, job=None, progress=None):
+    """Valide et importe atomiquement ; le worker SQLite appelle ce service sur sa copie privée."""
     with open(path, encoding="utf-8") as stream:
         first = stream.readline()
         if not first:
@@ -90,7 +91,7 @@ def import_bundle(path, *, job=None):
         if header.get("type") == "campaign":
             from .campaigns import import_campaign
 
-            return import_campaign(header, stream, job=job)
+            return import_campaign(header, stream, job=job, progress=progress)
         if Campaign.objects.exists():
             raise ValidationError(
                 "Une campagne avec inventaire (format v2) est requise. Relancez le moteur."

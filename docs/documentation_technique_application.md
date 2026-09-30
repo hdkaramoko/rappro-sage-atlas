@@ -1,5 +1,7 @@
 # Application de validation — documentation technique raisonnée
 
+**Évolution du 24 septembre 2026 :** le [guide des multiples Atlas, affectations et exports](multiples_atlas_affectations_export.md) décrit le contrat JSONL v3, le contrôle des Comptabilisé, la projection des validations et le nouvel audit. Il complète et, pour ces points, remplace les règles antérieures de ce document.
+
 État du code étudié : 18 septembre 2026. Périmètre : application Django du répertoire [app-suivi-reconciliation](../app-suivi-reconciliation), située dans `scriptsRappro`.
 
 **Évolution du 20 septembre 2026 :** les campagnes, les inventaires complets et le report traçable
@@ -190,7 +192,7 @@ Un fichier ayant exactement le même SHA-256 qu'un traitement déjà réussi dev
 6. Met à jour la source, crée la revue si nécessaire ou la rattache au groupe reçu, sans effacer la décision existante.
 7. Vérifie le marqueur final et son compteur ; refuse les données après ce marqueur.
 
-Une erreur à la dernière ligne annule aussi les changements effectués pour la première. La transaction externe du worker enregistre les données et le statut final de réussite ensemble ; la transaction interne du service protège également un appel direct de ce service, au prix d'un niveau transactionnel imbriqué.
+Une erreur à la dernière ligne annule aussi les changements effectués pour la première. Sur SQLite disque, ce service travaille maintenant dans une copie privée : les résultats volumineux sont transférés en lots invisibles, puis une transaction finale publie projections, campagne et statut de réussite. Une révision transactionnelle bloque la publication si une décision métier a changé entre-temps. PostgreSQL et les tests en mémoire conservent la transaction externe du worker. Voir [la documentation des imports par lots](import_sqlite_par_lots.md).
 
 Le parseur canonique `_parse_new()` est réutilisé depuis `imports_app.services`. C'est une réutilisation de conversion et de validation, pas une réactivation de l'ancien parcours d'import Excel.
 
@@ -378,9 +380,9 @@ Les paramètres sont centralisés dans [settings.py](../app-suivi-reconciliation
 
 ### 12.2. Pourquoi l'erreur SQLite « database is locked » peut survenir
 
-L'import est une longue transaction d'écriture. Avec SQLite, les accès concurrents de l'application — notamment les écritures de session ou les décisions — peuvent entrer en conflit avec cette transaction. Lors du diagnostic réalisé sur cette installation, le journal SQLite était en mode `delete` et un import avait finalement réussi malgré une erreur HTTP de consultation.
+Avant le correctif des imports par lots, l'import conservait une longue transaction d'écriture sur la base réelle. Avec SQLite en mode `delete`, même la lecture d'une session pouvait alors être bloquée. La préparation est maintenant isolée et le transfert des instantanés est découpé en transactions courtes.
 
-L'état du traitement et ses journaux sont donc plus informatifs qu'une seule page d'erreur. Le mode WAL n'a pas été activé par cette implémentation. WAL pourrait améliorer certaines interactions lecture/écriture, mais ne donnerait pas à SQLite plusieurs écrivains simultanés ni le verrouillage de lignes de PostgreSQL.
+L'état du traitement et ses journaux restent plus informatifs qu'une seule page d'erreur. WAL est activé par le nouveau circuit SQLite ; le délai d'attente est de 30 secondes. La publication finale reste atomique et peut retarder les autres écrivains. WAL n'apporte ni plusieurs écrivains simultanés ni le verrouillage de lignes de PostgreSQL. La [procédure d'activation](import_sqlite_par_lots.md) protège l'ancien import encore actif.
 
 Pour une utilisation concurrente soutenue, PostgreSQL est une évolution cohérente avec les transactions et `select_for_update()` déjà utilisés. Il faut la tester sur les imports, décisions simultanées et reprises ; changer simplement une variable de connexion ne constitue pas une validation de migration.
 
@@ -390,7 +392,7 @@ Pour une utilisation concurrente soutenue, PostgreSQL est une évolution cohére
 | --- | --- | --- |
 | Upload | Transfert et écritures disque | Blocs progressifs, pas de fichier complet en mémoire |
 | Vérification du fichier | Relecture intégrale pour SHA-256 | Détecte une modification après envoi ; ajoute un parcours disque |
-| Import | Nombreuses opérations ORM et longue transaction | Lecture JSONL progressive ; pas d'import massif par `bulk_create` généralisé |
+| Import | Préparation ORM sur copie privée ; publication finale proportionnelle aux projections | Lecture JSONL progressive, contrôles en `bulk_create`, instantanés transférés par lots et publication SQL ensembliste |
 | Suivi | Consultation répétée de la base et du journal | Fin du journal seulement, signal de vie sur fichier |
 | Liste | Recherche, comptage et relations | Pagination, `select_related`, agrégats par page |
 | Tableau de bord | Contrôle d'actualité des décisions | Agrégations SQL pour certains compteurs ; signatures des décisions revues calculées côté Python |
@@ -398,7 +400,7 @@ Pour une utilisation concurrente soutenue, PostgreSQL est une évolution cohére
 
 La lecture progressive du JSONL ne signifie pas une mémoire strictement constante : l'import conserve notamment un ensemble des clés déjà rencontrées pour détecter les doublons. Les preuves JSON, les objets ORM et les données de la base ont également un coût.
 
-Découper l'import en transactions par lots accélérerait parfois la disponibilité, mais ferait perdre le contrat « tout ou rien » actuel. Une optimisation préservant cette garantie pourrait passer par des tables de préparation puis une publication finale. Ce mécanisme n'est pas implémenté.
+Le chargement par lots est désormais implémenté avec des campagnes non publiées et une bascule finale atomique. Il préserve le contrat « tout ou rien » visible par le métier, au prix d'une copie temporaire et d'un contrôle de révision global. Les limites et les scénarios de reprise sont décrits dans [import_sqlite_par_lots.md](import_sqlite_par_lots.md).
 
 ## 13. Héritage conservé et périmètre non implémenté
 

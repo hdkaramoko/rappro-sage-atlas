@@ -20,6 +20,7 @@ from .review_forms import LineReviewForm
 
 
 def visible(user):
+    """Limite les lignes de travail à la campagne courante et au portefeuille."""
     items = LineReview.objects.filter(
         transaction__in=ReconciliationTransaction.objects.visible_for(user)
     ).select_related(
@@ -37,6 +38,7 @@ def visible(user):
 
 @login_required
 def review_list(request):
+    """Affiche les propositions autorisées avec filtres et pagination serveur."""
     items = visible(request.user)
     scope = items
     project = request.GET.get("project", "").strip()
@@ -115,6 +117,7 @@ def review_list(request):
 
 @login_required
 def review_detail(request, pk):
+    """Présente les preuves et transmet la décision au service transactionnel."""
     line = get_object_or_404(visible(request.user), pk=pk)
     # N'accepte comme retour qu'une URL relative de la liste métier.
     return_url = request.GET.get("return", "")
@@ -127,6 +130,7 @@ def review_detail(request, pk):
         "group_version": line.group.version,
         "source": signature(line),
         "comment": line.comment,
+        "manual_refs": [e["ref"] for e in line.manual_assignment],
     }
     for name in ("status", "amount", "document", "date"):
         value = line.values.get(name, {"mode": "KEEP"})
@@ -146,7 +150,14 @@ def review_detail(request, pk):
                 initial[name] = distinct.pop()
         if line.group.lines.count() == 1 and line.group.sage_total is not None:
             initial.update(amount_mode="SET", amount=line.group.sage_total)
-    form = LineReviewForm(request.POST if request.method == "POST" else None, initial=initial)
+    from .multiple_review import candidates_for
+
+    manual_candidates = list(candidates_for(line).values())
+    form = LineReviewForm(
+        request.POST if request.method == "POST" else None,
+        initial=initial,
+        candidates=manual_candidates,
+    )
     if request.method == "POST" and form.is_valid():
         try:
             decide(
@@ -159,6 +170,9 @@ def review_detail(request, pk):
                 expected_group_version=form.cleaned_data["group_version"],
                 expected_source=form.cleaned_data["source"],
                 acknowledge=request.POST.get("action") == "VALIDATED",
+                manual_refs=form.cleaned_data["manual_refs"],
+                manual_confirm=form.cleaned_data["manual_confirm"],
+                multiple_confirm=form.cleaned_data["multiple_confirm"],
             )
         except ValidationError as exc:
             form.add_error(None, exc)
@@ -200,6 +214,7 @@ def review_detail(request, pk):
         "reconciliation/review_detail.html",
         {
             "line": line,
+            "manual_candidates": manual_candidates,
             "form": form,
             "return_url": return_url,
             "edit_fields": [
@@ -244,6 +259,7 @@ def review_detail(request, pk):
 
 @login_required
 def conservation_export(request):
+    """Exporte les corrections valides sans y mélanger les brouillons ou refus."""
     campaign = Campaign.objects.filter(is_current=True).first()
     if campaign:
         from .campaign_views import campaign_export

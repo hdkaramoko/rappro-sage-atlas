@@ -1,5 +1,7 @@
 # Restitution Excel et journal des tentatives
 
+**Évolution du 24 septembre 2026 :** le [guide des multiples Atlas, affectations et exports](multiples_atlas_affectations_export.md) décrit le contrat JSONL v3, le contrôle des Comptabilisé, la projection des validations et le nouvel audit. Il complète et, pour ces points, remplace les règles antérieures de ce document.
+
 Pour interpréter les colonnes de décision, consulter le
 [guide des contrôles et statuts](controles_et_statuts.md), qui décrit l'ordre
 des vérifications et distingue statut BAP, résultat du matching et règle retenue.

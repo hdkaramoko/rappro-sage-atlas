@@ -1,5 +1,7 @@
 # Moteur Atlas / SAGE — documentation technique raisonnée
 
+**Évolution du 24 septembre 2026 :** le [guide des multiples Atlas, affectations et exports](multiples_atlas_affectations_export.md) décrit le contrat JSONL v3, le contrôle des Comptabilisé, la projection des validations et le nouvel audit. Il complète et, pour ces points, remplace les règles antérieures de ce document.
+
 État du code étudié : 18 septembre 2026. Document destiné aux développeurs, mainteneurs et responsables fonctionnels souhaitant comprendre les arbitrages de l'implémentation.
 
 **Évolution du 20 septembre 2026 :** le [contrat de campagne JSONL v2](campagnes_rapprochement.md)

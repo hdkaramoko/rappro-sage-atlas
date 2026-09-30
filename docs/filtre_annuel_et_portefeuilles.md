@@ -1,5 +1,7 @@
 # Filtre annuel, import des portefeuilles et choix du statut BAP
 
+**Évolution du 24 septembre 2026 :** le [guide des multiples Atlas, affectations et exports](multiples_atlas_affectations_export.md) décrit le contrat JSONL v3, le contrôle des Comptabilisé, la projection des validations et le nouvel audit. Il complète et, pour ces points, remplace les règles antérieures de ce document.
+
 Évolution du 20 septembre 2026. Ce guide complète le [fonctionnement des campagnes](campagnes_rapprochement.md).
 
 ## 1. Exécuter le rapprochement pour une année

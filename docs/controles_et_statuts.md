@@ -1,5 +1,7 @@
 # Contrôles de rapprochement et lecture des statuts
 
+**Évolution du 24 septembre 2026 :** le [guide des multiples Atlas, affectations et exports](multiples_atlas_affectations_export.md) décrit le contrat JSONL v3, le contrôle des Comptabilisé, la projection des validations et le nouvel audit. Il complète et, pour ces points, remplace les règles antérieures de ce document.
+
 Ce guide décrit le comportement actuel du moteur, avec ses paramètres par défaut.
 Il explique les résultats du classeur Excel sans modifier les règles métier.
 

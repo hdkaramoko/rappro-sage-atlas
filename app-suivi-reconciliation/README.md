@@ -9,7 +9,7 @@ Depuis `scriptsRappro/app-suivi-reconciliation` :
 
 ```powershell
 uv sync
-uv run python manage.py migrate
+uv run python manage.py prepare_sqlite_imports --migrate
 uv run python manage.py runserver
 ```
 
@@ -76,3 +76,18 @@ les décisions et les vérifications de non-régression.
 uv run python manage.py test
 uv run ruff check .
 ```
+
+## Contrôles des multiples et affectations SAGE
+
+La migration `0010_multiple_controls_assignments` ajoute les contrôles de campagne, les affectations de vraies écritures candidates et leurs contributions projetées. Elle doit être appliquée avant le redémarrage. Le package `../reconciliation_contract/` doit être déployé avec l’application. Le [guide français](../docs/multiples_atlas_affectations_export.md) décrit le contrat v3, les confirmations requises, le nouvel export d’audit et les limites métier encore à confirmer.
+
+## Imports SQLite volumineux
+
+La préparation des campagnes est isolée, les instantanés sont chargés par lots
+invisibles et la publication est atomique. Progression et durées sont visibles
+dans le suivi de l'import. Voir [la documentation](../docs/import_sqlite_par_lots.md).
+
+Pour mettre à niveau une installation existante, après la fin de tout ancien
+import : `uv run python manage.py prepare_sqlite_imports --migrate`, puis redémarrer
+le serveur. Cette commande sauvegarde la base, applique les migrations et active
+WAL ; elle refuse de s'exécuter si un worker détient encore le verrou.

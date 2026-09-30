@@ -15,6 +15,13 @@ from .models import (
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
+    def get_queryset(self, request):
+        """N'expose pas les preuves d'une campagne en cours de préparation."""
+        rows = super().get_queryset(request)
+        if self.model in (CampaignGroup, CampaignInventory, CampaignReview):
+            rows = rows.filter(campaign__published=True)
+        return rows
+
     def get_readonly_fields(self, request, obj=None):
         return tuple(field.name for field in self.model._meta.fields)
 

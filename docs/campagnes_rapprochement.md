@@ -1,5 +1,7 @@
 # Campagnes de rapprochement : utilisation, contrat et conception
 
+**Évolution du 24 septembre 2026 :** le [guide des multiples Atlas, affectations et exports](multiples_atlas_affectations_export.md) décrit le contrat JSONL v3, le contrôle des Comptabilisé, la projection des validations et le nouvel audit. Il complète et, pour ces points, remplace les règles antérieures de ce document.
+
 Implémentation du 20 septembre 2026. Ce document complète et actualise les [choix du moteur](documentation_technique_rapprochement.md) et les [choix de l'application](documentation_technique_application.md).
 
 **Complément annuel :** le [guide du filtre annuel et des portefeuilles](filtre_annuel_et_portefeuilles.md)
@@ -166,7 +168,7 @@ L'application normalise et compare l'inventaire par lots de 500 lignes, avec `bu
 
 Les coûts nouveaux sont réels : lecture d'un JSONL plus grand, une ligne d'inventaire par ligne Atlas et par campagne, index associés, photographies des propositions et journal transactionnel. Une extraction à 1,5 million de lignes implique environ 1,5 million d'enregistrements d'inventaire supplémentaires par campagne, avant les absences héritées. L'historisation complète augmente donc le stockage avec chaque campagne.
 
-La transaction globale privilégie la cohérence : publication complète ou aucune publication. Elle reste susceptible de provoquer une contention SQLite pendant un import volumineux. L'évolution n'active pas WAL, ne migre pas automatiquement vers PostgreSQL et n'ajoute pas de reprise à mi-fichier. Le worker peut être relancé avec la procédure existante après diagnostic d'une interruption.
+Depuis le correctif des imports SQLite, la préparation s'effectue sur une copie privée. Les inventaires, preuves et contrôles sont chargés par lots invisibles, puis les projections et la campagne sont publiées ensemble. WAL permet la lecture pendant les écritures ; une révision transactionnelle empêche d'écraser une décision récente. La publication finale peut encore retarder des écritures concurrentes. Il n'y a pas de reprise à mi-fichier ni de migration automatique vers PostgreSQL. Voir [le fonctionnement et la procédure d'activation](import_sqlite_par_lots.md).
 
 Les futurs gains possibles sont des inventaires différentiels, une rétention contrôlée, des tables de préparation pour raccourcir la publication et une base PostgreSQL en usage concurrent. Ils nécessitent une conception distincte pour ne pas perdre la traçabilité. Les temps des tests synthétiques ne sont pas des mesures sur une campagne réelle de 1,5 million de lignes.
 

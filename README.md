@@ -43,3 +43,7 @@ pour les règles, les options, le schéma de sortie et l'intégration UiPath.
 
 Voir aussi [l'analyse des extractions réelles](docs/analyse_extractions.md) pour
 les volumes observés, les tests représentatifs et les optimisations mesurées.
+
+## Multiples Atlas et affectations métier
+
+La CLI produit maintenant un JSONL v3 avec les contrôles des multiples et les preuves nécessaires à la validation. Voir le [guide français](docs/multiples_atlas_affectations_export.md) : politique de montants explicite, migration Django, usage, exports et limites.

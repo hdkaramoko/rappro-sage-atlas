@@ -1,5 +1,6 @@
 """Consultation des photographies et différences, toujours limitée au portefeuille."""
 
+import json
 from decimal import Decimal
 
 from django.contrib.auth.decorators import login_required
@@ -34,12 +35,14 @@ COMPARISONS = {
 
 
 def projects_for(user):
+    """Retourne les projets consultables par cet utilisateur."""
     items = Project.objects.all()
     return items if user.is_global_admin else items.filter(portfolio_entries__user=user)
 
 
 def inventory_for(user):
-    rows = CampaignInventory.objects.all()
+    """Filtre les inventaires historiques selon les projets autorisés."""
+    rows = CampaignInventory.objects.filter(campaign__published=True)
     return (
         rows
         if user.is_global_admin
@@ -48,12 +51,14 @@ def inventory_for(user):
 
 
 def reviews_for(user):
-    return CampaignReview.objects.filter(project__in=projects_for(user)).select_related(
-        "campaign", "group", "project"
-    )
+    """Charge les photographies autorisées sans dépendre des sources courantes."""
+    return CampaignReview.objects.filter(
+        campaign__published=True, project__in=projects_for(user)
+    ).select_related("campaign", "group", "project")
 
 
 def campaigns_for(user):
+    """Rend consultables les campagnes contenant des projets du portefeuille."""
     if user.is_global_admin:
         return Campaign.objects.all()
     ids = inventory_for(user).values("campaign_id")
@@ -64,6 +69,7 @@ def campaigns_for(user):
 @login_required
 @require_GET
 def campaign_list(request):
+    """Présente les campagnes accessibles avec pagination."""
     page = Paginator(campaigns_for(request.user), 25).get_page(request.GET.get("page"))
     return render(
         request,
@@ -75,6 +81,7 @@ def campaign_list(request):
 @login_required
 @require_GET
 def campaign_detail(request, pk):
+    """Expose les différences d’inventaire et décisions de cette photographie."""
     campaign = get_object_or_404(campaigns_for(request.user), pk=pk)
     inventory = inventory_for(request.user).filter(campaign=campaign)
     reviews = reviews_for(request.user).filter(campaign=campaign)
@@ -136,6 +143,7 @@ def campaign_detail(request, pk):
 @login_required
 @require_GET
 def campaign_review(request, pk):
+    """Affiche une revue historique, ses preuves et événements sans modification."""
     row = get_object_or_404(reviews_for(request.user), pk=pk)
     source_labels = {
         "source_id": "Id Atlas",
@@ -178,6 +186,7 @@ def campaign_review(request, pk):
 @login_required
 @require_GET
 def campaign_export(request, pk):
+    """Exporte les corrections actuelles dans la photographie choisie, avec provenance."""
     campaign = get_object_or_404(campaigns_for(request.user), pk=pk)
     rows = reviews_for(request.user).filter(
         campaign=campaign, decision__state="VALIDATED", decision__current=True
@@ -208,6 +217,9 @@ def campaign_export(request, pk):
         "Validé par",
         "Campagne de validation d'origine",
         "Validation reprise",
+        "Affectation métier",
+        "Écritures SAGE affectées",
+        "Diagnostic multiples",
     ]
     sheet = book.create_sheet("Corrections validées")
     sheet.append(headers)
@@ -237,6 +249,9 @@ def campaign_export(request, pk):
                 decision.get("actor"),
                 decision.get("origin_name"),
                 decision.get("origin_id") != campaign.pk,
+                "MANUAL_MATCH" if decision.get("manual_assignment") else "",
+                json.dumps(decision.get("manual_assignment", []), ensure_ascii=False),
+                json.dumps(decision.get("multiple_diagnostic", {}), ensure_ascii=False),
             ]
             cells = []
             for value in values:

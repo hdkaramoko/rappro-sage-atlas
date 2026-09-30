@@ -21,6 +21,7 @@ FIELDS = {
 
 
 def source_snapshot(line):
+    """Photographie les champs déterminants et les contrôles fixes, sans solde utilisateur."""
     item = line.transaction
 
     def stable(value):
@@ -56,20 +57,24 @@ def source_snapshot(line):
             else line.group.evidence,
             **({"members": line.group.context_signature} if line.group.context_signature else {}),
         },
+        **({"multiple_context": line.multiple_context} if line.multiple_context else {}),
     }
 
 
 def signature(line):
+    """Empreinte du contexte source servant au contrôle de fraîcheur et au report."""
     return hashlib.sha256(
         json.dumps(source_snapshot(line), sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()
 
 
 def is_current(line):
+    """Indique si la décision enregistrée porte toujours sur ces preuves sources."""
     return line.source_signature == signature(line)
 
 
 def effective(line, values=None):
+    """Résout KEEP/SET/CLEAR en valeurs individuelles destinées à Atlas."""
     values = line.values if values is None else values
     result = {}
     for name, source in FIELDS.items():
@@ -98,6 +103,9 @@ def decide(
     expected_group_version,
     expected_source,
     acknowledge=False,
+    manual_refs=None,
+    manual_confirm=False,
+    multiple_confirm=False,
 ):
     """Verrouille le groupe pour éviter deux répartitions concurrentes incompatibles."""
     entry = LineReview.objects.get(pk=line_id)
@@ -191,8 +199,25 @@ def decide(
             )
     if state == "REJECTED" and not comment.strip():
         raise ValidationError("Un commentaire est obligatoire pour refuser.")
+    from .multiple_review import apply_projection, selected_entries
+
+    selection = (
+        line.manual_assignment if manual_refs is None else selected_entries(line, manual_refs)
+    )
+    if selection and (not manual_confirm or not comment.strip()):
+        raise ValidationError("Confirmez l’affectation manuelle et expliquez votre choix")
+    diagnostic = apply_projection(
+        line, resolved, selection, state=state, confirmed=multiple_confirm, comment=comment
+    )
     before = {"state": line.state, "values": line.values, "version": line.version}
+    before["manual_assignment"] = line.manual_assignment
+    line.manual_assignment = selection
+    line.multiple_diagnostic = diagnostic
     line.state, line.values, line.comment = state, values, comment.strip()
+    if campaign and campaign.metadata.get("schema_version") == 3:
+        from .multiple_review import context_for
+
+        line.multiple_context = context_for(line)
     line.source_signature = signature(line)
     line.version += 1
     line.updated_by = user
@@ -218,6 +243,9 @@ def decide(
             "source": source_snapshot(line),
             "warnings": warnings,
             "derogation": bool(warnings and acknowledge),
+            "manual_assignment": selection,
+            "matching_decision": "MANUAL_MATCH" if selection else "ENGINE_PROPOSAL",
+            "multiple_diagnostic": diagnostic,
         },
     )
     from .campaigns import save_decision_snapshot

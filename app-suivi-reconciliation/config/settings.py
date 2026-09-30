@@ -1,11 +1,14 @@
 """Configuration Django, pilotée par variables d'environnement."""
 
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+# Le contrat pur est partagé avec le moteur du même dépôt, sans importer pandas.
+sys.path.append(str(BASE_DIR.parent))
 load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "cle-locale-a-remplacer")
@@ -67,7 +70,11 @@ if os.getenv("POSTGRES_DB"):
     }
 else:
     DATABASES = {
-        "default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+            "OPTIONS": {"timeout": 30},
+        }
     }
 
 AUTH_PASSWORD_VALIDATORS = (

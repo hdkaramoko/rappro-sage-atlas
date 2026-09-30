@@ -25,6 +25,7 @@ def test_multiple_sheets_empty_parasite_duplicates(tmp_path, caplog):
     assert result.Extra.iloc[0] == "premier"
     assert result.attrs["load_summary"] == {
         "rows_read": 5, "duplicates_removed": 1, "rows_final": 4, "valid_sheets": 3,
+        "conflicting_ids": 1, "technical_duplicates_removed": 0,
     }
     assert "1 doublons" in caplog.text
 

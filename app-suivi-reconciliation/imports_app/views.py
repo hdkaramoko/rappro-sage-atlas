@@ -14,7 +14,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from .forms import MatchingUploadForm
-from .jobs import job_directory, launch, log_tail, stalled
+from .jobs import job_directory, launch, log_tail, read_progress, stalled
 from .models import MatchingJob
 
 
@@ -88,7 +88,10 @@ def detail(request, pk):
         "imports/detail.html",
         {
             "job": job,
-            "campaign": getattr(job, "campaign", None),
+            "campaign": job.campaign
+            if hasattr(job, "campaign") and job.campaign.published
+            else None,
+            "progress": read_progress(job),
             "log": log_tail(job),
             "stalled": stalled(job),
             "has_log": (job_directory(job) / "import.log").is_file(),

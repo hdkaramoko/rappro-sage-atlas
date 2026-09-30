@@ -16,10 +16,16 @@ from django.utils import timezone
 from reconciliation.review_import import import_bundle
 
 from .models import MatchingJob
+from .progress import ImportProgress, read_progress_file
 
 
 def job_directory(job):
     return Path(settings.MATCHING_JOB_ROOT) / str(job.pk)
+
+
+def read_progress(job):
+    """Lit les compteurs sur disque sans ajouter une écriture de suivi en base."""
+    return read_progress_file(job_directory(job))
 
 
 def launch(job):
@@ -115,35 +121,54 @@ def run_job(job_id, resume=False):
         directory.mkdir(parents=True, exist_ok=True)
         thread = threading.Thread(target=pulse, daemon=True)
         thread.start()
+        progress = ImportProgress(directory)
         try:
             job.state = "IMPORTING"
             job.error = ""
             job.save(update_fields=["state", "error"])
+            progress("Vérification du fichier")
             with (directory / "import.log").open("a", encoding="utf-8") as log:
                 log.write("Contrôle et chargement des propositions\n")
             with (directory / "propositions.jsonl").open("rb") as source:
                 if hashlib.file_digest(source, "sha256").hexdigest() != job.file_hash:
                     raise ValueError("Le fichier a changé depuis son transfert. Import annulé.")
-            # L'import et son statut final sont validés ensemble : pas de succès partiel.
-            with transaction.atomic():
-                if (
-                    MatchingJob.objects.filter(state="SUCCESS", file_hash=job.file_hash)
-                    .exclude(pk=job.pk)
-                    .exists()
-                ):
-                    job.state = "DUPLICATE"
-                else:
-                    job.groups_imported = import_bundle(directory / "propositions.jsonl", job=job)
-                    job.state = "SUCCESS"
+            from .sqlite_staging import is_file_sqlite, staged_import
+
+            duplicate = (
+                MatchingJob.objects.filter(state="SUCCESS", file_hash=job.file_hash)
+                .exclude(pk=job.pk)
+                .exists()
+            )
+            if not duplicate and is_file_sqlite():
+                staged_import(
+                    directory / "propositions.jsonl",
+                    job=job,
+                    directory=directory,
+                    progress=progress,
+                )
+                job.refresh_from_db()  # La publication a enregistré SUCCESS atomiquement.
+            else:
+                # Compatibilité PostgreSQL et bases mémoire des tests.
+                with transaction.atomic():
+                    if duplicate:
+                        job.state = "DUPLICATE"
+                    else:
+                        job.groups_imported = import_bundle(
+                            directory / "propositions.jsonl", job=job, progress=progress
+                        )
+                        job.state = "SUCCESS"
+                    job.active = False
+                    job.finished_at = timezone.now()
+                    job.save()
+        except Exception as exc:
+            # Une erreur de journal après COMMIT ne transforme pas un succès en échec.
+            job.refresh_from_db()
+            if job.state != "SUCCESS":
+                job.state = "FAILED"
+                job.error = str(exc)
                 job.active = False
                 job.finished_at = timezone.now()
                 job.save()
-        except Exception as exc:
-            job.state = "FAILED"
-            job.error = str(exc)
-            job.active = False
-            job.finished_at = timezone.now()
-            job.save()
         finally:
             try:
                 with (directory / "import.log").open("a", encoding="utf-8") as log:

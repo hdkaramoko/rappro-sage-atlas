@@ -19,6 +19,20 @@ def rule_label(value):
 
 
 @register.filter
+def multiple_label(value):
+    """Traduit les codes du contrat en libellés métier lisibles dans les écrans."""
+    return {
+        "EXCESS": "Excédent potentiel",
+        "BALANCED": "Équilibré",
+        "SHORTFALL": "Atlas inférieur à SAGE",
+        "UNKNOWN": "Données insuffisantes / ambiguës",
+        "TO_REVIEW": "À examiner",
+        "CONFIRMED": "Suspicion confirmée",
+        "DISMISSED": "Suspicion écartée",
+    }.get(value, value)
+
+
+@register.filter
 def date_fr(value):
     if not value:
         return "—"

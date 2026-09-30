@@ -225,6 +225,9 @@ class LineReview(models.Model):
     group = models.ForeignKey(ReviewGroup, on_delete=models.PROTECT, related_name="lines")
     state = models.CharField(max_length=16, default="DRAFT")
     values = models.JSONField(default=dict)
+    manual_assignment = models.JSONField(default=list)
+    multiple_context = models.JSONField(default=dict)
+    multiple_diagnostic = models.JSONField(default=dict)
     comment = models.TextField(blank=True)
     source_signature = models.CharField(max_length=64, blank=True)
     version = models.PositiveIntegerField(default=0)
@@ -254,6 +257,14 @@ class ReviewEvent(models.Model):
         ordering = ("-created_at", "-pk")
 
 
+class PublishedCampaignManager(models.Manager):
+    """Masque les campagnes préparées tant que leur publication n'est pas validée."""
+
+    def get_queryset(self):
+        """Les vues métier et sélections de campagne précédente ignorent le staging."""
+        return super().get_queryset().filter(published=True)
+
+
 class Campaign(models.Model):
     """Photographie publiée atomiquement ; les campagnes closes sont en lecture seule."""
 
@@ -264,6 +275,9 @@ class Campaign(models.Model):
     metadata = models.JSONField(default=dict)
     previous = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT)
     is_current = models.BooleanField(default=False)
+    published = models.BooleanField(default=True)
+    objects = PublishedCampaignManager()
+    all_objects = models.Manager()
     inventory_complete = models.BooleanField(default=True)
     file_hash = models.CharField(max_length=64, blank=True, db_index=True)
     job = models.OneToOneField(
@@ -291,6 +305,7 @@ class CampaignInventory(models.Model):
     source_id = models.CharField(max_length=120)
     fiscal_year = models.PositiveSmallIntegerField()
     data = models.JSONField(default=dict)
+    control_key = models.CharField(max_length=64, blank=True, db_index=True)
     present = models.BooleanField(default=True)
     change = models.CharField(max_length=16, default="NEW")
     differences = models.JSONField(default=dict)
@@ -334,3 +349,59 @@ class CampaignReview(models.Model):
         constraints = [
             models.UniqueConstraint(fields=("campaign", "line"), name="campaign_review_line")
         ]
+
+
+class MultipleControl(models.Model):
+    """Preuves immuables d'une pièce/groupe et revue indépendante de la suspicion."""
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.PROTECT, related_name="controls")
+    key = models.CharField(max_length=64)
+    project_code = models.CharField(max_length=100, db_index=True)
+    strategy = models.CharField(max_length=32)
+    status = models.CharField(max_length=16)
+    data = models.JSONField()
+    state = models.CharField(max_length=16, default="TO_REVIEW")
+    comment = models.TextField(blank=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    reviewed_at = models.DateTimeField(null=True)
+    origin = models.ForeignKey(
+        Campaign, null=True, on_delete=models.PROTECT, related_name="control_origins"
+    )
+    version = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("campaign", "key"), name="campaign_control_key")
+        ]
+        indexes = [models.Index(fields=("campaign", "project_code", "status"))]
+
+
+class MultipleEvent(models.Model):
+    """Journal append-only des arbitrages de multiples, avec preuves et auteur."""
+
+    control = models.ForeignKey(MultipleControl, on_delete=models.PROTECT, related_name="events")
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+    snapshot = models.JSONField()
+
+
+class ControlContribution(models.Model):
+    """Contribution validée non matérialisée dans Atlas, remplaçable par ligne."""
+
+    control = models.ForeignKey(
+        MultipleControl, on_delete=models.PROTECT, related_name="contributions"
+    )
+    line = models.ForeignKey(LineReview, on_delete=models.PROTECT)
+    amount = models.DecimalField(max_digits=18, decimal_places=2)
+    entries = models.JSONField(default=list)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("control", "line"), name="control_line_contribution")
+        ]
+
+
+class ImportRevision(models.Model):
+    """Compteur SQLite transactionnel détectant toute mutation métier pendant la préparation."""
+
+    revision = models.PositiveBigIntegerField(default=0)

@@ -159,3 +159,10 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
 @media(max-width:1000px){.review-layout {grid-template-columns:1fr}.decision-column {position:static}.kpi-grid {grid-template-columns:repeat(3,minmax(0,1fr))}.dashboard-panels,.import-layout {grid-template-columns:1fr}.page-heading {align-items:flex-start;flex-direction:column}}
 @media(max-width:760px){.app-shell .main-content {margin-left:0;padding:76px 16px 30px}.sidebar {width:240px}.page-heading h1 {font-size:24px}.filter-bar.review-filters {grid-template-columns:1fr 1fr}.table-caption {flex-direction:column;gap:3px}.table-footer {flex-direction:column;align-items:flex-start}.kpi-grid {grid-template-columns:1fr 1fr}.card {padding:19px}.summary-grid {gap:16px}.timeline-heading {flex-direction:column;gap:3px}.sidebar-collapsed .sidebar .nav-label {display:flex}.sidebar-collapsed .sidebar-brand {flex-wrap:nowrap}.sidebar-collapsed .sidebar nav a,.sidebar-collapsed .nav-action {justify-content:flex-start}.sidebar-toggle {display:none}.change-list div {flex-direction:column;gap:3px}}
 @media(prefers-reduced-motion:reduce){* {transition:none!important;scroll-behavior:auto!important}}
+
+/* Affectations : cases compactes et libellés cliquables, sans largeur de saisie texte. */
+.manual-assignment input[type=checkbox]{width:18px;height:18px;min-height:18px;flex:0 0 18px;display:inline-block;padding:0;margin:2px 0 0;accent-color:#2855e8}
+.manual-assignment label{display:flex;align-items:flex-start;gap:10px;line-height:1.5;margin:10px 0;font-weight:400}
+.manual-assignment #id_manual_refs>div{padding:8px 12px;margin:6px 0;background:#f5f7fc;border:1px solid #e0e7f2;border-radius:8px}
+.manual-assignment output{display:block;padding:10px 12px;background:#eef3ff;border-radius:8px;margin:12px 0;font-size:12px}
+.manual-assignment small{display:block;color:#64748b;line-height:1.5}

@@ -26,9 +26,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trace-mode", choices=("compact", "detailed"), default="compact")
     parser.add_argument("--review-output", help="Propositions JSONL pour l'application de validation")
     parser.add_argument("--campaign-name", help="Nom de la campagne de validation")
+    parser.add_argument("--accounted-amount-field", choices=("total_sage_charges", "total_project_charges"),
+                        default="total_sage_charges",
+                        help="Montant individuel des Comptabilisé (défaut : total_sage_charges, confirmé métier)")
+    parser.add_argument("--multiple-tolerance", default="0.01", help="Tolérance en euros du contrôle des multiples")
     parser.add_argument("--year", type=int, help="Année Atlas et année de la date comptable SAGE (2000–2200)")
     parser.add_argument("--campaign-scope", default="atlas-complet", help="Périmètre cumulatif stable de l'extraction")
     args = parser.parse_args(argv)
+    from reconciliation_contract import money
+    if money(args.multiple_tolerance) is None or money(args.multiple_tolerance) < 0:
+        parser.error("--multiple-tolerance doit être un montant positif ou nul")
     if args.year is not None and not 2000 <= args.year <= 2200:
         parser.error("--year doit être compris entre 2000 et 2200")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
@@ -71,9 +78,15 @@ def main(argv: list[str] | None = None) -> int:
                 raise ExportError("Le fichier de validation doit être distinct des sources et autres sorties")
             try:
                 logging.info("Ecriture des propositions pour validation")
+                from reconciliation.multiples import build_controls
+                controls = build_controls(frames['Atlas'], frames['Sage'], result,
+                                          amount_field=args.accounted_amount_field,
+                                          tolerance=args.multiple_tolerance)
                 path = export_review_bundle(frames["Atlas"], frames["Sage"], result, args.review_output,
                                            campaign_name=args.campaign_name, scope=args.campaign_scope,
                                            year=args.year,
+                                           controls=controls, amount_field=args.accounted_amount_field,
+                                           tolerance=args.multiple_tolerance,
                                            source_paths={"Atlas": args.atlas, "SAGE": args.sage})
             except (ValueError, OSError) as exc:
                 raise ExportError(str(exc)) from exc

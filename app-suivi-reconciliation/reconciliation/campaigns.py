@@ -41,10 +41,12 @@ BATCH_SIZE = 500
 
 
 def json_data(value):
+    """Convertit dates et Decimal en valeurs JSON pour une photographie portable."""
     return json.loads(json.dumps(value, cls=DjangoJSONEncoder, ensure_ascii=False))
 
 
 def digest(value):
+    """Calcule une empreinte déterministe des données métier sérialisables."""
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()
@@ -61,13 +63,19 @@ def stable_evidence(evidence):
     )
 
 
-def normalize_inventory(raw):
+def normalize_inventory(raw, *, extended=False):
     """Schéma étroit : pas de création d'un objet ORM Atlas pour chaque ligne hors matching."""
     if not isinstance(raw, dict) or not set(INVENTORY).issubset(raw):
         raise ValidationError(
             "Inventaire incomplet : les huit champs sont obligatoires (valeurs nulles admises)."
         )
     data = {field: raw[column] for column, field in INVENTORY.items()}
+    if extended:
+        from reconciliation_contract import EXTRA_INVENTORY
+
+        if not set(EXTRA_INVENTORY).issubset(raw):
+            raise ValidationError("Inventaire v3 incomplet : tiers, libellé et devise requis")
+        data.update({field: str(raw[column] or "") for column, field in EXTRA_INVENTORY.items()})
     for field in ("project_code", "source_id", "bap_status", "sage_document_number"):
         data[field] = str(data[field] or "").strip()
     data["project_code"] = data["project_code"].upper()
@@ -106,10 +114,15 @@ def normalize_inventory(raw):
 
 
 def inventory_key(data):
+    """Construit l’identité stable projet, Id Atlas et exercice."""
     return build_business_key(data["project_code"], data["source_id"], data["fiscal_year"])
 
 
 def insert_inventory(campaign, rows):
+    """Insère un lot et conserve la clé de contrôle pour les recherches indexées."""
+    from reconciliation_contract import control_identity
+    from reconciliation_contract import digest as control_digest
+
     keys = [inventory_key(data) for data in rows]
     previous = {}
     if campaign.previous_id:
@@ -144,6 +157,9 @@ def insert_inventory(campaign, rows):
                 source_id=data["source_id"],
                 fiscal_year=data["fiscal_year"],
                 data=data,
+                control_key=control_digest(control_identity(data))
+                if campaign.metadata.get("schema_version") == 3
+                else "",
                 change=change,
                 differences=differences,
             )
@@ -156,6 +172,7 @@ def insert_inventory(campaign, rows):
 
 
 def group_snapshot(group):
+    """Photographie une proposition moteur sans la décision utilisateur."""
     return json_data(
         {
             "key": group.key,
@@ -168,6 +185,7 @@ def group_snapshot(group):
 
 
 def source_record(line):
+    """Conserve les champs sources indépendamment de la projection courante."""
     data = {
         field.name: getattr(line.transaction, field.name)
         for field in line.transaction._meta.fields
@@ -182,10 +200,14 @@ def source_record(line):
 
 
 def decision_record(line):
+    """Photographie décision, auteur, origine, affectation et diagnostic multiple."""
     return json_data(
         {
             "state": line.state,
             "values": line.values,
+            "manual_assignment": line.manual_assignment,
+            "multiple_context": line.multiple_context,
+            "multiple_diagnostic": line.multiple_diagnostic,
             "comment": line.comment,
             "version": line.version,
             "source_signature": line.source_signature,
@@ -202,6 +224,7 @@ def decision_record(line):
 
 
 def save_decision_snapshot(line):
+    """Met à jour uniquement la photographie de la campagne de travail."""
     if line.campaign_id:
         CampaignReview.objects.filter(campaign_id=line.campaign_id, line=line).update(
             decision=decision_record(line)
@@ -262,6 +285,7 @@ def archive_legacy(scope):
 
 
 def add_absences(campaign):
+    """Conserve les lignes absentes comme observations historiques non présentes."""
     if not campaign.previous_id or not campaign.previous.inventory_complete:
         return
     current_keys = campaign.inventory.filter(present=True).values("business_key")
@@ -289,12 +313,20 @@ def add_absences(campaign):
         CampaignInventory.objects.bulk_create(batch, batch_size=BATCH_SIZE)
 
 
-def import_campaign(header, stream, *, job=None):
+def import_campaign(header, stream, *, job=None, progress=None):
     """Appelé dans la transaction import_bundle ; aucun état partiel n'est publié."""
+    from .multiple_import import import_control_batch
     from .review_import import upsert_group
 
-    if header.get("schema_version") != 2:
+    progress = progress or (lambda *args, **kwargs: None)
+
+    if header.get("schema_version") not in (2, 3):
         raise ValidationError("Version de campagne non prise en charge")
+    v3 = header["schema_version"] == 3
+    if v3:
+        from .multiple_import import validate_header
+
+        validate_header(header)
     name, scope = header.get("name"), header.get("scope")
     if (
         not isinstance(name, str)
@@ -328,20 +360,53 @@ def import_campaign(header, stream, *, job=None):
         file_hash=job.file_hash if job else "",
     )
     count, inventory_count, complete, proposals_started = 0, 0, False, False
+    controls_started, control_count = False, 0
     batch, seen, group_keys = [], set(), set()
+    control_batch = []
     for number, text in enumerate(stream, 2):
         if complete:
             raise ValidationError("Données après la fin du fichier")
         payload = json.loads(text)
         if "complete" in payload:
+            if control_batch:
+                import_control_batch(campaign, control_batch)
+                control_batch = []
+            progress("Contrôles préparés", control_count)
+            if v3 and any(
+                type(payload.get(k)) is not int or payload[k] < 0
+                for k in ("complete", "inventory_count", "control_count")
+            ):
+                raise ValidationError("Compteurs v3 entiers positifs requis")
             if batch:
                 insert_inventory(campaign, batch)
                 batch = []
             if payload["complete"] != count or payload.get("inventory_count") != inventory_count:
                 raise ValidationError("Compteurs de campagne incohérents")
+            if v3 and payload.get("control_count") != control_count:
+                raise ValidationError("Compteur des contrôles incohérent")
+            if v3:
+                from django.db.models import Count
+
+                actual = {
+                    row["status"]: row["n"]
+                    for row in campaign.controls.values("status").annotate(n=Count("pk"))
+                }
+                if payload.get("control_statuses") != actual:
+                    raise ValidationError("Compteurs de diagnostics incohérents")
             complete = True
+        elif payload.get("type") == "control" and v3:
+            if batch:
+                insert_inventory(campaign, batch)
+                batch = []
+            controls_started = proposals_started = True
+            control_batch.append(payload.get("data"))
+            control_count += 1
+            if len(control_batch) == BATCH_SIZE:
+                import_control_batch(campaign, control_batch)
+                control_batch = []
+                progress("Contrôles préparés", control_count)
         elif payload.get("type") == "inventory" and not proposals_started:
-            data = normalize_inventory(payload.get("atlas"))
+            data = normalize_inventory(payload.get("atlas"), extended=v3)
             if year is not None and data["fiscal_year"] != year:
                 raise ValidationError("L'inventaire contient une ligne hors de l'année de campagne")
             batch.append(data)
@@ -349,9 +414,10 @@ def import_campaign(header, stream, *, job=None):
             if len(batch) == BATCH_SIZE:
                 insert_inventory(campaign, batch)
                 batch = []
-        elif payload.get("type") == "proposal":
-            if payload.get("schema_version") != 2:
-                raise ValidationError("Une proposition de campagne doit utiliser le schéma v2")
+                progress("Inventaire préparé", inventory_count)
+        elif payload.get("type") == "proposal" and not controls_started:
+            if payload.get("schema_version") != header["schema_version"]:
+                raise ValidationError("Une proposition doit utiliser le schéma de sa campagne")
             if year is not None:
                 from datetime import date
 
@@ -375,10 +441,7 @@ def import_campaign(header, stream, *, job=None):
                 raise ValidationError("Groupe répété dans la campagne")
             group_keys.add(payload.get("key"))
             # Concordance inventaire / proposition, avant mutation de la projection de travail.
-            parsed = [
-                normalize_inventory({column: raw.get(column) for column in INVENTORY})
-                for raw in payload.get("atlas", [])
-            ]
+            parsed = [normalize_inventory(raw, extended=v3) for raw in payload.get("atlas", [])]
             existing = {
                 row.business_key: row.data
                 for row in campaign.inventory.filter(
@@ -426,6 +489,9 @@ def import_campaign(header, stream, *, job=None):
                     prior = old.decision
                     line.state = prior["state"]
                     line.values = prior["values"]
+                    line.manual_assignment = prior.get("manual_assignment", [])
+                    line.multiple_context = prior.get("multiple_context", {})
+                    line.multiple_diagnostic = prior.get("multiple_diagnostic", {})
                     line.comment = prior["comment"]
                     line.source_signature = prior["source_signature"]
                     line.validated_at = parse_datetime(prior.get("validated_at") or "")
@@ -464,12 +530,21 @@ def import_campaign(header, stream, *, job=None):
                 elif line.version and not unchanged:
                     # Même un retour à une ancienne signature ne réactive pas une validation.
                     line.source_signature = ""
+                if not v3 and line.multiple_context:
+                    line.source_signature = ""
+                    comparison = "CHANGED"
+                    reasons.append(
+                        "Fichier historique sans contrôles : validation v3 non reportable"
+                    )
                 line.save(
                     update_fields=[
                         "campaign",
                         "source_signature",
                         "state",
                         "values",
+                        "manual_assignment",
+                        "multiple_context",
+                        "multiple_diagnostic",
                         "comment",
                         "validated_at",
                         "validation_origin",
@@ -491,6 +566,8 @@ def import_campaign(header, stream, *, job=None):
                     fingerprint=fingerprint,
                 )
             count += 1
+            if count % BATCH_SIZE == 0:
+                progress("Propositions préparées", count)
         else:
             raise ValidationError("Ordre ou type d'enregistrement de campagne invalide")
     if not complete:
@@ -503,6 +580,12 @@ def import_campaign(header, stream, *, job=None):
     if expected_reviews != len(seen):
         raise ValidationError("Des lignes Envoyé SAGE de l'inventaire n'ont pas de proposition")
     add_absences(campaign)
+    progress("Comparaison des campagnes terminée", count)
+    if v3:
+        from .multiple_import import finalize_controls
+
+        finalize_controls(campaign)
+        progress("Report des validations contrôlé", count)
     if active:
         active.is_current = False
         active.save(update_fields=["is_current"])

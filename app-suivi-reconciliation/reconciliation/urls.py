@@ -1,10 +1,13 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import campaign_views, review_views
+from . import campaign_views, multiple_views, review_views
 
 app_name = "reconciliation"
 urlpatterns = [
+    path("campagnes/<int:pk>/multiples/", multiple_views.control_list, name="multiples"),
+    path("multiples/<int:pk>/", multiple_views.control_detail, name="multiple-detail"),
+    path("campagnes/<int:pk>/audit/", multiple_views.audit_export, name="campaign-audit"),
     path("campagnes/", campaign_views.campaign_list, name="campaigns"),
     path("campagnes/<int:pk>/", campaign_views.campaign_detail, name="campaign"),
     path("campagnes/<int:pk>/export/", campaign_views.campaign_export, name="campaign-export"),

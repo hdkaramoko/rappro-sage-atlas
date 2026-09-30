@@ -67,13 +67,20 @@ def load_atlas(path: str | Path, *, year: int | None = None) -> pd.DataFrame:
         del frames
         if result["Id"].isna().any() or result["Id"].str.strip().eq("").any():
             raise AtlasLoaderError("La colonne 'Id' contient des identifiants vides.")
+        rows_read = len(result)
+        repeated = result.loc[result.duplicated('Id', keep=False)]
+        conflicting = repeated.drop_duplicates().groupby('Id').size().gt(1)
+        conflicting_ids = int(conflicting.sum())
+        if conflicting_ids:
+            logger.warning("Atlas : %s Id contradictoires ; contrôles multiples indéterminés", conflicting_ids)
         type_columns(
             result, config.ATLAS_TEXT_COLUMNS, config.ATLAS_DATE_COLUMNS,
             config.ATLAS_NUMERIC_COLUMNS, config.ATLAS_INTEGER_COLUMNS,
         )
-        rows_read = len(result)
         result = result.drop_duplicates(subset=["Id"], keep="first", ignore_index=True)
         record_summary(result, "Atlas", rows_read, valid_sheets)
+        result.attrs['load_summary']['conflicting_ids'] = conflicting_ids
+        result.attrs['load_summary']['technical_duplicates_removed'] = rows_read - len(result) - int((repeated.drop_duplicates().groupby('Id').size() - 1).clip(lower=0).sum())
         if year is not None:
             result.attrs["load_summary"].update(rows_read=source_rows,
                 rows_excluded_by_year=source_rows - rows_read, fiscal_year=year)

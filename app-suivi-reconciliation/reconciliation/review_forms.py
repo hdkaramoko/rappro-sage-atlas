@@ -6,6 +6,18 @@ MODES = [("KEEP", "Conserver"), ("SET", "Modifier"), ("CLEAR", "Effacer")]
 
 
 class LineReviewForm(forms.Form):
+    """Saisie des corrections et confirmations, recontrôlées dans le service métier."""
+
+    manual_refs = forms.MultipleChoiceField(
+        label="Écritures SAGE à affecter", required=False, widget=forms.CheckboxSelectMultiple
+    )
+    manual_confirm = forms.BooleanField(
+        label="Je confirme cette affectation manuelle", required=False
+    )
+    multiple_confirm = forms.BooleanField(
+        label="Je confirme le risque de multiple / de pièce partagée décrit ci-dessus",
+        required=False,
+    )
     status_mode = forms.ChoiceField(label="Action sur le statut", choices=MODES)
     status = forms.ChoiceField(
         label="Statut BAP", required=False, choices=[("", "Choisir un statut"), *BAP_CHOICES]
@@ -27,7 +39,20 @@ class LineReviewForm(forms.Form):
     group_version = forms.IntegerField(widget=forms.HiddenInput)
     source = forms.CharField(widget=forms.HiddenInput)
 
+    def __init__(self, *args, candidates=(), **kwargs):
+        """Construit les choix uniquement avec les preuves transmises par le moteur."""
+        super().__init__(*args, **kwargs)
+        self.fields["manual_refs"].choices = [
+            (
+                e["ref"],
+                f"{e['project_code']} · {e['document']} · {e['date']} · {e['amount']} € "
+                f"· ligne {e['line']}/{e['analytic_line']} · {e['ref'][:12]}",
+            )
+            for e in candidates
+        ]
+
     def clean(self):
+        """Exige une valeur pour SET ; la cohérence comptable reste côté service."""
         values = super().clean()
         for field in ("status", "amount", "document", "date"):
             if values.get(field + "_mode") == "SET" and values.get(field) in (None, ""):
@@ -35,6 +60,7 @@ class LineReviewForm(forms.Form):
         return values
 
     def snapshot(self):
+        """Sérialise KEEP/SET/CLEAR sans perdre l'intention d'effacer un champ."""
         return {
             name: {
                 "mode": self.cleaned_data[name + "_mode"],

@@ -194,7 +194,7 @@ et montant individuel. Le navigateur présente la somme et les écarts ; le serv
 recalcule avec Decimal. Sans candidate, l'écran indique « Aucune candidate disponible ».
 
 Pour affecter manuellement, le métier choisit une ou plusieurs écritures,
-renseigne un commentaire et coche la confirmation. Leur somme doit correspondre
+renseigne un commentaire et clique sur Valider. Leur somme doit correspondre
 au montant individuel corrigé. La pièce/date principale saisie doit appartenir
 à la sélection. En présence de plusieurs pièces, **l'utilisateur choisit** cette
 pièce/date principale : aucun choix automatique ou répartition arbitraire entre
@@ -221,8 +221,9 @@ contribution par pièce, fondée sur les montants individuels de la sélection.
 Exemple : SAGE porte 120 € sur deux écritures de 60 €. Atlas comporte déjà 40 €
 Comptabilisé. Valider A à 60 € donne 100 € projetés. Valider B à 60 € donnerait
 160 €, soit 40 € d'excédent. L'alerte montre la pièce, les totaux et les lignes
-concernées. Une **case explicite** et un commentaire sont nécessaires pour
-déroger à ce risque ; le clic Valider seul ne suffit pas.
+concernées. Le **clic Valider**, accompagné d'un commentaire justificatif, confirme
+ce risque : aucune case supplémentaire n'est demandée. Le diagnostic et la
+dérogation restent enregistrés dans l'historique.
 
 Une écriture revendiquée par une autre décision, une pièce partagée entre groupes,
 ou une affectation manuelle sur une pièce déjà comptabilisée fait aussi l'objet

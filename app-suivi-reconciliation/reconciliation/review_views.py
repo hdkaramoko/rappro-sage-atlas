@@ -171,8 +171,10 @@ def review_detail(request, pk):
                 expected_source=form.cleaned_data["source"],
                 acknowledge=request.POST.get("action") == "VALIDATED",
                 manual_refs=form.cleaned_data["manual_refs"],
-                manual_confirm=form.cleaned_data["manual_confirm"],
-                multiple_confirm=form.cleaned_data["multiple_confirm"],
+                # La soumission enregistre le choix manuel ; Valider accepte
+                # les risques recalculés. Les commentaires restent contrôlés.
+                manual_confirm=True,
+                multiple_confirm=request.POST.get("action") == "VALIDATED",
             )
         except ValidationError as exc:
             form.add_error(None, exc)

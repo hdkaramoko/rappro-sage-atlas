@@ -1,5 +1,10 @@
 # Validation des rapprochements Atlas / Sage
 
+Le bouton **Valider** confirme aussi l'affectation et les risques justifiés, sans
+cases supplémentaires. Les superutilisateurs disposent du lien **Exporter la base
+JSON** dans le menu latéral, avec les commentaires et l'historique des décisions.
+Voir [le guide de validation et d'export](../docs/validation_simplifiee_export_json.md).
+
 Application de validation par ligne Atlas des propositions du moteur de rapprochement.
 Les accès reposent sur le portefeuille de projets de chaque utilisateur.
 

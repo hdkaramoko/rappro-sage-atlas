@@ -205,7 +205,9 @@ def decide(
         line.manual_assignment if manual_refs is None else selected_entries(line, manual_refs)
     )
     if selection and (not manual_confirm or not comment.strip()):
-        raise ValidationError("Confirmez l’affectation manuelle et expliquez votre choix")
+        raise ValidationError(
+            "Expliquez votre affectation manuelle dans le commentaire avant validation"
+        )
     diagnostic = apply_projection(
         line, resolved, selection, state=state, confirmed=multiple_confirm, comment=comment
     )

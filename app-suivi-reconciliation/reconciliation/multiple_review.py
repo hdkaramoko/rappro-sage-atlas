@@ -215,7 +215,7 @@ def apply_projection(line, resolved, selection, *, state, confirmed, comment):
                 for d in risk
             )
             raise ValidationError(
-                details + ". Confirmez explicitement le risque et justifiez votre décision."
+                details + ". Justifiez ce risque dans le commentaire avant de valider."
             )
     ControlContribution.objects.filter(control__campaign=line.campaign, line=line).delete()
     for control, amount, refs in plan:

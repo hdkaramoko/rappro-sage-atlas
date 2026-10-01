@@ -9,14 +9,7 @@ class LineReviewForm(forms.Form):
     """Saisie des corrections et confirmations, recontrôlées dans le service métier."""
 
     manual_refs = forms.MultipleChoiceField(
-        label="Écritures SAGE à affecter", required=False, widget=forms.CheckboxSelectMultiple
-    )
-    manual_confirm = forms.BooleanField(
-        label="Je confirme cette affectation manuelle", required=False
-    )
-    multiple_confirm = forms.BooleanField(
-        label="Je confirme le risque de multiple / de pièce partagée décrit ci-dessus",
-        required=False,
+        label="Option retenue", required=False, widget=forms.CheckboxSelectMultiple
     )
     status_mode = forms.ChoiceField(label="Action sur le statut", choices=MODES)
     status = forms.ChoiceField(
@@ -46,7 +39,7 @@ class LineReviewForm(forms.Form):
             (
                 e["ref"],
                 f"{e['project_code']} · {e['document']} · {e['date']} · {e['amount']} € "
-                f"· ligne {e['line']}/{e['analytic_line']} · {e['ref'][:12]}",
+                f"· ligne comptable {e['line']} / analytique {e['analytic_line']}",
             )
             for e in candidates
         ]

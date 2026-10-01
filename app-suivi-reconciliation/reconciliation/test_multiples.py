@@ -151,6 +151,44 @@ class MultipleTests(TestCase):
         self.assertEqual(result.group.match_status, "MATCHED")
         self.assertTrue(result.multiple_diagnostic["derogation"])
 
+    def test_validate_button_accepts_manual_assignment_and_risk_without_checkboxes(self):
+        """Le POST Valider suffit ; preuves, justification et dérogation restent historisées."""
+        self.validate("A")
+        line = LineReview.objects.select_related("campaign", "group", "transaction").get(
+            transaction__source_id="B"
+        )
+        url = reverse("reconciliation:review-detail", args=[line.pk])
+        response = self.client.get(url)
+        self.assertNotContains(response, 'name="manual_confirm"')
+        self.assertNotContains(response, 'name="multiple_confirm"')
+        data = {
+            "action": "VALIDATED",
+            "version": line.version,
+            "group_version": line.group.version,
+            "source": signature(line),
+            "manual_refs": list(candidates_for(line)),
+            "comment": "",
+        }
+        for field, value in {
+            "status": "Comptabilisé",
+            "amount": "60",
+            "document": "D",
+            "date": "2026-01-01",
+        }.items():
+            data[field + "_mode"] = "SET"
+            data[field] = value
+        self.assertEqual(self.client.post(url, data).status_code, 200)
+        line.refresh_from_db()
+        self.assertEqual(line.state, "DRAFT")
+        data["comment"] = "Pièce partagée vérifiée par le métier"
+        self.assertEqual(self.client.post(url, data).status_code, 302)
+        line.refresh_from_db()
+        self.assertEqual(line.state, "VALIDATED")
+        event = line.events.get().snapshot
+        self.assertEqual(event["matching_decision"], "MANUAL_MATCH")
+        self.assertTrue(event["multiple_diagnostic"]["derogation"])
+        self.assertEqual(event["comment"], data["comment"])
+
     def test_identical_campaign_carries_and_collective_excess_invalidates_all(self):
         """Un report sûr est conservé ; un risque collectif invalide toutes les reprises."""
         self.validate()

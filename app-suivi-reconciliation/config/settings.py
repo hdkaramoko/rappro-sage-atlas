@@ -20,6 +20,7 @@ ALLOWED_HOSTS = [
 CSRF_TRUSTED_ORIGINS = [
     "https://user-hdkaramoko-807581-0.user.lab.sspcloud.fr",
     "rappro-sage-atlas.lab.sspcloud.fr",
+    "https://rappro-sage-atlas.lab.sspcloud.fr/connexion/?next=/"
 ]
 
 INSTALLED_APPS = [

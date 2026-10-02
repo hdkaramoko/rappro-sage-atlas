@@ -23,6 +23,7 @@ spec:
       containers:
         - name: rappro-sage-atlas
           image: ghcr.io/hdkaramoko/rappro-sage-atlas:0.1
+          imagePullPolicy: Always
 
           ports:
             - containerPort: 8000

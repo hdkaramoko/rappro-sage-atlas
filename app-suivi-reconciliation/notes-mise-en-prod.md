@@ -83,3 +83,32 @@
             ```
         ==> Cette commande va créer un répertoire staticfiles qui va regrouper tous les fichiers statics et y ajouter d'autres éléments
 
+
++   [Alternative-1] Dockerisation de l'application
+    -   Le but de la Dockerisation est de constituer uen image autonome de l'application qui va contenir :
+        *   Mon code
+        *   Python
+        *   Les dépendances
+        *   Gunicorn
+        *   Les fichiers statics collectés
+    -   Docker c'est un système à part qui se charge du build de l'application. Il ne s'installe pas dans le venv
+    -   On commence par créer un dockerfile à la racine du repo :
+        *   C'est un fichier sans extension
+        *   Avec une structure stable : Base --> Dossier de travail --> Dépendances --> Code --> Préparation --> Port --> Commande de démarrage
+    -   On crée ensuite un .dockerignore pour les fichiers qui doivent être ignorés
+    -   Dans le terminal, on va ensuite lancer le build de l'application avec la commande
+        ```
+        docker build -t rapproche-sage-atlas:0.1
+        ```
+    -   Dans la mesure ou docker n'est pas disponible sur onyxia, on va faire le build avec github dans une logique de CI
+
+
++   [Alternative-2] On automatise la construction de l'image docker
+    -   En fait, github dans sa chanie de CI met à disposition une machine virtuelle et temporaire sur laquelle docker est installée
+    -   C'est l'intégration continue
+    -   On fait en sorte que à chaque push sur la branche main -> Github Actions démarre une VM Ubuntu -> Docker construit l'image -> L'image est poussée dans GHCR
+    -   Du coup, cela n'exonère pas de créer le dockerfile. Il faut le faire anyway
+    -   Les étapes :
+        *   Créer le dockerfile et le .dockerignore
+        *   Créer un dossier .github/workflows/docker.yml
+        *   Déclencher le workflow en envoyant un commit du code : git add -> git commit -> git push

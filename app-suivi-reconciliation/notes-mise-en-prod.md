@@ -112,3 +112,40 @@
         *   Créer le dockerfile et le .dockerignore
         *   Créer un dossier .github/workflows/docker.yml
         *   Déclencher le workflow en envoyant un commit du code : git add -> git commit -> git push
+        *   On peut alors aller sur github, dans package et voir l'url du package qui a été créé : ghcr.io/hdkaramoko/rappro-sage-atlas:0.1 (référence de l'image)
+
++   Déploiement depuis kubernetes sur onyxia
+    -   On s'addure que le service vscode quo'n a démarré c'est bien en mode admin
+    -   On crée un répertoire k8s et un fichier deployment.yaml à l'intérieur
+    -   Le package étant privé, il faut une connexion entre kubernetes et le registry
+    -   Créer dans github un Personal Access Token GitHub (PATG) : onyxia-ghcr-rappro-sage-atlas
+        -> Settings --> developer settings --> personnal access token --> Token classic -> Générer new token classic -> Note = nom -> Read package -> Validité
+    -   Créer un secret pour permettre la connexion entre kubernetes et le docker registry
+        ```
+        kubectl create secret docker-registry ghcr-secret \
+        --docker-server=ghcr.io \
+        --docker-username=TON_USER_GITHUB \
+        --docker-password=TON_TOKEN_GITHUB \
+        --namespace=NAMESPACE
+        ```
+    -   Faire la commande : kubectl apply -f k8s/deployment.yaml qui va exécuter les instruction yaml qu'on lui a fourni précédemment
+    -   On peut sa'ssurer que l'application est en train de tourner si on a le statut running avec la commande : kubectl get pods
+    -   On peut voir le log d'excution avec : kubectl logs -l app=rappro-sage-atlas
+
++   Création d'un service kubernetes pour exposer le port 8000
+    -   Dans k8s, créer un fichier service.yaml
+    -   Contenu a voir, mais cela précise le targetPort qui est celui écouté par gunicorn : 8000. Le service lui, écoute via le port 80
+    -   On applque alors les instructions du yaml avec : kubectl apply -f k8s/service.yaml
+    -   Cela crée le service
+    -   On peut vérifier avec : kubectl get service rappro-sage-atlas
+    -   A ce stade, ce service est accessible à l'intérieur du de kubernetes, mais pas sur internet
+    -   L'étape de l'ingress permettra de mettre tout ceci à disposition
+
++   Créer l'ingress pour exposer l'application sur internet
+    -   Création dans le dossier k8s de ingress.yaml
+    -   L'ingress définit du coup le nom d'hôte : rappro-sage-atlas.lab.sspcloud.fr qui utilise le service : rappro-sage-atlas qui écoute via le port : 80
+    -   On applque alors les instructions du yaml avec : kubectl apply -f k8s/ingress.yaml
+    -   On peut vérifier avec : kubectl get ingress rappro-sage-atlas
+
++   Finalité
+    -   Vérifier que le nom d'hôte est dans les django allowed host et dans les CSRF_Trusted_Origin

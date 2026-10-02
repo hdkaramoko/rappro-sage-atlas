@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rappro-sage-atlas
+  namespace: user-hdkaramoko
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: rappro-sage-atlas
+
+  template:
+    metadata:
+      labels:
+        app: rappro-sage-atlas
+
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+        
+      containers:
+        - name: rappro-sage-atlas
+          image: ghcr.io/hdkaramoko/rappro-sage-atlas:0.1
+
+          ports:
+            - containerPort: 8000
+
+          env:
+            - name: DEBUG
+              value: "False"
+
+            - name: DJANGO_ALLOWED_HOSTS
+              value: "rappro-sage-atlas.lab.sspcloud.fr"

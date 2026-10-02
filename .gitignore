@@ -1,4 +1,5 @@
 .venv/
+env
 .work_app/
 .pytest_cache/
 __pycache__/

@@ -17,6 +17,10 @@ ALLOWED_HOSTS = [
     h.strip() for h in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 ]
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://user-hdkaramoko-807581-0.user.lab.sspcloud.fr",
+]
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -91,7 +95,8 @@ LANGUAGE_CODE = "fr-fr"
 TIME_ZONE = "Europe/Paris"
 USE_I18N = True
 USE_TZ = True
-STATIC_URL = "static/"
+FORCE_SCRIPT_NAME = os.getenv("FORCE_SCRIPT_NAME", None)
+STATIC_URL = "/proxy/8000/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

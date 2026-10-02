@@ -48,3 +48,38 @@
         ```
         uv add gunicorn
         ```
+    -   Lancement de gunicorn
+        ==> bind signiefie faut écouter sur le port 8000
+        ```
+        uv run gunicorn --chdir app-suivi-reconciliation config.wsgi:application --bind 0.0.0.0:8000
+        ```
+
++   Installation de WhiteNoise
+    -   Gunicorn est le serveur applicatif et il ne gère pas les fichiers statics (css, js)
+    -   L'objectif de WhiteNoise est donc de servir proprement ces fichiers
+    -   Dans django, il y a deux notions :
+        ==> STATIC_ROOT : Qui rassemble tous les fichiers Django pour la production
+        ==> STATICFILES_DIR : Qui est le répertoire sur disque des fichiers statics
+        ==> A ce stade on a :
+            ```
+            STATICFILES_DIRS = [BASE_DIR / "static"]
+            STATIC_ROOT = BASE_DIR / "staticfiles"
+            ```
+    -   Nous allons regrouper tous ces fichiers statics dans un répertoire dédié :
+        ==> WhiteNoise interviendra à ce stade et permettra à Django de servir lui même les fichiers statics
+        ==> L'alternative aurait été d'installer nginx pour le faire
+        ==> Installation :
+            ```
+            uv add whitenoise
+            ```
+        ==> Il faut ensuite s'assurer que WhiteNoise est autorisé parmi les middlewares de Django
+        ==> On va déclarer WhiteNoise comme point d'entrée pour nos statics
+            ```
+            STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            ```
+        ==> Commande :
+            ```
+            uv run python app-suivi-reconciliation/manage.py collectstatic
+            ```
+        ==> Cette commande va créer un répertoire staticfiles qui va regrouper tous les fichiers statics et y ajouter d'autres éléments
+

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dev
 
 jobs:
   build:
@@ -24,9 +25,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set image tag
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "IMAGE_TAG=prod-${GITHUB_SHA}" >> $GITHUB_ENV
+          else
+            echo "IMAGE_TAG=dev-${GITHUB_SHA}" >> $GITHUB_ENV
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/rappro-sage-atlas:0.1
+          tags: ghcr.io/${{ github.repository_owner }}/rappro-sage-atlas:${{ env.IMAGE_TAG }}

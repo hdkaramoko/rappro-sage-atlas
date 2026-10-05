@@ -33,9 +33,9 @@
         ```
     -   Création d'un superuser
     -   Problème de navigation
-        ==> La home page fonctionne, les autres retirent pas le proxy/8000
-        ==> On ne peut pas résoudre ce problème car une solution propre nécessite d'avoir le FORCE_SCRIPT. le faisant, on empêche le login et le logout
-        ==> La solution c'est de ne pas se limiter à ces détails qui sont éphémères dans notre mise en prod. C'est spécifique à Onyxia, et le déploiement résoudra cela.
+        *   La home page fonctionne, les autres retirent pas le proxy/8000
+        *   On ne peut pas résoudre ce problème car une solution propre nécessite d'avoir le FORCE_SCRIPT. le faisant, on empêche le login et le logout
+        *   La solution c'est de ne pas se limiter à ces détails qui sont éphémères dans notre mise en prod. C'est spécifique à Onyxia, et le déploiement résoudra cela.
 
 
 +   Installation de Gunicorn
@@ -49,7 +49,7 @@
         uv add gunicorn
         ```
     -   Lancement de gunicorn
-        ==> bind signiefie faut écouter sur le port 8000
+        *   bind signiefie faut écouter sur le port 8000
         ```
         uv run gunicorn --chdir app-suivi-reconciliation config.wsgi:application --bind 0.0.0.0:8000
         ```
@@ -58,30 +58,30 @@
     -   Gunicorn est le serveur applicatif et il ne gère pas les fichiers statics (css, js)
     -   L'objectif de WhiteNoise est donc de servir proprement ces fichiers
     -   Dans django, il y a deux notions :
-        ==> STATIC_ROOT : Qui rassemble tous les fichiers Django pour la production
-        ==> STATICFILES_DIR : Qui est le répertoire sur disque des fichiers statics
-        ==> A ce stade on a :
+        *   STATIC_ROOT : Qui rassemble tous les fichiers Django pour la production
+        *   STATICFILES_DIR : Qui est le répertoire sur disque des fichiers statics
+        *   A ce stade on a :
             ```
             STATICFILES_DIRS = [BASE_DIR / "static"]
             STATIC_ROOT = BASE_DIR / "staticfiles"
             ```
     -   Nous allons regrouper tous ces fichiers statics dans un répertoire dédié :
-        ==> WhiteNoise interviendra à ce stade et permettra à Django de servir lui même les fichiers statics
-        ==> L'alternative aurait été d'installer nginx pour le faire
-        ==> Installation :
+        *   WhiteNoise interviendra à ce stade et permettra à Django de servir lui même les fichiers statics
+        *   L'alternative aurait été d'installer nginx pour le faire
+        *   Installation :
             ```
             uv add whitenoise
             ```
-        ==> Il faut ensuite s'assurer que WhiteNoise est autorisé parmi les middlewares de Django
-        ==> On va déclarer WhiteNoise comme point d'entrée pour nos statics
+        *   Il faut ensuite s'assurer que WhiteNoise est autorisé parmi les middlewares de Django
+        *   On va déclarer WhiteNoise comme point d'entrée pour nos statics
             ```
             STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
             ```
-        ==> Commande :
+        *   Commande :
             ```
             uv run python app-suivi-reconciliation/manage.py collectstatic
             ```
-        ==> Cette commande va créer un répertoire staticfiles qui va regrouper tous les fichiers statics et y ajouter d'autres éléments
+        *   Cette commande va créer un répertoire staticfiles qui va regrouper tous les fichiers statics et y ajouter d'autres éléments
 
 
 +   [Alternative-1] Dockerisation de l'application
@@ -149,3 +149,72 @@
 
 +   Finalité
     -   Vérifier que le nom d'hôte est dans les django allowed host et dans les CSRF_Trusted_Origin
+    -   Après chaque modification, il es nécessaire de redémarrer le pod pour qu'il prenne en compte la nouvelle image
+    -   Générer une django secret key : python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+    -   Attention, la clé doit rester stable. Elle permet à Django de signer certaines actions
+    -   Création d'un super user
+        *   Appliquer les migrations à la BDD : kubectl exec -it deployments/rappro-sage-atlas -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py migrate'
+        *   kubectl exec -it deployment/rappro-sage-atlas -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py createsuperuser'
+
++   Automatisation du déploiement (Pas faisable sur mon cluster qui est privé)
+    -   Jusqu'ici, quand on a une nouvelle image de l'application crée depuis github actions, il fallait redéployer l'application via kubernetes :
+        ```
+        kubectl apply -f k8s/deployment.yaml --> pour réappliquer le déploiement
+        kubectl rollout restart deployment rappro-sage-atlas --> pour forcer le déploiement si on rejoue sur un même tag
+        ```
+    -   Ce déploiement est donc manuel
+    -   L'objectif de cette section est d'automatiser ce déploiement à travers notamment la CD (Continue Delivery)
+    -   Cela consistera à donner à GITHUB la possibilité de faire kubectl apply -f sur notrecluster kubernetes
+    -   Etape 1 : Créer un fichier ```github-actions-serviceaccount.yaml``` dans le dossier k8s
+        *   Les commandes suivantes permettent de vérifier qu'on peut bien créer un serviceAccounts dans son namespace kubernetes
+            ```
+            kubectl auth can-i create serviceaccounts
+            kubectl auth can-i create roles
+            kubectl auth can-i create rolebindings
+            ```
+        *   Créer le fichier de contrat yaml
+        *   Populate
+        *   Appliquer ce contrat avec : ```kubectl apply -f k8s/github-actions-serviceaccount.yaml```
+
+    -   Etape 2 : Donner au ServiceAccount les droits nécessaires (le minimum de droits)
+        *   Créer un fichier ```github-actions-role.yaml``` dans k8s
+        *   Populate ce fichier
+        *   Créer le fichier ```github-actions-rolebinding.yaml``` dans k8s
+        *   Populate
+        *   Ce qui se passe c'est qu'pn crée un yaml qui définit un certain rôle (des permissions)
+        *   Ensuite, on attribue ce role à un agent déployer : github-actions-deployer
+        *   On applique alors le contrat de ces deux fichiers yaml:
+            ```
+            kubectl apply -f k8s/github-actions-role.yaml
+            kubectl apply -f k8s/github-actions-rolebinding.yaml
+            ```
+    -   Etape 3 : Création d'un token dédié au ServiceAccount
+        *   L'idée est de généer un token qui sera de kubernetes qui sera chargé dans github et permettra les va-et-viens
+        *   La commande ```kubectl create token github-actions-deployer```
+        *   Ce stoken sera repris par github pour authentifier ses requêtes au cluster
+    
+    -   Etape 4 : Faire le lien entre les services
+        *   Pour établir la connexion, il faudra 3 choses : 
+            1.  KUBE_SERVER = Adresse de l'API Kubernetes
+            2.  KUBE_TOKEN = Identité du ServiceAccount
+            3.  KUBE_CA_CERT = Certificat pour vérifier le serveur qui demande
+        *   La commande ```kubectl cluster-info``` permetd'avoir l'adresse de l'API
+
++   Mise en place d'une branche de dev pour la preprod
+    -   Création de dossiers dans k8s : dev et prod
+    -   Tous les fichier des déploiement à ce stade sont basculés dans la prod
+    -   On recrée les même dans le dpssier dev en rajoutant dev à la fin des name, info, etc.
+    -   Il faut surtout s'assurer qu'on est sur la branche dev. Cette branche sera appliquée sur la main ultérieuement
+    -   Construction des 3 manifests et application avec les commandes : 
+        ```
+        kubectl apply -f k8s/dev/deployment.yaml
+        kubectl apply -f k8s/dev/service.yaml
+        kubectl apply -f k8s/dev/ingress.yaml
+        ```
+    -   Coté django : rajouté la nouvelle URL aux trusted CSRF et ALLOWED_HOST
+    -   A ce stade, la commande ```kubectl get pods``` donne invalidImageName car le tag indiqué dans le manifest ne correspond à rien
+    -   Notons que les parties où nous avons indiquées SHA dans les manifests doivent êtremodifiées à chaque push et création image
+    -   Une autre façon est de laisser cette info générique dans les manifest et d'appliquer la commande en modifiant directement :
+        ```
+        kubectl set image deployment/rappro-sage-atlas-dev rappro-sage-atlas-dev=ghcr.io/hdkaramoko/rappro-sage-atlas:dev-30630d3...
+        ```

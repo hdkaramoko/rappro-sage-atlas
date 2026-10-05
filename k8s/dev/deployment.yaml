@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: rappro-sage-atlas
+  name: rappro-sage-atlas-dev
   namespace: user-hdkaramoko
 
 spec:
@@ -9,21 +9,29 @@ spec:
 
   selector:
     matchLabels:
-      app: rappro-sage-atlas
+      app: rappro-sage-atlas-dev
 
   template:
     metadata:
       labels:
-        app: rappro-sage-atlas
+        app: rappro-sage-atlas-dev
 
     spec:
       imagePullSecrets:
         - name: ghcr-secret
         
       containers:
-        - name: rappro-sage-atlas
-          image: ghcr.io/hdkaramoko/rappro-sage-atlas:0.1
+        - name: rappro-sage-atlas-dev
+          image: ghcr.io/hdkaramoko/rappro-sage-atlas:dev-<sha>
           imagePullPolicy: Always
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
 
           ports:
             - containerPort: 8000
@@ -33,4 +41,4 @@ spec:
               value: "False"
 
             - name: DJANGO_ALLOWED_HOSTS
-              value: "rappro-sage-atlas.lab.sspcloud.fr"
+              value: "rappro-sage-atlas-dev.lab.sspcloud.fr"

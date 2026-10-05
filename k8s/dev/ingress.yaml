@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+
+metadata:
+  name: rappro-sage-atlas-dev
+  namespace: user-hdkaramoko
+
+spec:
+  ingressClassName: nginx
+
+  rules:
+    - host: rappro-sage-atlas-dev.lab.sspcloud.fr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: rappro-sage-atlas-dev
+                port:
+                  number: 80

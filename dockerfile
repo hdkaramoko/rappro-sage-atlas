@@ -21,4 +21,4 @@ RUN uv run python app-suivi-reconciliation/manage.py collectstatic --noinput
 EXPOSE 8000
 
 # 8. Définir la commande de démarrage
-CMD ["uv", "run", "gunicorn", "--chdir", "app-suivi-reconciliation", "config.wsgi:application", "--bind", "0.0.0.0:8000"]
+CMD ["uv", "run", "gunicorn", "--chdir", "app-suivi-reconciliation", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "600"]

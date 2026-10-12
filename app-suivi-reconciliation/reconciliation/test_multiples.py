@@ -29,6 +29,47 @@ from .review_import import import_bundle
 class MultipleTests(TestCase):
     """Vérifie les décisions, reports et exports avec deux groupes sur une même pièce."""
 
+    def test_new_atlas_context_preserves_v3_controls_and_invalidates_validation(self):
+        """Le contexte enrichi ne change pas les preuves multiples ; sa variation invalide A."""
+        records = copy.deepcopy(self.records)
+        for record in records:
+            rows = (
+                [record["atlas"]]
+                if record.get("type") == "inventory"
+                else (record["atlas"] if record.get("type") == "proposal" else [])
+            )
+            for row in rows:
+                if row["Id"] == "A":
+                    row.update(
+                        {
+                            "Montant refacturables": "0",
+                            "Prix unitaire prévu": "12.123456",
+                            "Nombre d'unités": "2.5",
+                        }
+                    )
+        self.load(records)
+        self.validate()
+        self.assertEqual(
+            self.load(records).reviews.get(source__source_id="A").comparison, "CARRIED"
+        )
+        line = LineReview.objects.get(transaction__source_id="A")
+        response = self.client.get(reverse("reconciliation:review-detail", args=[line.pk]))
+        self.assertContains(response, "Montant refacturables")
+        self.assertContains(response, "Prix unitaire prévu")
+        self.assertContains(response, "12,123456")
+        for record in records:
+            rows = (
+                [record["atlas"]]
+                if record.get("type") == "inventory"
+                else (record["atlas"] if record.get("type") == "proposal" else [])
+            )
+            for row in rows:
+                if row["Id"] == "A":
+                    row["Nombre d'unités"] = "2.6"
+        self.assertEqual(
+            self.load(records).reviews.get(source__source_id="A").comparison, "CHANGED"
+        )
+
     @classmethod
     def setUpClass(cls):
         """Génère une seule fois le JSONL via la CLI installée du moteur."""
@@ -343,6 +384,10 @@ class MultipleTests(TestCase):
         raw.update({"Id": "ODS-A", "N° pièce SAGE": "ODS-ATLAS", "Libellé ATLAS": "Café Mission"})
         records.insert(1, {"type": "inventory", "atlas": raw})
         source = normalize_inventory(raw, extended=True)
+        # Les preuves moteur contiennent le contrat multiple, pas le contexte de validation.
+        from reconciliation_contract.atlas_context import ATLAS_CONTEXT
+
+        source = {key: value for key, value in source.items() if key not in ATLAS_CONTEXT.values()}
         entry = entry_from_sage(
             {
                 "Projet": "P",

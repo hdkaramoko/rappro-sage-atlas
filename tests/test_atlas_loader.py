@@ -48,6 +48,19 @@ def test_types_and_missing_values(tmp_path):
     assert pd.isna(result["Année"].iloc[1])
 
 
+def test_validation_context_uses_real_atlas_header_and_preserves_precision(tmp_path):
+    """L'intitulé réel du JDD est accepté, sans confondre blanc et zéro."""
+    path = workbook(tmp_path, {"JDD": {
+        "Id": ["1", "2"], "Code projet": ["P", "P"],
+        "Montant refacturable (€)": ["0", None],
+        "Prix unitaire prévu": ["123,123456", None], "Nombre d'unités": ["2,5", None],
+    }})
+    result = load_atlas(path)
+    assert result["Montant refacturables"].tolist() == ["0", None]
+    assert result["Prix unitaire prévu"].tolist() == ["123.123456", None]
+    assert result["Nombre d'unités"].tolist() == ["2.5", None]
+
+
 @pytest.mark.parametrize("data, message", [
     ({"Autre": ["x"]}, "Id"),
     ({"Id": [None], "Code projet": ["x"]}, "identifiants vides"),

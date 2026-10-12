@@ -5,6 +5,26 @@ from reconciliation.exporters.review import export_review_bundle
 from reconciliation.matching import match_reconciliations
 
 
+def test_validation_context_is_preserved_in_inventory_and_proposals(tmp_path):
+    """Les nombres français sont normalisés sans perdre zéro ni précision."""
+    a, s = frames([atlas_row(**{
+        "Année": 2026, "Montant refacturables": "0",
+        "Prix unitaire prévu": "1 234,123456", "Nombre d'unités": "2,5",
+    })])
+    from reconciliation.multiples import build_controls
+    result = match_reconciliations(a, s)
+    for version in (2, 3):
+        controls = build_controls(a, s, result) if version == 3 else None
+        path = export_review_bundle(a, s, result, tmp_path / f"v{version}.jsonl", controls=controls)
+        records = [json.loads(row) for row in path.read_text(encoding="utf-8").splitlines()]
+        inventory = next(r["atlas"] for r in records if r.get("type") == "inventory")
+        source = next(r["atlas"][0] for r in records if r.get("type") == "proposal")
+        for row in (inventory, source):
+            assert row["Montant refacturables"] == "0"
+            assert row["Prix unitaire prévu"] == "1234.123456"
+            assert row["Nombre d'unités"] == "2.5"
+
+
 def test_bundle_contains_individual_sources_and_complete_sage_evidence(tmp_path):
     a, s = frames([atlas_row(Id="A", **{"Total charges projet (€)": 400}),
                    atlas_row(Id="B", **{"Total charges projet (€)": 600})],

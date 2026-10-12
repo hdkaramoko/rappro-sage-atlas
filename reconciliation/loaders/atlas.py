@@ -73,6 +73,21 @@ def load_atlas(path: str | Path, *, year: int | None = None) -> pd.DataFrame:
         conflicting_ids = int(conflicting.sum())
         if conflicting_ids:
             logger.warning("Atlas : %s Id contradictoires ; contrôles multiples indéterminés", conflicting_ids)
+        from reconciliation_contract.atlas_context import ATLAS_CONTEXT, ATLAS_CONTEXT_ALIASES, context_number
+        for column, aliases in ATLAS_CONTEXT_ALIASES.items():
+            for alias in aliases:
+                if alias in result:
+                    if column in result:
+                        raise AtlasLoaderError(f"Colonnes en double : {column} et {alias}")
+                    result[column] = result[alias]
+        for column in ATLAS_CONTEXT:
+            if column in result:
+                try:
+                    result[column] = result[column].map(
+                        lambda value: context_number(None if pd.isna(value) else value)
+                    )
+                except ValueError as exc:
+                    raise AtlasLoaderError(f"Colonne {column} : {exc}") from exc
         type_columns(
             result, config.ATLAS_TEXT_COLUMNS, config.ATLAS_DATE_COLUMNS,
             config.ATLAS_NUMERIC_COLUMNS, config.ATLAS_INTEGER_COLUMNS,

@@ -44,6 +44,12 @@ def import_control(campaign, data, *, inventory=None, previous_by_key=None, pers
                 ).values_list("data", flat=True)
             )
         )
+        # Les informations de validation ne modifient pas le contrat des preuves multiples.
+        from reconciliation_contract.atlas_context import ATLAS_CONTEXT
+
+        expected = [
+            {k: v for k, v in row.items() if k not in ATLAS_CONTEXT.values()} for row in expected
+        ]
         if sorted(expected, key=digest) != sorted(data["atlas"], key=digest):
             raise ValueError("Composition Atlas du contrôle différente de l’inventaire")
         for entry in data["entries"]:

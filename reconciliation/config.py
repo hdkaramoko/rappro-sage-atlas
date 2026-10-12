@@ -13,7 +13,7 @@ ATLAS_DATE_COLUMNS = (
     "Date début", "Date fin", "Date comptable", "Date d'import", "Modifié le",
 )
 ATLAS_NUMERIC_COLUMNS = (
-    "Nombre d'unités", "Total charges Atlas (en devise)", "Taux de change",
+    "Total charges Atlas (en devise)", "Taux de change",
     "Total charges projet (€)", "Total charges SAGE (€)", "Ecart comptable",
 )
 ATLAS_INTEGER_COLUMNS = ("Année",)

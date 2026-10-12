@@ -1,5 +1,10 @@
 # Validation des rapprochements Atlas / Sage
 
+Les champs Atlas **Montant refacturables**, **Prix unitaire prévu** et **Nombre
+d'unités** sont affichés et comparés entre campagnes. Voir le
+[guide des champs complémentaires](../docs/champs_atlas_validation.md) pour la
+migration 0012 et la régénération du JSONL par le moteur.
+
 Le bouton **Valider** confirme aussi l'affectation et les risques justifiés, sans
 cases supplémentaires. Les superutilisateurs disposent du lien **Exporter la base
 JSON** dans le menu latéral, avec les commentaires et l'historique des décisions.

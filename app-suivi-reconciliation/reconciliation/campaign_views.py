@@ -163,6 +163,9 @@ def campaign_review(request, pk):
         "payment_method": "Moyen de paiement",
         "total_project_charges": "Charges projet (€)",
         "total_sage_charges": "Charges SAGE (€)",
+        "rebillable_amount": "Montant refacturables",
+        "planned_unit_price": "Prix unitaire prévu",
+        "unit_count": "Nombre d'unités",
         "sage_document_number": "Pièce dans Atlas",
         "accounting_date": "Date comptable",
     }

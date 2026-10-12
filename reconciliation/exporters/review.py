@@ -25,7 +25,10 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     if target.suffix != ".jsonl":
         raise ValueError("Le fichier de validation doit porter l'extension .jsonl")
     target.parent.mkdir(parents=True, exist_ok=True)
+    from reconciliation_contract.atlas_context import ATLAS_CONTEXT, context_number
     canonical = canonical_atlas(atlas)
+    for column in ATLAS_CONTEXT:
+        canonical[column] = [context_number(json_value(value)) for value in atlas[column]] if column in atlas else None
     if controls is not None:
         from reconciliation_contract import EXTRA_INVENTORY
         for column in EXTRA_INVENTORY:
@@ -54,11 +57,14 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                   "sources": {name: Path(path).name for name, path in (source_paths or {}).items()}})
             if version == 3:
                 from reconciliation.multiples import INVENTORY, inventory_rows
-                for row in inventory_rows(atlas):
-                    emit({"type": "inventory", "atlas": {column: row[field] for column, field in INVENTORY.items()}})
+                context_rows = canonical[list(ATLAS_CONTEXT)].itertuples(index=False, name=None)
+                for row, values in zip(inventory_rows(atlas), context_rows, strict=True):
+                    context = dict(zip(ATLAS_CONTEXT, values))
+                    emit({"type": "inventory", "atlas": {**{column: row[field] for column, field in INVENTORY.items()}, **context}})
             else:
-                for values in canonical[list(INVENTORY_COLUMNS)].itertuples(index=False, name=None):
-                    emit({"type": "inventory", "atlas": dict(zip(INVENTORY_COLUMNS, values))})
+                columns = (*INVENTORY_COLUMNS, *ATLAS_CONTEXT)
+                for values in canonical[list(columns)].itertuples(index=False, name=None):
+                    emit({"type": "inventory", "atlas": dict(zip(columns, values))})
             for record in result.to_dict("records"):
                 rows = canonical.iloc[list(record["atlas_source_positions"])].to_dict("records")
                 for row in rows:

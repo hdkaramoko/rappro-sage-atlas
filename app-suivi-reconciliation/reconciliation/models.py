@@ -68,6 +68,15 @@ class ReconciliationTransaction(models.Model):
     total_project_charges = models.DecimalField(
         "total charges projet", max_digits=18, decimal_places=2, null=True, blank=True
     )
+    rebillable_amount = models.DecimalField(
+        "Montant refacturables", max_digits=24, decimal_places=6, null=True, blank=True
+    )
+    planned_unit_price = models.DecimalField(
+        "Prix unitaire prévu", max_digits=24, decimal_places=6, null=True, blank=True
+    )
+    unit_count = models.DecimalField(
+        "Nombre d'unités", max_digits=24, decimal_places=6, null=True, blank=True
+    )
     total_sage_charges = models.DecimalField(
         "total charges SAGE canonique", max_digits=18, decimal_places=2, null=True, blank=True
     )

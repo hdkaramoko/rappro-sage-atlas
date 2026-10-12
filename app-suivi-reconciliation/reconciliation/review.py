@@ -29,23 +29,32 @@ def source_snapshot(line):
             return format(value.quantize(Decimal("0.01")), "f")
         return str(value)
 
+    from reconciliation_contract.atlas_context import ATLAS_CONTEXT, context_number
+
     from .campaigns import stable_evidence
 
     return {
         "atlas": {
-            field.name: stable(getattr(item, field.name))
-            for field in item._meta.fields
-            if field.name
-            in (
-                "source_id",
-                "project",
-                "fiscal_year",
-                "atlas_label",
-                "sage_bap_number",
-                "sage_third_party_code",
-                "total_project_charges",
-                *FIELDS.values(),
-            )
+            **{
+                field: context_number(getattr(item, field))
+                for field in ATLAS_CONTEXT.values()
+                if getattr(item, field) is not None
+            },
+            **{
+                field.name: stable(getattr(item, field.name))
+                for field in item._meta.fields
+                if field.name
+                in (
+                    "source_id",
+                    "project",
+                    "fiscal_year",
+                    "atlas_label",
+                    "sage_bap_number",
+                    "sage_third_party_code",
+                    "total_project_charges",
+                    *FIELDS.values(),
+                )
+            },
         },
         "group": {
             "key": line.group.key,

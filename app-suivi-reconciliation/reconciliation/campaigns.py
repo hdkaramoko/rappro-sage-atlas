@@ -13,6 +13,7 @@ from django.core.exceptions import ValidationError
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import IntegrityError, transaction
 from django.db.models import Subquery
+from reconciliation_contract.atlas_context import ATLAS_CONTEXT, context_number
 
 from imports_app.services import build_business_key
 
@@ -36,7 +37,7 @@ INVENTORY = {
     "N° pièce SAGE": "sage_document_number",
     "Date comptable": "accounting_date",
 }
-LABELS = {value: key for key, value in INVENTORY.items()}
+LABELS = {value: key for key, value in {**INVENTORY, **ATLAS_CONTEXT}.items()}
 BATCH_SIZE = 500
 
 
@@ -70,6 +71,12 @@ def normalize_inventory(raw, *, extended=False):
             "Inventaire incomplet : les huit champs sont obligatoires (valeurs nulles admises)."
         )
     data = {field: raw[column] for column, field in INVENTORY.items()}
+    try:
+        data.update(
+            {field: context_number(raw.get(column)) for column, field in ATLAS_CONTEXT.items()}
+        )
+    except ValueError as exc:
+        raise ValidationError(f"Contexte Atlas invalide : {exc}") from exc
     if extended:
         from reconciliation_contract import EXTRA_INVENTORY
 
@@ -193,7 +200,9 @@ def source_record(line):
     }
     data["project_code"] = line.transaction.project.code
     data = {
-        key: format(value, ".2f") if isinstance(value, Decimal) else value
+        key: (context_number(value) if key in ATLAS_CONTEXT.values() else format(value, ".2f"))
+        if isinstance(value, Decimal)
+        else value
         for key, value in data.items()
     }
     return json_data(data)

@@ -29,6 +29,52 @@ from .review_import import import_bundle
 class MultipleTests(TestCase):
     """Vérifie les décisions, reports et exports avec deux groupes sur une même pièce."""
 
+    def test_multiple_presentation_preserves_sources_and_review_actions(self):
+        """Les colonnes métier remplacent les regroupements sans modifier les preuves."""
+        control = MultipleControl.objects.first()
+        original = copy.deepcopy(control.data)
+        response = self.client.get(
+            reverse("reconciliation:multiples", args=[control.campaign_id])
+        )
+        self.assertContains(response, 'class="button compact ghost"')
+        self.assertContains(
+            response, reverse("reconciliation:multiple-detail", args=[control.pk])
+        )
+        response = self.client.get(
+            reverse("reconciliation:multiple-detail", args=[control.pk])
+        )
+        for label in ("Synthèse", "ID Atlas", "N° pièce Atlas", "N° pièce SAGE"):
+            self.assertContains(response, label)
+        self.assertNotContains(response, "Libellé / tiers")
+        self.assertNotContains(response, "Pièce / date")
+        self.assertNotContains(response, "<th>Référence</th>")
+        self.assertContains(response, 'name="version"')
+        self.assertContains(response, 'name="state"')
+        self.assertContains(response, 'name="comment"')
+        control.refresh_from_db()
+        self.assertEqual(control.data, original)
+
+    def test_prominent_validation_uses_existing_decision_state(self):
+        """Le badge renforcé reste fidèle aux décisions et à la fraîcheur des sources."""
+        self.validate()
+        line = LineReview.objects.get(transaction__source_id="A")
+        url = reverse("reconciliation:review-detail", args=[line.pk])
+        response = self.client.get(url)
+        self.assertContains(response, 'badge success decision-status')
+        self.assertContains(response, "Validé</span>")
+        self.assertContains(response, str(self.user))
+        self.assertContains(response, line.validated_at.strftime("%d/%m/%Y"))
+        LineReview.objects.filter(pk=line.pk).update(state="REJECTED")
+        response = self.client.get(url)
+        self.assertContains(response, 'badge danger decision-status')
+        self.assertNotContains(response, 'badge success decision-status')
+        LineReview.objects.filter(pk=line.pk).update(state="VALIDATED")
+        line.transaction.atlas_label = "Source modifiée"
+        line.transaction.save(update_fields=["atlas_label"])
+        response = self.client.get(url)
+        self.assertContains(response, 'badge warning decision-status')
+        self.assertNotContains(response, 'badge success decision-status')
+
     def test_new_atlas_context_preserves_v3_controls_and_invalidates_validation(self):
         """Le contexte enrichi ne change pas les preuves multiples ; sa variation invalide A."""
         records = copy.deepcopy(self.records)

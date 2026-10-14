@@ -166,3 +166,24 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
 .manual-assignment #id_manual_refs>div{padding:8px 12px;margin:6px 0;background:#f5f7fc;border:1px solid #e0e7f2;border-radius:8px}
 .manual-assignment output{display:block;padding:10px 12px;background:#eef3ff;border-radius:8px;margin:12px 0;font-size:12px}
 .manual-assignment small{display:block;color:#64748b;line-height:1.5}
+
+/* Contrôles des multiples : mêmes cartes et actions que les rapprochements. */
+.multiple-detail-stack {display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+.multiple-summary {grid-template-columns:repeat(3,minmax(0,1fr))}
+.multiple-summary dd {font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.multiple-table {table-layout:fixed}
+.multiple-table th {white-space:normal;overflow-wrap:anywhere}
+.multiple-table td {white-space:normal;overflow-wrap:anywhere}
+.multiple-table .numeric {white-space:nowrap}
+.multiple-table.atlas-composition th:nth-child(2) {width:25%}
+.multiple-table.sage-entries th:nth-child(3) {width:35%}
+.multiple-table th,.multiple-table td {padding:12px 10px}
+.multiple-arbitration {display:grid;gap:18px}
+.multiple-arbitration .field label {margin:0}
+.multiple-arbitration select,.multiple-arbitration textarea {display:block;margin-top:7px}
+.multiple-arbitration .button {justify-self:start}
+.badge.decision-status {font-size:14px;padding:10px 16px;border:1px solid currentColor;white-space:normal}
+.badge.decision-status.success {border-color:#b8dec9;background:#e8f5ee;color:#18714f}
+.badge.decision-status svg {width:19px;height:19px}
+@media(max-width:1200px){.multiple-table {table-layout:auto}.multiple-table.atlas-composition {min-width:860px}.multiple-table.sage-entries {min-width:660px}.multiple-table .multiple-label {min-width:180px;max-width:380px}}
+@media(max-width:760px){.multiple-summary {grid-template-columns:1fr}.multiple-summary dd {font-size:20px}}

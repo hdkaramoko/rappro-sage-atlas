@@ -218,3 +218,7 @@
         ```
         kubectl set image deployment/rappro-sage-atlas-dev rappro-sage-atlas-dev=ghcr.io/hdkaramoko/rappro-sage-atlas:dev-30630d3...
         ```
+    -   Mais du coup le sha, on le récupère avec la commande : ```git rev-parse HEAD```
+    -   Migration et création du superuser
+        *   Appliquer les migrations à la BDD : kubectl exec -it deployments/rappro-sage-atlas-dev -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py migrate'
+        *   kubectl exec -it deployment/rappro-sage-atlas-dev -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py createsuperuser'

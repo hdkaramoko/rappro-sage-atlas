@@ -1,0 +1,8 @@
+{% load review_ui %}{% if piece_check %}
+<section class="card"><div class="section-heading"><h2>Contrôle de cohérence SAGE</h2><p>Diagnostic uniquement · sans effet sur la décision de validation.</p></div>
+<p><span class="badge {% if piece_check.status == 'PIECE_RECONCILED' %}success{% elif piece_check.status == 'PIECE_MISMATCH' %}danger{% else %}warning{% endif %}">{{ piece_check.status|piece_label }}</span></p>
+<dl class="summary-grid"><div><dt>Projet</dt><dd>{{ piece_check.project }}</dd></div><div><dt>Pièce SAGE</dt><dd>{{ piece_check.document }}</dd></div>
+<div><dt>Total SAGE déclaré dans Atlas</dt><dd>{{ piece_check.atlas_total|euros }}</dd></div><div><dt>Total extrait de SAGE</dt><dd>{{ piece_check.sage_total|euros }}</dd></div><div><dt>Écart signé Atlas − SAGE</dt><dd>{{ piece_check.gap|euros }}</dd></div>
+<div><dt>Contrôle individuel</dt><dd>{{ piece_check.individual_status|piece_label }}</dd></div><div><dt>Lignes Atlas / écritures SAGE</dt><dd>{{ piece_check.atlas_count }} / {{ piece_check.sage_count }}</dd></div></dl>
+{% for reason in piece_check.reasons %}<p class="notice warning">{{ reason }}</p>{% endfor %}
+</section>{% endif %}

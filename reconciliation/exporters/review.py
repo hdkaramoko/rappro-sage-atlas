@@ -23,6 +23,9 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     """Un enregistrement par groupe, sources Atlas et lignes Sage complètes incluses."""
     from reconciliation.auto_validation import validate_config, proposal_metadata
     options = validate_config()
+    from reconciliation.piece_coherence import build_piece_checks
+    from reconciliation_contract.piece_coherence import identifier
+    piece_checks = build_piece_checks(atlas, sage)
     target = Path(output_path).resolve()
     if target.suffix != ".jsonl":
         raise ValueError("Le fichier de validation doit porter l'extension .jsonl")
@@ -93,6 +96,10 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                 metadata = proposal_metadata(record, options)
                 if metadata:
                     payload["auto_validation"] = metadata
+                if len(rows) == 1:
+                    diagnostic = piece_checks.get((project, identifier(rows[0].get("N° pièce SAGE"))))
+                    if diagnostic:
+                        payload["piece_coherence"] = diagnostic
                 emit(payload)
                 count += 1
             control_count = 0

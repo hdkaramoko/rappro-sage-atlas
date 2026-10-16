@@ -87,3 +87,6 @@ SAGE_CANONICAL_COLUMNS = {
 
 # Validation métier : activation explicite, après tous les contrôles du moteur.
 AUTO_VALIDATION = {"enabled": True, "statuses": ["MATCH_CONFIRMED_ATLAS", "MATCH_EXACT", "MATCH_AMOUNT"]}
+
+# Première brique : observation uniquement, sans effet sur les validations.
+PIECE_COHERENCE = {"enabled": True, "mode": "DIAGNOSTIC"}

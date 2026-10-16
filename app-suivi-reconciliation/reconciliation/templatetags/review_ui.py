@@ -9,6 +9,19 @@ register.filter("euros", money)
 
 
 @register.filter
+def piece_label(value):
+    return {
+        "PIECE_RECONCILED": "Pièce cohérente avec SAGE",
+        "PIECE_AMBIGUOUS": "Totaux cohérents, écritures à examiner",
+        "PIECE_MISMATCH": "Incohérence constatée",
+        "NOT_CHECKED": "Contrôle non réalisé ou données insuffisantes",
+        "MATCHED": "Tiers, BAP, montants et répétitions concordants",
+        "INSUFFICIENT": "Données insuffisantes pour conclure",
+        "MISMATCH": "Correspondances individuelles incohérentes",
+    }.get(value, "Résultat non disponible")
+
+
+@register.filter
 def integer_fr(value):
     return f"{int(value or 0):,}".replace(",", "\u202f")
 

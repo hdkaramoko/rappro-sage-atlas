@@ -213,10 +213,12 @@ def review_detail(request, pk):
         for candidate in line.group.evidence
         if candidate.get("rows")
     ]
+    campaign_snapshot = line.campaign_reviews.select_related("group").filter(campaign_id=line.campaign_id).first() if line.campaign_id else None
     return render(
         request,
         "reconciliation/review_detail.html",
         {
+            "piece_check": campaign_snapshot.group.data.get("piece_coherence") if campaign_snapshot else None,
             "line": line,
             "manual_candidates": manual_candidates,
             "form": form,
@@ -240,9 +242,7 @@ def review_detail(request, pk):
             "missing": missing,
             "gap": total - line.group.sage_total if line.group.sage_total is not None else None,
             "stale": bool(line.version and not is_current(line)),
-            "campaign_snapshot": line.campaign_reviews.filter(campaign_id=line.campaign_id).first()
-            if line.campaign_id
-            else None,
+            "campaign_snapshot": campaign_snapshot,
             "candidates": candidates,
             "events": list(history_rows(line.events.select_related("actor")[:50])),
             "allocation_context": {

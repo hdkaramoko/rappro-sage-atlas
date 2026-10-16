@@ -475,8 +475,13 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 1  # Une page ouverte avant l'import ne décide pas dans la nouvelle campagne.
             )
             group.save(update_fields=["context_signature", "version"])
+            from .piece_coherence import validate_proposal_check
+
+            diagnostic = validate_proposal_check(payload)
             frozen_group = CampaignGroup.objects.create(
-                campaign=campaign, key=group.key, data={**group_snapshot(group), "auto_validation": payload.get("auto_validation")}
+                campaign=campaign, key=group.key,
+                data={**group_snapshot(group), "auto_validation": payload.get("auto_validation"),
+                      **({"piece_coherence": diagnostic} if diagnostic is not None else {})},
             )
             previous_reviews = (
                 {

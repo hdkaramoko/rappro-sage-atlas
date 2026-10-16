@@ -177,6 +177,7 @@ def campaign_review(request, pk):
         "reconciliation/campaign_review.html",
         {
             "snapshot": row,
+            "piece_check": row.group.data.get("piece_coherence"),
             "source_fields": [(label, row.source.get(key)) for key, label in source_labels.items()],
             "comparison_label": COMPARISONS.get(row.comparison, row.comparison),
             "validated_at": parse_datetime(row.decision.get("validated_at") or ""),

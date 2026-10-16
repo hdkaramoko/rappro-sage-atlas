@@ -3,18 +3,19 @@
 ## Activation
 
 La configuration du moteur est un module Python, `reconciliation/config.py`.
-La fonctionnalité est livrée désactivée :
+Pour désactiver la fonctionnalité :
 
 ```python
 AUTO_VALIDATION = {"enabled": False, "statuses": []}
 ```
 
-Pour autoriser les preuves Atlas confirmées et les correspondances exactes :
+Exemple pour autoriser les preuves Atlas confirmées, correspondances exactes,
+montants et libellés très proches :
 
 ```python
 AUTO_VALIDATION = {
     "enabled": True,
-    "statuses": ["MATCH_CONFIRMED_ATLAS", "MATCH_EXACT"],
+    "statuses": ["MATCH_CONFIRMED_ATLAS", "MATCH_EXACT", "MATCH_AMOUNT", "MATCH_FUZZY_HIGH"],
 }
 ```
 
@@ -22,8 +23,14 @@ Ces codes sont des **règles** du moteur ; son statut final est `MATCHED`.
 La configuration accepte les règles existantes et le statut `MATCHED`.
 Une valeur inconnue produit une erreur explicite lors de l'export JSONL.
 Une autorisation ne suffit jamais à contourner les contrôles de sûreté.
-Les règles expérimentales (dont fuzzy), les agrégations, les cardinalités
-incohérentes, les ambiguïtés et les écarts supérieurs à 0,01 restent manuels.
+Les règles de rapprochement configurées sont désormais éligibles :
+`MATCH_CONFIRMED_ATLAS`, `MATCH_EXACT`, `MATCH_AMOUNT`, `MATCH_FUZZY_HIGH`,
+`MATCH_FUZZY_REVIEW`, `MATCH_WITHOUT_LABEL`. Aucune règle n'est ajoutée implicitement
+à votre configuration. Le statut global `MATCHED`, toujours accepté pour
+compatibilité, autorise toutes ces règles : préférer une liste explicite.
+`AMBIGUOUS` et `UNMATCHED` ne déclenchent jamais une auto-validation.
+Les groupes comportant plusieurs lignes Atlas, les ambiguïtés et les écarts
+supérieurs à 0,01 restent manuels. `MATCH_EXACT` garde sa contrainte de cardinalité.
 Une preuve Atlas confirmée doit également avoir un montant Atlas connu et
 compatible avec le montant Sage confirmé.
 
@@ -31,7 +38,10 @@ compatible avec le montant Sage confirmé.
 
 1. Le rapprochement termine ses contrôles habituels. Il n'est pas modifié.
 2. `reconciliation/auto_validation.py` examine le résultat final : autorisation,
-   absence de revue requise, règle sûre, unicité et concordance des montants.
+   règle autorisée, preuve complète, unicité et concordance des montants.
+   Pour une règle expérimentale, le drapeau `requires_review` est attendu :
+   l'autorisation explicite lève cette réserve, mais le motif final doit être
+   `UNIQUE_CANDIDATE`. Une preuve incomplète ou un conflit reste bloquant.
 3. `reconciliation/exporters/review.py` ajoute un objet facultatif à la proposition
    JSONL. Le moteur ne crée ni auteur ni date de validation.
 4. Django importe inventaire, propositions et contrôles dans sa transaction
@@ -45,6 +55,20 @@ compatible avec le montant Sage confirmé.
    l'origine `AUTO`, la règle, un commentaire et un `ReviewEvent`. L'auteur est
    nul (système), ce que le modèle autorise ; aucun compte privilégié n'est créé.
    Un savepoint empêche une projection partielle lorsqu'une demande est refusée.
+
+Pour `MATCH_AMOUNT`, une ligne Atlas peut correspondre à plusieurs écritures
+Sage dans un candidat unique : toutes doivent porter la même pièce et la même
+date, avec montant total compatible. Aucune répartition automatique entre
+plusieurs lignes Atlas n'est introduite. Les mêmes contrôles s'appliquent aux
+règles fuzzy et sans libellé. Django partage les codes admissibles avec le moteur
+via `reconciliation_contract/auto_validation.py`, mais continue à appliquer ses
+propres contrôles de preuve et de projection.
+
+La configuration reste une autorisation côté moteur, transportée dans le JSONL.
+Modifier la liste ne réévalue pas un ancien fichier : générer et importer une
+nouvelle campagne. Les décisions humaines, même périmées, restent prioritaires.
+Le contrat JSONL et le modèle de données ne changent pas ; aucune nouvelle
+migration n'est nécessaire pour cette extension.
 
 Les indicateurs et les exports utilisent déjà `VALIDATED` et l'empreinte courante :
 les validations automatiques y participent par le même chemin. La liste affiche
@@ -103,6 +127,18 @@ Les autres fichiers concernés sont `review.py` (service mutualisé et audit),
 les composants de décision et le formulaire de filtres (présentation).
 
 ## Vérification
+
+Vérification de l'extension pilotée par configuration : 135 tests moteur réussis
+(un ignoré), 92 tests Django sans échec (un ignoré), puis deux tests ciblés
+supplémentaires réussis pour l'invalidation d'une décision fuzzy après changement
+de contrôle et la priorité d'un refus humain. Les scénarios couvrent aussi les
+projections v3, le report sans doublon, les preuves incompatibles et les règles
+non autorisées. Aucun changement du modèle ni migration supplémentaire.
+
+La configuration présente lors de cette évolution reste inchangée :
+`MATCH_CONFIRMED_ATLAS`, `MATCH_EXACT`, `MATCH_AMOUNT`, fonctionnalité activée.
+Pour activer également les libellés très proches, ajouter explicitement
+`MATCH_FUZZY_HIGH` puis générer une nouvelle campagne JSONL.
 
 Les tests moteur sont dans `tests/test_auto_validation.py` ; les scénarios Django
 dans `reconciliation/test_auto_validation.py` de l'application. Utiliser :

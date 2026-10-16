@@ -1,6 +1,8 @@
 """Applique une proposition automatique via les contraintes de la décision manuelle."""
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from decimal import Decimal
+from reconciliation_contract.auto_validation import AUTO_VALIDATION_RULES
 from .models import LineReview, ReviewEvent
 from .review import FIELDS, decide, is_current, signature
 from .campaigns import decision_record
@@ -39,10 +41,6 @@ def apply_automatic_validations(campaign):
                     snapshot={"validation_source": "AUTO", "state": "STALE",
                               "reason": "Autorisation automatique absente"})
                 continue
-            if (is_current(line)
-                and metadata == {"source": "AUTO", "rule": line.group.rule, "state": "VALIDATED"}
-                and line.pk not in shared_lines):
-                continue
         if not metadata:
             continue
         try:
@@ -50,19 +48,29 @@ def apply_automatic_validations(campaign):
                 raise ValidationError("Preuve partagée entre propositions : contrôle manuel requis")
             if metadata != {"source": "AUTO", "rule": line.group.rule, "state": "VALIDATED"}:
                 raise ValidationError("Métadonnées automatiques invalides")
-            if line.group.match_status != "MATCHED" or line.group.rule not in ("MATCH_EXACT", "MATCH_CONFIRMED_ATLAS") or line.group.lines.count() != 1:
+            if line.group.match_status != "MATCHED" or line.group.rule not in AUTO_VALIDATION_RULES or line.group.lines.count() != 1:
                 raise ValidationError("Proposition automatique non unique ou non fiable")
             amount = line.transaction.total_project_charges
-            if amount is None or line.group.sage_total is None or abs(amount-line.group.sage_total) > 0.01:
+            if amount is None or line.group.sage_total is None or abs(amount-line.group.sage_total) > Decimal("0.01"):
                 raise ValidationError("Montants incompatibles avec une validation automatique")
             values = {name: {"mode": "KEEP"} for name in FIELDS}
-            if line.group.rule == "MATCH_EXACT":
+            if line.group.rule != "MATCH_CONFIRMED_ATLAS":
                 proofs = [r for candidate in line.group.evidence for r in candidate.get("rows", [])]
-                if len(proofs) != 1:
+                if len(line.group.evidence) != 1 or not proofs:
+                    raise ValidationError("Preuve Sage non unique")
+                # Plusieurs écritures peuvent étayer MATCH_AMOUNT ; elles
+                # doivent désigner une seule pièce/date pour cette ligne Atlas.
+                identities = {(str(r.get("Numéro pièce") or "").strip(),
+                               str(r.get("Date comptable") or "")[:10]) for r in proofs}
+                if len(identities) != 1 or any(not doc or not date for doc, date in identities):
+                    raise ValidationError("Preuves Sage incomplètes ou pièce/date non unique")
+                if line.group.rule == "MATCH_EXACT" and len(proofs) != 1:
                     raise ValidationError("Preuve Sage non unique")
                 proof = proofs[0]
                 values.update(document={"mode": "SET", "value": proof.get("Numéro pièce")}, date={"mode": "SET", "value": str(proof.get("Date comptable", ""))[:10]})
             values["amount"] = {"mode": "SET", "value": str(line.group.sage_total)}
+            if line.validation_source == "AUTO" and is_current(line):
+                continue
             # Savepoint : un contrôle refus? ne laisse aucune contribution partielle.
             with transaction.atomic():
                 decide(line.pk, None, state="VALIDATED", values=values,

@@ -223,6 +223,8 @@ def campaign_export(request, pk):
         "Affectation métier",
         "Écritures SAGE affectées",
         "Diagnostic multiples",
+        "Origine de décision",
+        "Règle automatique",
     ]
     sheet = book.create_sheet("Corrections validées")
     sheet.append(headers)
@@ -255,6 +257,8 @@ def campaign_export(request, pk):
                 "MANUAL_MATCH" if decision.get("manual_assignment") else "",
                 json.dumps(decision.get("manual_assignment", []), ensure_ascii=False),
                 json.dumps(decision.get("multiple_diagnostic", {}), ensure_ascii=False),
+                decision.get("validation_source", "MANUAL"),
+                decision.get("auto_validation_rule", ""),
             ]
             cells = []
             for value in values:

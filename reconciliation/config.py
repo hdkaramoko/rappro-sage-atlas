@@ -84,3 +84,6 @@ SAGE_CANONICAL_COLUMNS = {
     "label": "Libellé pièce",
     "third_party": "Nom du Tiers",
 }
+
+# Validation métier : activation explicite, après tous les contrôles du moteur.
+AUTO_VALIDATION = {"enabled": False, "statuses": []}

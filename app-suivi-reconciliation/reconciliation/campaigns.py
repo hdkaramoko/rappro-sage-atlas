@@ -212,6 +212,8 @@ def decision_record(line):
     """Photographie décision, auteur, origine, affectation et diagnostic multiple."""
     return json_data(
         {
+            "validation_source": line.validation_source,
+            "auto_validation_rule": line.auto_validation_rule,
             "state": line.state,
             "values": line.values,
             "manual_assignment": line.manual_assignment,
@@ -474,7 +476,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
             )
             group.save(update_fields=["context_signature", "version"])
             frozen_group = CampaignGroup.objects.create(
-                campaign=campaign, key=group.key, data=group_snapshot(group)
+                campaign=campaign, key=group.key, data={**group_snapshot(group), "auto_validation": payload.get("auto_validation")}
             )
             previous_reviews = (
                 {
@@ -496,6 +498,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
                     from django.utils.dateparse import parse_datetime
 
                     prior = old.decision
+                    line.validation_source = prior.get("validation_source", "MANUAL")
+                    line.auto_validation_rule = prior.get("auto_validation_rule", "")
                     line.state = prior["state"]
                     line.values = prior["values"]
                     line.manual_assignment = prior.get("manual_assignment", [])
@@ -548,6 +552,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 line.save(
                     update_fields=[
                         "campaign",
+                        "validation_source",
+                        "auto_validation_rule",
                         "source_signature",
                         "state",
                         "values",
@@ -600,4 +606,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
         active.save(update_fields=["is_current"])
     campaign.is_current = True
     campaign.save(update_fields=["is_current"])
+    from .auto_validation import apply_automatic_validations
+
+    apply_automatic_validations(campaign)
     return count

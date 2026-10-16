@@ -1,6 +1,6 @@
 {% load review_ui %}
 <section class="card history-card"><div class="section-heading"><p class="eyebrow">Traçabilité</p><h2>Historique</h2><p>Les 50 derniers enregistrements de cette ligne.</p></div>
-{% if events %}<ol class="timeline">{% for event in events %}<li><div class="timeline-heading"><strong>{{ event.decision }}</strong><time>{{ event.created_at|date:"d/m/Y à H:i" }}</time></div><p class="muted">{{ event.actor|default:"Compte supprimé" }} · Version {{ event.snapshot.version }}</p>
+{% if events %}<ol class="timeline">{% for event in events %}<li><div class="timeline-heading"><strong>{{ event.decision }}</strong><time>{{ event.created_at|date:"d/m/Y à H:i" }}</time></div><p class="muted">{% if event.snapshot.validation_source == 'AUTO' %}Système · Validation automatique · {{ event.snapshot.auto_validation_rule }}{% else %}{{ event.actor|default:"Compte supprimé" }}{% endif %} · Version {{ event.snapshot.version }}</p>
 {% if event.changes %}<dl class="change-list">{% for change in event.changes %}<div><dt>{{ change.label }}</dt><dd>{{ change.before }} <span aria-label="devient">→</span> <strong>{{ change.after }}</strong></dd></div>{% endfor %}</dl>{% endif %}
 {% if event.snapshot.comment %}<blockquote>{{ event.snapshot.comment }}</blockquote>{% endif %}
 {% if event.snapshot.warnings %}<details><summary>Écarts justifiés lors de la validation</summary><ul>{% for warning in event.snapshot.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></details>{% endif %}

@@ -238,6 +238,8 @@ class LineReview(models.Model):
     multiple_context = models.JSONField(default=dict)
     multiple_diagnostic = models.JSONField(default=dict)
     comment = models.TextField(blank=True)
+    validation_source = models.CharField(max_length=6, default="MANUAL", choices=[("MANUAL", "Manuelle"), ("AUTO", "Automatique")])
+    auto_validation_rule = models.CharField(max_length=64, blank=True)
     source_signature = models.CharField(max_length=64, blank=True)
     version = models.PositiveIntegerField(default=0)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)

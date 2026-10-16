@@ -21,6 +21,8 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                         scope="atlas-complet", source_paths=None, year=None,
                         controls=None, amount_field="total_sage_charges", tolerance="0.01"):
     """Un enregistrement par groupe, sources Atlas et lignes Sage complètes incluses."""
+    from reconciliation.auto_validation import validate_config, proposal_metadata
+    options = validate_config()
     target = Path(output_path).resolve()
     if target.suffix != ".jsonl":
         raise ValueError("Le fichier de validation doit porter l'extension .jsonl")
@@ -88,6 +90,9 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                 payload = {"type": "proposal", "schema_version": version, "key": key, "project": project,
                            "rule": record["match_rule"], "match_status": record["match_status"],
                            "sage_total": record["sage_amount"], "evidence": evidence, "atlas": rows}
+                metadata = proposal_metadata(record, options)
+                if metadata:
+                    payload["auto_validation"] = metadata
                 emit(payload)
                 count += 1
             control_count = 0

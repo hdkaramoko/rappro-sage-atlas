@@ -83,6 +83,12 @@ def upsert_group(payload, number, seen):
 @transaction.atomic
 def import_bundle(path, *, job=None, progress=None):
     """Valide et importe atomiquement ; le worker SQLite appelle ce service sur sa copie privée."""
+    import hashlib
+    from pathlib import Path
+    file_hash = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    existing = Campaign.objects.filter(file_hash=file_hash).first()
+    if existing:
+        return existing.reviews.count()
     with open(path, encoding="utf-8") as stream:
         first = stream.readline()
         if not first:
@@ -91,7 +97,9 @@ def import_bundle(path, *, job=None, progress=None):
         if header.get("type") == "campaign":
             from .campaigns import import_campaign
 
-            return import_campaign(header, stream, job=job, progress=progress)
+            count = import_campaign(header, stream, job=job, progress=progress)
+            Campaign.objects.filter(is_current=True).update(file_hash=file_hash)
+            return count
         if Campaign.objects.exists():
             raise ValidationError(
                 "Une campagne avec inventaire (format v2) est requise. Relancez le moteur."

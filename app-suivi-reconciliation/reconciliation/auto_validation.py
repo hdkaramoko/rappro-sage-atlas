@@ -1,0 +1,79 @@
+"""Applique une proposition automatique via les contraintes de la décision manuelle."""
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from .models import LineReview, ReviewEvent
+from .review import FIELDS, decide, is_current, signature
+from .campaigns import decision_record
+
+
+def apply_automatic_validations(campaign):
+    # Recenser toutes les revendications avant de décider : l'ordre du fichier
+    # ne doit pas donner la priorité à la première de deux preuves partagées.
+    claims = {}
+    for frozen in campaign.reviews.select_related("group"):
+        data = frozen.group.data
+        proofs = [r for c in data.get("evidence", []) for r in c.get("rows", [])]
+        keys = {(frozen.source["project_code"], str(r.get("Numéro pièce", "")),
+                 str(r.get("Date comptable", ""))[:10]) for r in proofs}
+        if data.get("rule") == "MATCH_CONFIRMED_ATLAS":
+            keys.add((frozen.source["project_code"], frozen.source.get("sage_document_number"),
+                      str(frozen.source.get("accounting_date", ""))[:10]))
+        for key in keys:
+            claims.setdefault(key, set()).add(frozen.line_id)
+    shared_lines = {pk for members in claims.values() if len(members) > 1 for pk in members}
+    for frozen in campaign.reviews.select_related("group"):
+        line = LineReview.objects.select_related("transaction__project", "group", "campaign").get(pk=frozen.line_id)
+        metadata = frozen.group.data.get("auto_validation")
+        # Toute décision humaine, y compris un brouillon enregistré, est prioritaire.
+        if line.version and line.validation_source == "MANUAL":
+            continue
+        if line.validation_source == "AUTO":
+            # Une ancienne validation ne peut survivre à la disparition de l'autorisation.
+            if not metadata:
+                line.source_signature = ""
+                line.save(update_fields=["source_signature"])
+                frozen.reasons.append("Autorisation automatique absente : contrôle manuel requis")
+                frozen.decision = decision_record(line)
+                frozen.save(update_fields=["decision", "reasons"])
+                ReviewEvent.objects.get_or_create(line=line, campaign=campaign,
+                    snapshot={"validation_source": "AUTO", "state": "STALE",
+                              "reason": "Autorisation automatique absente"})
+                continue
+            if (is_current(line)
+                and metadata == {"source": "AUTO", "rule": line.group.rule, "state": "VALIDATED"}
+                and line.pk not in shared_lines):
+                continue
+        if not metadata:
+            continue
+        try:
+            if line.pk in shared_lines:
+                raise ValidationError("Preuve partagée entre propositions : contrôle manuel requis")
+            if metadata != {"source": "AUTO", "rule": line.group.rule, "state": "VALIDATED"}:
+                raise ValidationError("Métadonnées automatiques invalides")
+            if line.group.match_status != "MATCHED" or line.group.rule not in ("MATCH_EXACT", "MATCH_CONFIRMED_ATLAS") or line.group.lines.count() != 1:
+                raise ValidationError("Proposition automatique non unique ou non fiable")
+            amount = line.transaction.total_project_charges
+            if amount is None or line.group.sage_total is None or abs(amount-line.group.sage_total) > 0.01:
+                raise ValidationError("Montants incompatibles avec une validation automatique")
+            values = {name: {"mode": "KEEP"} for name in FIELDS}
+            if line.group.rule == "MATCH_EXACT":
+                proofs = [r for candidate in line.group.evidence for r in candidate.get("rows", [])]
+                if len(proofs) != 1:
+                    raise ValidationError("Preuve Sage non unique")
+                proof = proofs[0]
+                values.update(document={"mode": "SET", "value": proof.get("Numéro pièce")}, date={"mode": "SET", "value": str(proof.get("Date comptable", ""))[:10]})
+            values["amount"] = {"mode": "SET", "value": str(line.group.sage_total)}
+            # Savepoint : un contrôle refus? ne laisse aucune contribution partielle.
+            with transaction.atomic():
+                decide(line.pk, None, state="VALIDATED", values=values,
+                       comment=f"Validation automatique — type de match : {line.group.rule}",
+                       expected_version=line.version, expected_group_version=line.group.version,
+                       expected_source=signature(line), _automatic=True)
+        except ValidationError as exc:
+            if line.validation_source == "AUTO":
+                line.refresh_from_db()
+                line.source_signature = ""
+                line.save(update_fields=["source_signature"])
+                frozen.decision = decision_record(line)
+            frozen.reasons.extend(exc.messages)
+            frozen.save(update_fields=["reasons", "decision"])

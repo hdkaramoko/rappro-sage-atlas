@@ -62,6 +62,8 @@ def review_list(request):
         items = items.filter(transaction__project__code=project)
     if state in ("DRAFT", "VALIDATED", "REJECTED"):
         items = items.filter(state=state)
+    if request.GET.get("validation_source") in ("AUTO", "MANUAL"):
+        items = items.filter(validation_source=request.GET["validation_source"])
     size = request.GET.get("page_size", "50")
     size = int(size) if size in ("25", "50", "100") else 50
     page = Paginator(items.order_by("transaction__project__code", "pk"), size).get_page(

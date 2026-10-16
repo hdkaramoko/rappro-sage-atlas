@@ -115,6 +115,7 @@ def decide(
     manual_refs=None,
     manual_confirm=False,
     multiple_confirm=False,
+    _automatic=False,
 ):
     """Verrouille le groupe pour éviter deux répartitions concurrentes incompatibles."""
     entry = LineReview.objects.get(pk=line_id)
@@ -135,7 +136,7 @@ def decide(
         raise ValidationError("Le groupe a changé. Rechargez la page.")
     line.group = group
     if (
-        not ReconciliationTransaction.objects.visible_for(user)
+        not _automatic and not ReconciliationTransaction.objects.visible_for(user)
         .filter(pk=line.transaction_id)
         .exists()
     ):
@@ -222,6 +223,8 @@ def decide(
     )
     before = {"state": line.state, "values": line.values, "version": line.version}
     before["manual_assignment"] = line.manual_assignment
+    line.validation_source = "AUTO" if _automatic else "MANUAL"
+    line.auto_validation_rule = group.rule if _automatic else ""
     line.manual_assignment = selection
     line.multiple_diagnostic = diagnostic
     line.state, line.values, line.comment = state, values, comment.strip()
@@ -247,6 +250,8 @@ def decide(
         campaign=campaign,
         snapshot={
             "before": before,
+            "validation_source": line.validation_source,
+            "auto_validation_rule": line.auto_validation_rule,
             "state": state,
             "values": values,
             "comment": line.comment,

@@ -1,6 +1,6 @@
-# Première brique — Diagnostic de cohérence Atlas / SAGE
+# Cohérence Atlas / SAGE — Diagnostic et activation collective
 
-Cette livraison correspond à l'étape 1 de
+Le diagnostic correspond à l'étape 1 de
 `prompts/prompt_gestion_confirme_atlas.md` : calculer, conserver et afficher les
 contrôles, sans les utiliser pour déclencher de nouvelles validations automatiques.
 La signification de `MATCH_CONFIRMED_ATLAS` et les règles de validation existantes
@@ -16,9 +16,24 @@ PIECE_COHERENCE = {"enabled": True, "mode": "DIAGNOSTIC"}
 ```
 
 `enabled=False` omet les nouveaux diagnostics à l'export, sans toucher à
-`AUTO_VALIDATION`. Seul `DIAGNOSTIC` est accepté ; aucun mode d'activation des
-validations collectives n'est livré. La future étape 2 nécessitera notamment
-l'allocation collective, le contrôle des doubles emplois et une activation explicite.
+`AUTO_VALIDATION`. `DIAGNOSTIC` conserve le fonctionnement de la première brique.
+L'étape 2 est maintenant disponible via `ACTIVE`, désactivé par défaut :
+
+```python
+PIECE_COHERENCE = {"enabled": True, "mode": "ACTIVE"}
+```
+
+`AUTO_VALIDATION.enabled` doit également être actif et sa liste doit autoriser
+`MATCH_CONFIRMED_ATLAS` (ou le statut général `MATCHED`). La configuration existante
+`AUTO_VALIDATION` n'est pas modifiée par cette livraison. Le JSONL doit être régénéré :
+l'en-tête transporte `piece_coherence_mode = ACTIVE`, le diagnostic et les demandes
+individuelles demeurent des champs distincts. Les demandes confirmées sont omises
+si le diagnostic n'est pas `PIECE_RECONCILED`. L'activation exige le contrat v3 et
+ses contrôles SAGE ; un export v2 actif est refusé explicitement.
+
+Le champ `mode` de l'objet diagnostic lui-même reste `DIAGNOSTIC` : c'est un résultat
+de calcul inchangé, pas une autorisation. Seul l'en-tête actif et les demandes
+`auto_validation` peuvent activer le service collectif à l'import.
 
 Pour afficher ces informations, produire **une nouvelle campagne** puis l'importer
 par le parcours habituel, par exemple :
@@ -28,8 +43,97 @@ par le parcours habituel, par exemple :
 ```
 
 L'ancien JSONL reste inchangé. Le réimport du même fichier ne recalcule rien.
-Aucune migration ni modification de la base métier n'est nécessaire pour cette
-brique : les diagnostics sont stockés dans les photographies JSON existantes.
+Les diagnostics utilisent les photographies JSON existantes. Pour l'étape 2,
+appliquer la migration additive `0014_linereview_automatic_assignment` depuis
+`app-suivi-reconciliation` avant d'importer une nouvelle campagne :
+
+```powershell
+..\.venv\Scripts\python.exe manage.py migrate
+```
+
+Cette migration n'a pas été appliquée à la base métier pendant l'implémentation.
+
+## Étape 2 — Validation collective
+
+`reconciliation/collective_validation.py` côté Django groupe les lignes par
+projet/pièce. Il exige la composition complète de la pièce, le même diagnostic
+réconcilié sur tous ses membres, une demande automatique conforme et la règle
+`MATCH_CONFIRMED_ATLAS` pour chaque membre. Une autre proposition revendiquant
+la pièce, un refus, un brouillon ou une validation humaine empêche de nouvelles
+validations automatiques de cette pièce ; les décisions humaines sont conservées.
+
+L'affectation établit une bijection déterministe tiers/BAP/date/montant : les
+répétitions légitimes utilisent des références d'écritures distinctes. La date ne
+découpe pas le diagnostic collectif, mais doit rester compatible avec la preuve
+individuelle pour la validation. Les tolérances et signes restent contrôlés.
+
+`piece_coherence.py::verified_assignment` compare chaque réservation aux vraies
+écritures des contrôles v3 : même périmètre, références, montants, tiers, dates et
+journaux. Une pièce déjà comptabilisée dans les contributions sources, une stratégie
+non standard ou un contrôle incertain reste bloquant. Le diagnostic seul n'est
+jamais suffisant pour réserver une écriture.
+
+Toutes les contributions sont réservées avant la première décision, puis la
+projection collective est vérifiée. Chaque décision passe encore par `review.decide`
+sans dérogation. Un savepoint englobe toute la pièce : si le dernier membre échoue,
+les décisions, événements et contributions précédents sont annulés. Les raisons
+de refus sont conservées sur tous les membres. Les anciennes décisions AUTO de
+la pièce deviennent périmées et leurs contributions courantes sont retirées.
+
+`multiple_review.py` ne considère plus comme anormal le partage d'une pièce entre
+affectations collectives vérifiées portant sur des écritures distinctes. Les
+doubles emplois de référence, conflits avec d'autres propositions et autres risques
+restent bloquants. Le comportement des autres règles de rapprochement est conservé.
+
+### Historique, reprises et intervention humaine
+
+Le champ `LineReview.automatic_assignment` conserve la référence de preuve de la
+pièce et l'écriture attribuée. Il est distinct de `manual_assignment` et conservé
+dans les photographies et événements. L'empreinte des décisions collectives inclut
+cette affectation et le contexte courant du contrôle de pièce.
+
+- Une campagne inchangée conserve les décisions sans événements supplémentaires.
+- Une preuve ou un membre modifié impose une réévaluation de toute la pièce.
+- Une pièce devenue incohérente, incomplète ou privée d'autorisation ne conserve
+  aucune ancienne validation AUTO courante. Les photographies passées restent intactes.
+- Le retour en mode diagnostic invalide les anciennes validations fondées sur
+  l'affectation collective ; il ne les reconduit pas via le traitement individuel.
+- Une intervention humaine efface l'affectation automatique sur la ligne,
+  devient `MANUAL` et conserve l'affectation antérieure dans l'événement. Les
+  imports suivants respectent cette priorité humaine.
+- Le réimport du même fichier conserve l'idempotence existante par SHA-256.
+
+Le détail courant et historique affiche l'écriture SAGE attribuée ; l'export de
+campagne ajoute une colonne « Affectation automatique SAGE ». Les badges et le
+tableau principal conservent leur présentation métier.
+
+### Vérification de l'activation
+
+Tests moteur : 154 réussites, un ignoré. Tests Django complets avant l'ajout de la
+colonne d'export : 133 tests sans échec, un ignoré. Les scénarios collectifs couvrent
+la pièce unique/partagée, les répétitions, le réimport, le report intercampagnes,
+l'absence d'autorisation d'un membre, les preuves incohérentes, les décisions
+humaines, la désactivation, l'altération du contrôle et l'échec du dernier membre.
+Après l'ajout de l'affichage de l'écriture et de l'export : 41 tests ciblés
+(collectif, campagnes, UI) réussis, puis un test supplémentaire réussi de rejet
+d'un mode d'activation inconnu. `makemigrations --check --dry-run` ne détecte
+aucune modification de modèle manquante après la migration 0014.
+
+Fichiers propres à l'activation : `collective_validation.py` (transaction de pièce),
+`piece_coherence.py` côté Django (vérification des affectations), `multiple_review.py`
+(réservation par écriture et partage sûr), `review.py` (décision mutualisée et audit),
+`models.py` et migration 0014 (affectation persistante), `campaigns.py` (photographies
+et validation du mode), `auto_validation.py` (dispatch collectif/individuel),
+`exporters/review.py` et `reconciliation/piece_coherence.py` (autorisation transportée),
+les vues, le composant de détail et l'export de campagne, ainsi que
+`test_collective_validation.py` et `tests/test_piece_coherence.py`.
+
+Rejeu local en base SQLite **en mémoire** : la pièce
+`24SSE0C443 / NDF0126090511` passe en AUTO/VALIDATED sur ses **six lignes**, avec
+six contributions portant sur des écritures distinctes. Aucun import actif n'a
+été exécuté dans la base métier. Le décompte de 1 376 lignes cohérentes ci-dessous
+reste celui du diagnostic de l'étape 1 ; il ne préjuge pas du nombre final de lignes
+validables après les garde-fous supplémentaires de l'étape 2.
 
 ## Calcul effectué
 

@@ -67,6 +67,7 @@ def source_snapshot(line):
             **({"members": line.group.context_signature} if line.group.context_signature else {}),
         },
         **({"multiple_context": line.multiple_context} if line.multiple_context else {}),
+        **({"automatic_assignment": line.automatic_assignment} if line.automatic_assignment else {}),
     }
 
 
@@ -116,6 +117,8 @@ def decide(
     manual_confirm=False,
     multiple_confirm=False,
     _automatic=False,
+    _automatic_assignment=None,
+    _previous_automatic_assignment=None,
 ):
     """Verrouille le groupe pour éviter deux répartitions concurrentes incompatibles."""
     entry = LineReview.objects.get(pk=line_id)
@@ -218,11 +221,15 @@ def decide(
         raise ValidationError(
             "Expliquez votre affectation manuelle dans le commentaire avant validation"
         )
+    previous_assignment = (line.automatic_assignment if _previous_automatic_assignment is None
+                           else _previous_automatic_assignment)
+    line.automatic_assignment = (_automatic_assignment or {}) if _automatic else {}
     diagnostic = apply_projection(
         line, resolved, selection, state=state, confirmed=multiple_confirm, comment=comment
     )
     before = {"state": line.state, "values": line.values, "version": line.version}
     before["manual_assignment"] = line.manual_assignment
+    before["automatic_assignment"] = previous_assignment
     line.validation_source = "AUTO" if _automatic else "MANUAL"
     line.auto_validation_rule = group.rule if _automatic else ""
     line.manual_assignment = selection
@@ -260,6 +267,7 @@ def decide(
             "warnings": warnings,
             "derogation": bool(warnings and acknowledge),
             "manual_assignment": selection,
+            "automatic_assignment": line.automatic_assignment,
             "matching_decision": "MANUAL_MATCH" if selection else "ENGINE_PROPOSAL",
             "multiple_diagnostic": diagnostic,
         },

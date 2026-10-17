@@ -217,6 +217,7 @@ def decision_record(line):
             "state": line.state,
             "values": line.values,
             "manual_assignment": line.manual_assignment,
+            "automatic_assignment": line.automatic_assignment,
             "multiple_context": line.multiple_context,
             "multiple_diagnostic": line.multiple_diagnostic,
             "comment": line.comment,
@@ -334,6 +335,11 @@ def import_campaign(header, stream, *, job=None, progress=None):
     if header.get("schema_version") not in (2, 3):
         raise ValidationError("Version de campagne non prise en charge")
     v3 = header["schema_version"] == 3
+    piece_mode = header.get("piece_coherence_mode", "DIAGNOSTIC")
+    if piece_mode not in ("DIAGNOSTIC", "ACTIVE"):
+        raise ValidationError("Mode de cohérence SAGE inconnu")
+    if piece_mode == "ACTIVE" and not v3:
+        raise ValidationError("L'activation collective exige une campagne v3")
     if v3:
         from .multiple_import import validate_header
 
@@ -508,6 +514,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
                     line.state = prior["state"]
                     line.values = prior["values"]
                     line.manual_assignment = prior.get("manual_assignment", [])
+                    line.automatic_assignment = prior.get("automatic_assignment", {})
                     line.multiple_context = prior.get("multiple_context", {})
                     line.multiple_diagnostic = prior.get("multiple_diagnostic", {})
                     line.comment = prior["comment"]
@@ -563,6 +570,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
                         "state",
                         "values",
                         "manual_assignment",
+                        "automatic_assignment",
                         "multiple_context",
                         "multiple_diagnostic",
                         "comment",

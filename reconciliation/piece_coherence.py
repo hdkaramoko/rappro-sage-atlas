@@ -16,8 +16,8 @@ SAGE_COLUMNS = ("Projet", "Numéro pièce", "Date comptable", "Code Tiers - Tier
 def build_piece_checks(atlas, sage):
     options = config.PIECE_COHERENCE
     if (not isinstance(options, dict) or type(options.get("enabled")) is not bool
-            or options.get("mode") != "DIAGNOSTIC"):
-        raise ValueError("PIECE_COHERENCE : enabled booléen et mode DIAGNOSTIC requis")
+            or options.get("mode") not in ("DIAGNOSTIC", "ACTIVE")):
+        raise ValueError("PIECE_COHERENCE : enabled booléen et mode DIAGNOSTIC ou ACTIVE requis")
     if not options["enabled"]:
         return {}
     groups, entries = defaultdict(list), defaultdict(list)

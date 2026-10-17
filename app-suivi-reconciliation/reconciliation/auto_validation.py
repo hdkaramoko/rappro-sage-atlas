@@ -9,6 +9,8 @@ from .campaigns import decision_record
 
 
 def apply_automatic_validations(campaign):
+    from .collective_validation import apply_collective_validations
+    handled = apply_collective_validations(campaign)
     # Recenser toutes les revendications avant de décider : l'ordre du fichier
     # ne doit pas donner la priorité à la première de deux preuves partagées.
     claims = {}
@@ -25,6 +27,8 @@ def apply_automatic_validations(campaign):
     shared_lines = {pk for members in claims.values() if len(members) > 1 for pk in members}
     for frozen in campaign.reviews.select_related("group"):
         line = LineReview.objects.select_related("transaction__project", "group", "campaign").get(pk=frozen.line_id)
+        if line.pk in handled:
+            continue
         metadata = frozen.group.data.get("auto_validation")
         # Toute décision humaine, y compris un brouillon enregistré, est prioritaire.
         if line.version and line.validation_source == "MANUAL":

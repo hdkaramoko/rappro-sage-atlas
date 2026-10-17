@@ -26,6 +26,10 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     from reconciliation.piece_coherence import build_piece_checks
     from reconciliation_contract.piece_coherence import identifier
     piece_checks = build_piece_checks(atlas, sage)
+    from reconciliation import config
+    piece_active = config.PIECE_COHERENCE["enabled"] and config.PIECE_COHERENCE["mode"] == "ACTIVE"
+    if piece_active and controls is None:
+        raise ValueError("L'activation collective exige un export v3 avec contrôles SAGE")
     target = Path(output_path).resolve()
     if target.suffix != ".jsonl":
         raise ValueError("Le fichier de validation doit porter l'extension .jsonl")
@@ -52,6 +56,7 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
             now = datetime.now(timezone.utc).isoformat()
             version = 3 if controls is not None else 2
             emit({"type": "campaign", "schema_version": version,
+                  "piece_coherence_mode": "ACTIVE" if piece_active else "DIAGNOSTIC",
                   "controls_available": controls is not None,
                   "amount_field": amount_field, "tolerance": tolerance,
                   "sage_amount_currency": "EUR",
@@ -100,6 +105,9 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                     diagnostic = piece_checks.get((project, identifier(rows[0].get("N° pièce SAGE"))))
                     if diagnostic:
                         payload["piece_coherence"] = diagnostic
+                if (piece_active and record["match_rule"] == "MATCH_CONFIRMED_ATLAS"
+                        and payload.get("piece_coherence", {}).get("status") != "PIECE_RECONCILED"):
+                    payload.pop("auto_validation", None)
                 emit(payload)
                 count += 1
             control_count = 0

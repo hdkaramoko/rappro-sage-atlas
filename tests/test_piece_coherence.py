@@ -108,7 +108,7 @@ def test_builder_isolates_projects_and_refuses_activation(monkeypatch):
     from reconciliation.piece_coherence import build_piece_checks
     a, s = frames([atlas()], [sage(Projet="OTHER")])
     assert build_piece_checks(a, s)[("P", "D")]["status"] == "PIECE_MISMATCH"
-    monkeypatch.setattr(config, "PIECE_COHERENCE", {"enabled": True, "mode": "ACTIVE"})
+    monkeypatch.setattr(config, "PIECE_COHERENCE", {"enabled": True, "mode": "UNKNOWN"})
     with pytest.raises(ValueError, match="DIAGNOSTIC"):
         build_piece_checks(a, s)
 
@@ -118,3 +118,38 @@ def test_builder_refuses_uncertain_sage_perimeter():
     from reconciliation.piece_coherence import build_piece_checks
     a, s = frames([atlas()], [sage(), sage("2", **{"Numéro pièce": None})])
     assert build_piece_checks(a, s)[("P", "D")]["status"] == "NOT_CHECKED"
+
+
+def test_active_export_requires_v3_and_reconciled_piece(tmp_path, monkeypatch):
+    from matching_helpers import frames
+    from reconciliation import config
+    from reconciliation.matching import match_reconciliations
+    from reconciliation.exporters.review import export_review_bundle
+    from reconciliation.multiples import build_controls
+    monkeypatch.setattr(config, "PIECE_COHERENCE", {"enabled": True, "mode": "ACTIVE"})
+    monkeypatch.setattr(config, "AUTO_VALIDATION", {"enabled": True, "statuses": ["MATCH_CONFIRMED_ATLAS"]})
+    for bap, authorized in (("B", True), ("OTHER", False)):
+        a, s = frames([atlas(**{"Total charges projet (€)": 100})], [sage(**{"Référence": bap})])
+        result = match_reconciliations(a, s)
+        with pytest.raises(ValueError, match="v3"):
+            export_review_bundle(a, s, result, tmp_path / "v2.jsonl")
+        path = export_review_bundle(a, s, result, tmp_path / "active.jsonl", controls=build_controls(a, s, result))
+        records = list(map(json.loads, path.read_text(encoding="utf-8").splitlines()))
+        assert records[0]["piece_coherence_mode"] == "ACTIVE"
+        proposal = next(r for r in records if r.get("type") == "proposal")
+        assert ("auto_validation" in proposal) == authorized
+
+
+def test_active_export_respects_auto_validation_configuration(tmp_path, monkeypatch):
+    from matching_helpers import frames
+    from reconciliation import config
+    from reconciliation.matching import match_reconciliations
+    from reconciliation.exporters.review import export_review_bundle
+    from reconciliation.multiples import build_controls
+    monkeypatch.setattr(config, "PIECE_COHERENCE", {"enabled": True, "mode": "ACTIVE"})
+    monkeypatch.setattr(config, "AUTO_VALIDATION", {"enabled": False, "statuses": ["MATCH_CONFIRMED_ATLAS"]})
+    a, s = frames([atlas(**{"Total charges projet (€)": 100})], [sage()])
+    result = match_reconciliations(a, s)
+    path = export_review_bundle(a, s, result, tmp_path / "off.jsonl", controls=build_controls(a, s, result))
+    proposal = next(r for r in map(json.loads, path.read_text(encoding="utf-8").splitlines()) if r.get("type") == "proposal")
+    assert "auto_validation" not in proposal

@@ -1,8 +1,9 @@
 {% load review_ui %}{% if piece_check %}
-<section class="card"><div class="section-heading"><h2>Contrôle de cohérence SAGE</h2><p>Diagnostic uniquement · sans effet sur la décision de validation.</p></div>
+<section class="card"><div class="section-heading"><h2>Contrôle de cohérence SAGE</h2><p>{% if piece_active %}Contrôle collectif actif · validation soumise aux autres contrôles métier.{% else %}Diagnostic uniquement · sans effet sur la décision de validation.{% endif %}</p></div>
 <p><span class="badge {% if piece_check.status == 'PIECE_RECONCILED' %}success{% elif piece_check.status == 'PIECE_MISMATCH' %}danger{% else %}warning{% endif %}">{{ piece_check.status|piece_label }}</span></p>
 <dl class="summary-grid"><div><dt>Projet</dt><dd>{{ piece_check.project }}</dd></div><div><dt>Pièce SAGE</dt><dd>{{ piece_check.document }}</dd></div>
 <div><dt>Total SAGE déclaré dans Atlas</dt><dd>{{ piece_check.atlas_total|euros }}</dd></div><div><dt>Total extrait de SAGE</dt><dd>{{ piece_check.sage_total|euros }}</dd></div><div><dt>Écart signé Atlas − SAGE</dt><dd>{{ piece_check.gap|euros }}</dd></div>
 <div><dt>Contrôle individuel</dt><dd>{{ piece_check.individual_status|piece_label }}</dd></div><div><dt>Lignes Atlas / écritures SAGE</dt><dd>{{ piece_check.atlas_count }} / {{ piece_check.sage_count }}</dd></div></dl>
 {% for reason in piece_check.reasons %}<p class="notice warning">{{ reason }}</p>{% endfor %}
+{% if piece_assignment.entry %}<h3>Écriture SAGE affectée à cette ligne</h3><dl class="summary-grid"><div><dt>Pièce</dt><dd>{{ piece_assignment.entry.document }}</dd></div><div><dt>Date</dt><dd>{{ piece_assignment.entry.date|date_fr }}</dd></div><div><dt>Ligne comptable / analytique</dt><dd>{{ piece_assignment.entry.line }} / {{ piece_assignment.entry.analytic_line }}</dd></div><div><dt>Montant de l’écriture</dt><dd>{{ piece_assignment.entry.amount|euros }}</dd></div></dl>{% endif %}
 </section>{% endif %}

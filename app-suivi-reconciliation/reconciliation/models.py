@@ -235,6 +235,7 @@ class LineReview(models.Model):
     state = models.CharField(max_length=16, default="DRAFT")
     values = models.JSONField(default=dict)
     manual_assignment = models.JSONField(default=list)
+    automatic_assignment = models.JSONField(default=dict)
     multiple_context = models.JSONField(default=dict)
     multiple_diagnostic = models.JSONField(default=dict)
     comment = models.TextField(blank=True)

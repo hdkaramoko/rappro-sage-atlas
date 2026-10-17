@@ -219,6 +219,8 @@ def review_detail(request, pk):
         "reconciliation/review_detail.html",
         {
             "piece_check": campaign_snapshot.group.data.get("piece_coherence") if campaign_snapshot else None,
+            "piece_active": bool(line.campaign_id and line.campaign.metadata.get("piece_coherence_mode") == "ACTIVE"),
+            "piece_assignment": line.automatic_assignment,
             "line": line,
             "manual_candidates": manual_candidates,
             "form": form,

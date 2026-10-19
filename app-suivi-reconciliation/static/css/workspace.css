@@ -185,5 +185,29 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
 .badge.decision-status {font-size:14px;padding:10px 16px;border:1px solid currentColor;white-space:normal}
 .badge.decision-status.success {border-color:#b8dec9;background:#e8f5ee;color:#18714f}
 .badge.decision-status svg {width:19px;height:19px}
+.piece-comparison {margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
+.piece-comparison summary {cursor:pointer;color:var(--blue);font-size:13px;font-weight:650;padding:5px 0}
+.piece-comparison summary:focus-visible {outline:3px solid #93b4ff;outline-offset:3px;border-radius:4px}
+.piece-comparison .table-scroll {margin-top:12px}.piece-comparison caption {text-align:left;padding:8px 0;font-size:11px}
 @media(max-width:1200px){.multiple-table {table-layout:auto}.multiple-table.atlas-composition {min-width:860px}.multiple-table.sage-entries {min-width:660px}.multiple-table .multiple-label {min-width:180px;max-width:380px}}
 @media(max-width:760px){.multiple-summary {grid-template-columns:1fr}.multiple-summary dd {font-size:20px}}
+
+/* Les filtres s'adaptent à la largeur disponible, y compris sidebar repliée. */
+.review-filter-layout {container-type:inline-size}
+.review-filter-layout .review-filters {grid-template-columns:repeat(3,minmax(0,1fr))}
+.review-filters .field {min-width:0}
+.review-filters .search-field {grid-column:span 2}
+.review-filters .origin-filter {width:140px;max-width:100%}
+.review-filters .page-size-filter {width:70px;max-width:100%}
+@container (min-width:1100px) {
+  .review-filter-layout .review-filters {grid-template-columns:minmax(110px,1fr) 145px minmax(160px,1.2fr) 130px 140px minmax(240px,2fr) 70px}
+  .review-filters .search-field {grid-column:auto}
+}
+@container (max-width:700px) {
+  .review-filter-layout .review-filters {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .review-filters .search-field {grid-column:1/-1}
+}
+@container (max-width:400px) {
+  .review-filter-layout .review-filters {grid-template-columns:minmax(0,1fr)}
+  .review-filters .filter-actions {flex-wrap:wrap;justify-content:flex-start}
+}

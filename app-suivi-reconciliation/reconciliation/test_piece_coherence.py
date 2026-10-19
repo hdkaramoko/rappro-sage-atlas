@@ -30,6 +30,9 @@ class PieceDiagnosticTests(fixtures.CampaignTests):
             self.assertContains(response, "Contrôle de cohérence SAGE")
             self.assertContains(response, "Pièce cohérente avec SAGE")
             self.assertNotContains(response, "PIECE_RECONCILED")
+            source_heading = "Données sources" if name == "review-detail" else "Source de cette campagne"
+            html = response.content.decode()
+            self.assertLess(html.index(source_heading), html.index("Contrôle de cohérence SAGE"))
         response = self.client.get(reverse("reconciliation:reviews"))
         self.assertNotContains(response, "Contrôle de cohérence SAGE")
 

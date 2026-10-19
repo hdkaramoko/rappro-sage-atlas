@@ -5,5 +5,11 @@
 <div><dt>Total SAGE déclaré dans Atlas</dt><dd>{{ piece_check.atlas_total|euros }}</dd></div><div><dt>Total extrait de SAGE</dt><dd>{{ piece_check.sage_total|euros }}</dd></div><div><dt>Écart signé Atlas − SAGE</dt><dd>{{ piece_check.gap|euros }}</dd></div>
 <div><dt>Contrôle individuel</dt><dd>{{ piece_check.individual_status|piece_label }}</dd></div><div><dt>Lignes Atlas / écritures SAGE</dt><dd>{{ piece_check.atlas_count }} / {{ piece_check.sage_count }}</dd></div></dl>
 {% for reason in piece_check.reasons %}<p class="notice warning">{{ reason }}</p>{% endfor %}
+<details class="piece-comparison"><summary>Voir la comparaison Atlas / X3</summary>
+<p class="muted">Lignes regroupées par tiers, référence/BAP et montant exact. La source indique où chaque combinaison est présente ; les effectifs conservent toutes ses occurrences. Le contrôle métier conserve sa tolérance de 0,01 €.</p>
+{% piece_comparison piece_check as comparison_rows %}
+<div class="table-scroll"><table class="work-table"><caption class="muted">Effectifs et sources par combinaison</caption><thead><tr><th scope="col">Tiers</th><th scope="col">Référence / BAP</th><th scope="col" class="numeric">Montant (€)</th><th scope="col" class="numeric">Nb Atlas</th><th scope="col" class="numeric">Nb X3</th><th scope="col">Source</th></tr></thead>
+<tbody>{% for row in comparison_rows %}<tr><td>{{ row.third_party|default:"Non renseigné" }}</td><td>{{ row.bap|default:"Non renseignée" }}</td><td class="numeric">{{ row.amount|default_if_none:"Non renseigné" }}</td><td class="numeric">{{ row.atlas_count }}</td><td class="numeric">{{ row.sage_count }}</td><td><span class="badge {{ row.tone }}">{{ row.source }}</span></td></tr>{% empty %}<tr><td colspan="6">Aucune donnée de comparaison disponible dans cette campagne.</td></tr>{% endfor %}</tbody></table></div>
+</details>
 {% if piece_assignment.entry %}<h3>Écriture SAGE affectée à cette ligne</h3><dl class="summary-grid"><div><dt>Pièce</dt><dd>{{ piece_assignment.entry.document }}</dd></div><div><dt>Date</dt><dd>{{ piece_assignment.entry.date|date_fr }}</dd></div><div><dt>Ligne comptable / analytique</dt><dd>{{ piece_assignment.entry.line }} / {{ piece_assignment.entry.analytic_line }}</dd></div><div><dt>Montant de l’écriture</dt><dd>{{ piece_assignment.entry.amount|euros }}</dd></div></dl>{% endif %}
 </section>{% endif %}

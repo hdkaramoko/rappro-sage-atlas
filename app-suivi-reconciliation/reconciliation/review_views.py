@@ -42,7 +42,7 @@ def review_list(request):
     items = visible(request.user)
     scope = items
     project = request.GET.get("project", "").strip()
-    state = request.GET.get("state", "")
+    state = request.GET.get("state", "DRAFT")
     match_status = request.GET.get("match_status", "MATCHED")
     rule = request.GET.get("rule", "")
     search = request.GET.get("q", "").strip()

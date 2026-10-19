@@ -137,6 +137,34 @@ validables après les garde-fous supplémentaires de l'étape 2.
 
 ## Calcul effectué
 
+### Tableau comparatif dépliable Atlas / X3
+
+La page « Mes rapprochements » s'ouvre par défaut sur tous les projets,
+les correspondances trouvées, toutes les règles, les décisions « À examiner »
+et toutes les origines. Réinitialiser les filtres revient à ces valeurs.
+Une sélection explicite, y compris « Toutes » pour la décision, reste respectée.
+
+Dans le détail courant et historique, « Voir la comparaison Atlas / X3 » ouvre
+un volet natif fermé par défaut, accessible au clavier et sans JavaScript.
+Il affiche tiers, référence/BAP, montant signé exact, effectifs Atlas/X3 et une
+colonne « Source » : Atlas, SAGE ou Atlas et SAGE. Une combinaison présente des
+deux côtés ne figure qu'une fois, même si les effectifs diffèrent. La colonne
+« Écart » est supprimée ; les répétitions restent comptées, jamais dédupliquées.
+Les données sources précèdent désormais le contrôle de cohérence dans le détail
+courant et dans la photographie historique. Ces ajustements sont purement visuels.
+
+Le tableau utilise uniquement les listes `atlas` et `sage` déjà conservées dans
+`piece_coherence`. Aucun nouveau JSONL, migration ou recalcul de validation n'est
+nécessaire. Les montants ne sont pas arrondis à l'affichage : deux montants
+différents de moins d'un centime restent visibles séparément ; ces regroupements
+exacts ne remplacent pas le contrôle métier à tolérance de 0,01 €.
+
+Implémentation : tag `piece_comparison` dans `templatetags/review_ui.py`, composant
+`components/piece_coherence.html` et styles limités à `.piece-comparison` dans
+`static/css/workspace.css`. Vérifications : quatre tests de comparaison/rendu et
+un test d'intégration des détails courant/historique réussis. Aucun changement
+de logique métier ni de décision persistante.
+
 1. `reconciliation/piece_coherence.py::build_piece_checks` regroupe toutes les
    lignes `Envoyé SAGE` par **projet + numéro de pièce SAGE**, sans la date.
    Il recherche les écritures de même clé dans l'extraction SAGE fournie, avant

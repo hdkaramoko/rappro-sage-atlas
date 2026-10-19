@@ -1,4 +1,5 @@
 from datetime import date
+from collections import Counter
 
 from django import template
 
@@ -6,6 +7,46 @@ from reconciliation.presentation import RULE_LABELS, money
 
 register = template.Library()
 register.filter("euros", money)
+
+
+@register.simple_tag
+def piece_comparison(data):
+    """Regroupe les preuves conservées, sans recalculer la décision métier."""
+    from reconciliation_contract import money as decimal_amount
+    from reconciliation_contract.piece_coherence import identifier
+
+    counts = []
+    for source in ("atlas", "sage"):
+        counts.append(Counter((identifier(row.get("third_party")), identifier(row.get("bap")),
+                               decimal_amount(row.get("amount"))) for row in data.get(source, [])))
+    left, right = counts
+    rows = []
+    for key in sorted(left.keys() | right.keys(), key=lambda k: (k[0], k[1], k[2] is None, k[2] or 0)):
+        third_party, bap, amount = key
+        a, s = left[key], right[key]
+        incomplete = not third_party or not bap or amount is None
+        label = ("Champ manquant" if incomplete else "Absent dans X3" if not s
+                 else "Absent dans Atlas" if not a else "Multiplicité différente" if a != s
+                 else "Concordant")
+        rows.append({"third_party": third_party, "bap": bap,
+                     "amount": format(amount, "f").replace(".", ",") if amount is not None else None,
+                     "atlas_count": a, "sage_count": s, "difference": a - s,
+                     "source": "Atlas et SAGE" if a and s else "Atlas" if a else "SAGE",
+                     "label": label, "tone": "warning" if incomplete or a != s else "success"})
+    return rows
+
+
+@register.filter
+def piece_label(value):
+    return {
+        "PIECE_RECONCILED": "Pièce cohérente avec SAGE",
+        "PIECE_AMBIGUOUS": "Totaux cohérents, écritures à examiner",
+        "PIECE_MISMATCH": "Incohérence constatée",
+        "NOT_CHECKED": "Contrôle non réalisé ou données insuffisantes",
+        "MATCHED": "Tiers, BAP, montants et répétitions concordants",
+        "INSUFFICIENT": "Données insuffisantes pour conclure",
+        "MISMATCH": "Correspondances individuelles incohérentes",
+    }.get(value, "Résultat non disponible")
 
 
 @register.filter

@@ -42,7 +42,7 @@ def review_list(request):
     items = visible(request.user)
     scope = items
     project = request.GET.get("project", "").strip()
-    state = request.GET.get("state", "")
+    state = request.GET.get("state", "DRAFT")
     match_status = request.GET.get("match_status", "MATCHED")
     rule = request.GET.get("rule", "")
     search = request.GET.get("q", "").strip()
@@ -62,6 +62,8 @@ def review_list(request):
         items = items.filter(transaction__project__code=project)
     if state in ("DRAFT", "VALIDATED", "REJECTED"):
         items = items.filter(state=state)
+    if request.GET.get("validation_source") in ("AUTO", "MANUAL"):
+        items = items.filter(validation_source=request.GET["validation_source"])
     size = request.GET.get("page_size", "50")
     size = int(size) if size in ("25", "50", "100") else 50
     page = Paginator(items.order_by("transaction__project__code", "pk"), size).get_page(
@@ -211,10 +213,14 @@ def review_detail(request, pk):
         for candidate in line.group.evidence
         if candidate.get("rows")
     ]
+    campaign_snapshot = line.campaign_reviews.select_related("group").filter(campaign_id=line.campaign_id).first() if line.campaign_id else None
     return render(
         request,
         "reconciliation/review_detail.html",
         {
+            "piece_check": campaign_snapshot.group.data.get("piece_coherence") if campaign_snapshot else None,
+            "piece_active": bool(line.campaign_id and line.campaign.metadata.get("piece_coherence_mode") == "ACTIVE"),
+            "piece_assignment": line.automatic_assignment,
             "line": line,
             "manual_candidates": manual_candidates,
             "form": form,
@@ -238,9 +244,7 @@ def review_detail(request, pk):
             "missing": missing,
             "gap": total - line.group.sage_total if line.group.sage_total is not None else None,
             "stale": bool(line.version and not is_current(line)),
-            "campaign_snapshot": line.campaign_reviews.filter(campaign_id=line.campaign_id).first()
-            if line.campaign_id
-            else None,
+            "campaign_snapshot": campaign_snapshot,
             "candidates": candidates,
             "events": list(history_rows(line.events.select_related("actor")[:50])),
             "allocation_context": {

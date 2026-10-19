@@ -159,6 +159,10 @@ class MultipleTests(TestCase):
     def load(self, records=None):
         """Importe atomiquement une variante du fichier fictif."""
         path = Path(self.folder.name) / "input.jsonl"
+        records = copy.deepcopy(records or self.records)
+        # Une nouvelle campagne a une identité documentaire distincte ; les
+        # réimports des mêmes octets sont désormais volontairement idempotents.
+        records[0]["name"] = f"Campagne {Campaign.objects.count() + 1}"
         path.write_text(
             "\n".join(json.dumps(r, ensure_ascii=False) for r in (records or self.records)),
             encoding="utf-8",

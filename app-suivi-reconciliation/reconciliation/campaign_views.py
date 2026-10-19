@@ -177,6 +177,9 @@ def campaign_review(request, pk):
         "reconciliation/campaign_review.html",
         {
             "snapshot": row,
+            "piece_check": row.group.data.get("piece_coherence"),
+            "piece_active": row.campaign.metadata.get("piece_coherence_mode") == "ACTIVE",
+            "piece_assignment": row.decision.get("automatic_assignment"),
             "source_fields": [(label, row.source.get(key)) for key, label in source_labels.items()],
             "comparison_label": COMPARISONS.get(row.comparison, row.comparison),
             "validated_at": parse_datetime(row.decision.get("validated_at") or ""),
@@ -223,6 +226,9 @@ def campaign_export(request, pk):
         "Affectation métier",
         "Écritures SAGE affectées",
         "Diagnostic multiples",
+        "Origine de décision",
+        "Règle automatique",
+        "Affectation automatique SAGE",
     ]
     sheet = book.create_sheet("Corrections validées")
     sheet.append(headers)
@@ -255,6 +261,9 @@ def campaign_export(request, pk):
                 "MANUAL_MATCH" if decision.get("manual_assignment") else "",
                 json.dumps(decision.get("manual_assignment", []), ensure_ascii=False),
                 json.dumps(decision.get("multiple_diagnostic", {}), ensure_ascii=False),
+                decision.get("validation_source", "MANUAL"),
+                decision.get("auto_validation_rule", ""),
+                json.dumps(decision.get("automatic_assignment", {}), ensure_ascii=False),
             ]
             cells = []
             for value in values:

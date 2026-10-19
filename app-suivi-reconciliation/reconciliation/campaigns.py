@@ -212,9 +212,12 @@ def decision_record(line):
     """Photographie décision, auteur, origine, affectation et diagnostic multiple."""
     return json_data(
         {
+            "validation_source": line.validation_source,
+            "auto_validation_rule": line.auto_validation_rule,
             "state": line.state,
             "values": line.values,
             "manual_assignment": line.manual_assignment,
+            "automatic_assignment": line.automatic_assignment,
             "multiple_context": line.multiple_context,
             "multiple_diagnostic": line.multiple_diagnostic,
             "comment": line.comment,
@@ -332,6 +335,11 @@ def import_campaign(header, stream, *, job=None, progress=None):
     if header.get("schema_version") not in (2, 3):
         raise ValidationError("Version de campagne non prise en charge")
     v3 = header["schema_version"] == 3
+    piece_mode = header.get("piece_coherence_mode", "DIAGNOSTIC")
+    if piece_mode not in ("DIAGNOSTIC", "ACTIVE"):
+        raise ValidationError("Mode de cohérence SAGE inconnu")
+    if piece_mode == "ACTIVE" and not v3:
+        raise ValidationError("L'activation collective exige une campagne v3")
     if v3:
         from .multiple_import import validate_header
 
@@ -473,8 +481,13 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 1  # Une page ouverte avant l'import ne décide pas dans la nouvelle campagne.
             )
             group.save(update_fields=["context_signature", "version"])
+            from .piece_coherence import validate_proposal_check
+
+            diagnostic = validate_proposal_check(payload)
             frozen_group = CampaignGroup.objects.create(
-                campaign=campaign, key=group.key, data=group_snapshot(group)
+                campaign=campaign, key=group.key,
+                data={**group_snapshot(group), "auto_validation": payload.get("auto_validation"),
+                      **({"piece_coherence": diagnostic} if diagnostic is not None else {})},
             )
             previous_reviews = (
                 {
@@ -496,9 +509,12 @@ def import_campaign(header, stream, *, job=None, progress=None):
                     from django.utils.dateparse import parse_datetime
 
                     prior = old.decision
+                    line.validation_source = prior.get("validation_source", "MANUAL")
+                    line.auto_validation_rule = prior.get("auto_validation_rule", "")
                     line.state = prior["state"]
                     line.values = prior["values"]
                     line.manual_assignment = prior.get("manual_assignment", [])
+                    line.automatic_assignment = prior.get("automatic_assignment", {})
                     line.multiple_context = prior.get("multiple_context", {})
                     line.multiple_diagnostic = prior.get("multiple_diagnostic", {})
                     line.comment = prior["comment"]
@@ -548,10 +564,13 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 line.save(
                     update_fields=[
                         "campaign",
+                        "validation_source",
+                        "auto_validation_rule",
                         "source_signature",
                         "state",
                         "values",
                         "manual_assignment",
+                        "automatic_assignment",
                         "multiple_context",
                         "multiple_diagnostic",
                         "comment",
@@ -600,4 +619,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
         active.save(update_fields=["is_current"])
     campaign.is_current = True
     campaign.save(update_fields=["is_current"])
+    from .auto_validation import apply_automatic_validations
+
+    apply_automatic_validations(campaign)
     return count

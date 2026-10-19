@@ -64,7 +64,13 @@ def context_for(line):
     for key in keys - set(context):
         context[key] = "MISSING"
     # Une campagne v3 sans candidat ne doit pas hériter d'une validation v2.
-    return {"contract": 3, "controls": context}
+    result = {"contract": 3, "controls": context}
+    if line.automatic_assignment:
+        from .piece_coherence import campaign_check
+        data = campaign_check(line)
+        result["piece"] = {"mode": line.campaign.metadata.get("piece_coherence_mode"),
+                           "signature": data.get("signature") if data else None}
+    return result
 
 
 def selected_entries(line, references):
@@ -83,6 +89,10 @@ def allocation_plan(line, resolved, selection):
     Une sélection manuelle réserve les montants individuels exacts. Sans sélection,
     la correction individuelle réserve le montant saisi sur sa pièce résolue.
     """
+    if line.automatic_assignment and not selection:
+        from .piece_coherence import verified_assignment
+        control, entry = verified_assignment(line, resolved)
+        return [(control, resolved["amount"], [entry["ref"]])]
     allocations, references = defaultdict(lambda: Decimal(0)), defaultdict(list)
     if selection:
         fresh = selected_entries(line, [e["ref"] for e in selection])
@@ -172,6 +182,7 @@ def diagnose_plan(line, plan, *, manual=False):
         # partage de pièce sans prétendre identifier l'écriture déjà consommée.
         if manual and refs and data["atlas"]:
             shared = sorted(set(shared + refs))
+        from .piece_coherence import compatible_piece_peer
         diagnostic.update(
             key=control.key,
             document=data["identity"]["parts"][-1],
@@ -181,7 +192,8 @@ def diagnose_plan(line, plan, *, manual=False):
             other_lines=[c.line.transaction.source_id for c in others],
             source_lines=[r["source_id"] for r in data["atlas"]],
             shared_entries=shared,
-            shared_piece=any(c.line.group_id != line.group_id for c in others),
+            shared_piece=any(c.line.group_id != line.group_id
+                and not compatible_piece_peer(line, c.line) for c in others),
         )
         diagnostics.append(diagnostic)
     return diagnostics

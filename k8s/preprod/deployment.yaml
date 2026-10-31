@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rappro-sage-atlas-preprod
+  namespace: user-hdkaramoko
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: rappro-sage-atlas-preprod
+
+  template:
+    metadata:
+      labels:
+        app: rappro-sage-atlas-preprod
+
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+        
+      containers:
+        - name: rappro-sage-atlas-preprod
+          image: ghcr.io/hdkaramoko/rappro-sage-atlas:preprod-<sha>
+          imagePullPolicy: Always
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+
+          ports:
+            - containerPort: 8000
+
+          env:
+            - name: DEBUG
+              value: "False"
+
+            - name: DJANGO_ALLOWED_HOSTS
+              value: "rappro-sage-atlas-preprod.lab.sspcloud.fr"

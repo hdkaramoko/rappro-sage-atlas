@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - preprod
 
 jobs:
   build:
@@ -29,8 +30,13 @@ jobs:
         run: |
           if [ "${GITHUB_REF_NAME}" = "main" ]; then
             echo "IMAGE_TAG=prod-${GITHUB_SHA}" >> $GITHUB_ENV
-          else
+          elif [ "${GITHUB_REF_NAME}" = "preprod" ]; then
+            echo "IMAGE_TAG=preprod-${GITHUB_SHA}" >> "$GITHUB_ENV"
+          elif [ "${GITHUB_REF_NAME}" = "dev" ]; then
             echo "IMAGE_TAG=dev-${GITHUB_SHA}" >> $GITHUB_ENV
+          else
+            echo "Branche non prise en charge"
+            exit 1
           fi
 
       - name: Build and push

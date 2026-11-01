@@ -117,4 +117,4 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 
 MATCHING_JOB_ROOT = BASE_DIR / "var" / "matching"
 MATCHING_MAX_FILE_BYTES = 5 * 1024**3
-FILE_UPLOAD_HANDLERS = ["django.core.files.uploadhandler.TemporaryFileUploadHandler"]
+FILE_UPLOAD_HANDLERS = ["imports_app.upload_handlers.HashedTemporaryFileUploadHandler"]

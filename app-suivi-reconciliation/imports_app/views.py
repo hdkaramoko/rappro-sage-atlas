@@ -1,6 +1,8 @@
 """Lancement et suivi des rapprochements réservés aux administrateurs."""
 
+import errno
 import hashlib
+import os
 import shutil
 from functools import wraps
 
@@ -52,12 +54,25 @@ def index(request):
                 try:
                     directory = job_directory(job)
                     directory.mkdir(parents=True)
-                    digest = hashlib.sha256()
-                    with (directory / "propositions.jsonl").open("wb") as destination:
-                        for chunk in form.cleaned_data["bundle"].chunks():
-                            destination.write(chunk)
-                            digest.update(chunk)
-                    job.file_hash = digest.hexdigest()
+                    uploaded = form.cleaned_data["bundle"]
+                    target = directory / "propositions.jsonl"
+                    job.file_hash = getattr(uploaded, "sha256", "")
+                    if os.name != "nt" and hasattr(uploaded, "temporary_file_path"):
+                        # Même volume : pas de seconde copie de centaines de Mo dans HTTP.
+                        try:
+                            os.replace(uploaded.temporary_file_path(), target)
+                        except OSError as exc:
+                            if exc.errno != errno.EXDEV:
+                                raise
+                            shutil.copyfile(uploaded.temporary_file_path(), target)
+                        # Le worker revérifie l'empreinte hors de la requête web.
+                    else:
+                        digest = hashlib.sha256()
+                        with target.open("wb") as destination:
+                            for chunk in uploaded.chunks():
+                                destination.write(chunk)
+                                digest.update(chunk)
+                        job.file_hash = digest.hexdigest()
                     job.state = "QUEUED"
                     job.save(update_fields=["state", "file_hash"])
                     launch(job)

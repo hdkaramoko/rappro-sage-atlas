@@ -93,6 +93,9 @@ La migration `0010_multiple_controls_assignments` ajoute les contrôles de campa
 
 ## Imports SQLite volumineux
 
+Pour PostgreSQL et le déploiement des imports volumineux, voir le
+[guide PostgreSQL](../docs/import_postgres.md).
+
 La préparation des campagnes est isolée, les instantanés sont chargés par lots
 invisibles et la publication est atomique. Progression et durées sont visibles
 dans le suivi de l'import. Voir [la documentation](../docs/import_sqlite_par_lots.md).

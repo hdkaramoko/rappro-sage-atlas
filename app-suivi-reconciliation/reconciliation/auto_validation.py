@@ -3,18 +3,18 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from decimal import Decimal
 from reconciliation_contract.auto_validation import AUTO_VALIDATION_RULES
-from .models import LineReview, ReviewEvent
+from .models import ReviewEvent
 from .review import FIELDS, decide, is_current, signature
 from .campaigns import decision_record
 
 
-def apply_automatic_validations(campaign):
+def apply_automatic_validations(campaign, *, progress=None):
     from .collective_validation import apply_collective_validations
-    handled = apply_collective_validations(campaign)
+    handled = apply_collective_validations(campaign, progress=progress)
     # Recenser toutes les revendications avant de décider : l'ordre du fichier
     # ne doit pas donner la priorité à la première de deux preuves partagées.
     claims = {}
-    for frozen in campaign.reviews.select_related("group"):
+    for frozen in campaign.reviews.select_related("group").iterator(chunk_size=500):
         data = frozen.group.data
         proofs = [r for c in data.get("evidence", []) for r in c.get("rows", [])]
         keys = {(frozen.source["project_code"], str(r.get("Numéro pièce", "")),
@@ -25,8 +25,14 @@ def apply_automatic_validations(campaign):
         for key in keys:
             claims.setdefault(key, set()).add(frozen.line_id)
     shared_lines = {pk for members in claims.values() if len(members) > 1 for pk in members}
-    for frozen in campaign.reviews.select_related("group"):
-        line = LineReview.objects.select_related("transaction__project", "group", "campaign").get(pk=frozen.line_id)
+    rows = campaign.reviews.select_related(
+        "group", "line__transaction__project", "line__group", "line__campaign",
+        "line__updated_by", "line__validation_origin",
+    )
+    for number, frozen in enumerate(rows.iterator(chunk_size=500), 1):
+        if progress and number % 500 == 0:
+            progress("Validations automatiques examinées", number)
+        line = frozen.line
         if line.pk in handled:
             continue
         metadata = frozen.group.data.get("auto_validation")

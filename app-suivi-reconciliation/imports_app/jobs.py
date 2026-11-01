@@ -7,16 +7,20 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 from pathlib import Path
 
 from django.conf import settings
-from django.db import close_old_connections, transaction
+from django.db import close_old_connections, connection, transaction
 from django.utils import timezone
 
+from reconciliation.models import Campaign
 from reconciliation.review_import import import_bundle
 
 from .models import MatchingJob
 from .progress import ImportProgress, read_progress_file
+
+_worker_state = threading.local()
 
 
 def job_directory(job):
@@ -79,6 +83,26 @@ def stalled(job):
 @contextlib.contextmanager
 def worker_lock():
     """Verrou système libéré aussi en cas d'arrêt brutal ; une seule exécution."""
+    if connection.vendor == "postgresql":
+        # Verrou de session : partagé entre pods, libéré si le worker meurt.
+        # PostgreSQL autorise une reprise du même verrou par sa propre session.
+        if getattr(_worker_state, "active", False):
+            raise BlockingIOError("Un import est déjà actif dans cette session.")
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", [734129826])
+            acquired = cursor.fetchone()[0]
+        if not acquired:
+            raise BlockingIOError("Un autre import est déjà en cours.")
+        _worker_state.active = True
+        try:
+            yield
+        finally:
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_advisory_unlock(%s)", [734129826])
+            finally:
+                _worker_state.active = False
+        return
     root = Path(settings.MATCHING_JOB_ROOT)
     root.mkdir(parents=True, exist_ok=True)
     with (root / "worker.lock").open("a+b") as stream:
@@ -130,15 +154,19 @@ def run_job(job_id, resume=False):
             with (directory / "import.log").open("a", encoding="utf-8") as log:
                 log.write("Contrôle et chargement des propositions\n")
             with (directory / "propositions.jsonl").open("rb") as source:
-                if hashlib.file_digest(source, "sha256").hexdigest() != job.file_hash:
+                digest = hashlib.file_digest(source, "sha256").hexdigest()
+                if job.file_hash and digest != job.file_hash:
                     raise ValueError("Le fichier a changé depuis son transfert. Import annulé.")
+            if not job.file_hash:
+                job.file_hash = digest
+                job.save(update_fields=["file_hash"])
             from .sqlite_staging import is_file_sqlite, staged_import
 
             duplicate = (
                 MatchingJob.objects.filter(state="SUCCESS", file_hash=job.file_hash)
                 .exclude(pk=job.pk)
                 .exists()
-            )
+            ) or Campaign.objects.filter(file_hash=job.file_hash).exists()
             if not duplicate and is_file_sqlite():
                 staged_import(
                     directory / "propositions.jsonl",
@@ -161,6 +189,11 @@ def run_job(job_id, resume=False):
                     job.finished_at = timezone.now()
                     job.save()
         except Exception as exc:
+            try:
+                with (directory / "worker.log").open("a", encoding="utf-8") as log:
+                    traceback.print_exc(file=log)
+            except OSError:
+                pass
             # Une erreur de journal après COMMIT ne transforme pas un succès en échec.
             job.refresh_from_db()
             if job.state != "SUCCESS":
@@ -177,4 +210,4 @@ def run_job(job_id, resume=False):
                 pass  # Le bilan en base reste la référence, même si le disque est plein.
             stop.set()
             thread.join(timeout=2)
-            close_old_connections()
+    close_old_connections()

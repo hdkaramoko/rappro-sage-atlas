@@ -104,6 +104,20 @@ class ManualImportTests(TransactionTestCase):
             pass
 
     @patch("imports_app.views.launch")
+    def test_campaign_previously_imported_from_cli_is_duplicate(self, launch):
+        from reconciliation.models import Campaign
+
+        self.upload()
+        job = MatchingJob.objects.get()
+        Campaign.objects.create(name="CLI", scope="atlas-complet", file_hash=job.file_hash)
+        with patch("imports_app.jobs.import_bundle") as importer:
+            run_job(job.pk)
+        job.refresh_from_db()
+        self.assertEqual(job.state, "DUPLICATE")
+        self.assertFalse(job.active)
+        importer.assert_not_called()
+
+    @patch("imports_app.views.launch")
     def test_file_changed_after_upload_is_rejected(self, launch):
         self.upload()
         job = MatchingJob.objects.get()

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from imports_app.jobs import run_job
@@ -12,6 +13,7 @@ class Command(BaseCommand):
         parser.add_argument("--resume", action="store_true")
 
     def handle(self, *args, **options):
+        settings.DEBUG = False  # Ne pas conserver les requêtes et leurs JSON en mémoire.
         try:
             run_job(options["job_id"], resume=options["resume"])
             job = MatchingJob.objects.get(pk=options["job_id"])

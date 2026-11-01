@@ -380,6 +380,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
     controls_started, control_count = False, 0
     batch, seen, group_keys = [], set(), set()
     control_batch = []
+    reviews_batch = []
+    projects = {}
     for number, text in enumerate(stream, 2):
         if complete:
             raise ValidationError("Données après la fin du fichier")
@@ -470,7 +472,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
                     raise ValidationError(
                         "Proposition absente de l'inventaire ou contradictoire avec celui-ci"
                     )
-            group, lines = upsert_group(payload, number, seen)
+            group, lines = upsert_group(payload, number, seen, projects=projects)
             # Tous les membres participent au contexte : une modification chez un voisin
             # invalide aussi une ancienne allocation pourtant inchangée sur cette ligne.
             members = [source_snapshot(line)["atlas"] for line in lines]
@@ -582,7 +584,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 decision = decision_record(line)
                 if comparison == "CARRIED":
                     decision["actor"] = old.decision.get("actor", decision["actor"])
-                CampaignReview.objects.create(
+                reviews_batch.append(CampaignReview(
                     campaign=campaign,
                     line=line,
                     group=frozen_group,
@@ -592,7 +594,10 @@ def import_campaign(header, stream, *, job=None, progress=None):
                     comparison=comparison,
                     reasons=reasons,
                     fingerprint=fingerprint,
-                )
+                ))
+                if len(reviews_batch) >= BATCH_SIZE:
+                    CampaignReview.objects.bulk_create(reviews_batch, batch_size=BATCH_SIZE)
+                    reviews_batch.clear()
             count += 1
             if count % BATCH_SIZE == 0:
                 progress("Propositions préparées", count)
@@ -607,12 +612,14 @@ def import_campaign(header, stream, *, job=None, progress=None):
     ).count()
     if expected_reviews != len(seen):
         raise ValidationError("Des lignes Envoyé SAGE de l'inventaire n'ont pas de proposition")
+    if reviews_batch:
+        CampaignReview.objects.bulk_create(reviews_batch, batch_size=BATCH_SIZE)
     add_absences(campaign)
     progress("Comparaison des campagnes terminée", count)
     if v3:
         from .multiple_import import finalize_controls
 
-        finalize_controls(campaign)
+        finalize_controls(campaign, progress=progress)
         progress("Report des validations contrôlé", count)
     if active:
         active.is_current = False
@@ -621,5 +628,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
     campaign.save(update_fields=["is_current"])
     from .auto_validation import apply_automatic_validations
 
-    apply_automatic_validations(campaign)
+    progress("Validation automatique en cours", count)
+    apply_automatic_validations(campaign, progress=progress)
+    progress("Publication terminée", count)
     return count

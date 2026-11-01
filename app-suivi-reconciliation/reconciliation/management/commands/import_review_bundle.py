@@ -14,6 +14,7 @@ class Command(BaseCommand):
         parser.add_argument("path")
 
     def handle(self, *args, **options):
+        settings.DEBUG = False  # Import volumineux : aucune accumulation des requêtes SQL.
         try:
             from imports_app.jobs import worker_lock
             from imports_app.progress import ImportProgress

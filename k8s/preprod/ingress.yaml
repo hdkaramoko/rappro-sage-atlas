@@ -4,6 +4,10 @@ kind: Ingress
 metadata:
   name: rappro-sage-atlas-preprod
   namespace: user-hdkaramoko
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "5121m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
 
 spec:
   ingressClassName: nginx

@@ -220,8 +220,8 @@
         ```
     -   Mais du coup le sha, on le récupère avec la commande : ```git rev-parse HEAD```
     -   Migration et création du superuser
-        *   Appliquer les migrations à la BDD : kubectl exec -it deployments/rappro-sage-atlas-dev -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py migrate'
-        *   kubectl exec -it deployment/rappro-sage-atlas-dev -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py createsuperuser'
+        *   Appliquer les migrations à la BDD : ```kubectl exec -it deployments/rappro-sage-atlas-dev -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py migrate'```
+        *   ```kubectl exec -it deployment/rappro-sage-atlas-dev -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py createsuperuser'```
 
 ## Etape 3 : Migration de la base de données SQLite vers PostgreSQL
 +   Sauvegarde de la base existante :

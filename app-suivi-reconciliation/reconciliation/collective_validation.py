@@ -122,14 +122,14 @@ def validate_piece(campaign, rows, owners):
         frozen.save(update_fields=["fingerprint"])
 
 
-def apply_collective_validations(campaign):
-    rows = list(campaign.reviews.select_related("group", "line__transaction__project", "line__group", "line__campaign"))
+def apply_collective_validations(campaign, *, progress=None):
+    rows = campaign.reviews.select_related("group", "line").iterator(chunk_size=500)
     groups, owners = defaultdict(list), defaultdict(set)
     active = campaign.metadata.get("piece_coherence_mode") == "ACTIVE"
     targets = set()
     for frozen in rows:
         key = (identifier(frozen.source["project_code"]), identifier(frozen.source.get("sage_document_number")))
-        groups[key].append(frozen)
+        groups[key].append(frozen.pk)
         owners[key].add(frozen.line_id)
         for candidate in frozen.group.data.get("evidence", []):
             for proof in candidate.get("rows", []):
@@ -138,8 +138,13 @@ def apply_collective_validations(campaign):
                 or frozen.line.automatic_assignment):
             targets.add(key)
     handled = set()
-    for key in sorted(targets):
-        members = groups[key]
+    for number, key in enumerate(sorted(targets), 1):
+        if progress and number % 100 == 0:
+            progress("Pièces collectives examinées", number)
+        members = list(campaign.reviews.filter(pk__in=groups[key]).select_related(
+            "group", "line__transaction__project", "line__group", "line__campaign",
+            "line__updated_by", "line__validation_origin",
+        ))
         handled.update(r.line_id for r in members)
         try:
             with transaction.atomic():

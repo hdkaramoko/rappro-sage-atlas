@@ -37,7 +37,7 @@ spec:
             - containerPort: 8000
 
           env:
-            - name: DEBUG
+            - name: DJANGO_DEBUG
               value: "False"
 
             - name: DJANGO_ALLOWED_HOSTS

@@ -138,7 +138,7 @@ def import_control_batch(campaign, payloads):
         raise ValidationError("Contrôle répété dans la campagne") from exc
 
 
-def finalize_controls(campaign):
+def finalize_controls(campaign, *, progress=None):
     """Reporte les validations par ensemble, sans priorité liée à l'ordre d'import.
 
     Une modification des preuves invalide d'abord les lignes concernées. Puis
@@ -155,13 +155,16 @@ def finalize_controls(campaign):
     if uncovered.exists():
         raise ValidationError("Inventaire Comptabilisé non couvert par les contrôles")
     candidates = []
-    for frozen in campaign.reviews.select_related(
+    rows = campaign.reviews.select_related(
         "line__transaction__project",
         "line__group",
         "line__campaign",
         "line__updated_by",
         "line__validation_origin",
-    ).iterator(chunk_size=500):
+    ).iterator(chunk_size=500)
+    for number, frozen in enumerate(rows, 1):
+        if progress and number % 500 == 0:
+            progress("Report des validations examiné", number)
         line = frozen.line
         prior_context = line.multiple_context
         line.multiple_context = context_for(line)

@@ -222,3 +222,75 @@
     -   Migration et création du superuser
         *   Appliquer les migrations à la BDD : kubectl exec -it deployments/rappro-sage-atlas-dev -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py migrate'
         *   kubectl exec -it deployment/rappro-sage-atlas-dev -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py createsuperuser'
+
+## Etape 3 : Migration de la base de données SQLite vers PostgreSQL
++   Sauvegarde de la base existante :
+    -   Lancer la commande : ```cp app-suivi-reconciliation/db.sqlite3 app-suivi-reconciliation/db.sqlite3.backup```
+    -   Vérifier l'intégrité de la BDD : (On exécute un code python dans le terminal sans créer de fichier .py)
+        ```
+            python - <<'PY'
+            import sqlite3
+
+            db = sqlite3.connect("db.sqlite3")
+            print(db.execute("PRAGMA integrity_check").fetchone())
+            db.close()
+            PY
+        ```
+    -   Le résultat attendu est ok (intégrité structurelle - tables, indexes, etc - référentielles - relations entre les données respectées, données - unicité, obligatoire, etc)
+    -   Explication de la syntaxe :
+        *   python - : permet de demander à python de lire le code qui va suivre
+        *   << : c'est un opérateur du shell appelé "Here document" et qui permet de fournir plusieurs lignes de texte à une commande
+        *   'PY' : délimiteur qui indique où commence et où se termine le code. Les guillemets pour empêcher le shell d'interpréter son contenu
+
++   Création du service PostgreSQL pour l'nevironnement de dev
+    -   Copie des credentials dans les variables d'environnements du projet
+
++   Import du module python de connexion à postgres : ```uv add "psycopg[binary]"```
+
++   Adapter le fichier settings.py
+    -   Articulation entre variables d'environnement et settings.py
+
++   Le cablage est fait à cette étape, on procède à l'évaluation de celui-ci et l'identification des migrations :
+    ```
+        uv run python app-suivi-reconciliation/manage.py check
+        uv run python app-suivi-reconciliation/manage.py showmigrations
+        uv run python app-suivi-reconciliation/manage.py migrate
+    ```
+
++   Visualisation de la base de données depuis l'interface pgadmin
+    -   Création du service pgadmin
+    -   Connexion au service avec les credentials
+    -   Accès bdd : autodiscovery > postgresql-cnpg-* > Bases de données > DB_NAME > Schémas > public > Tables 
+
++   Export des données sqlite
+    -   Django prévoit une fonction d'export des données d'une BDD. Pour cela, il faut recabler sqlite et faire la syntaxe suivante 
+    -   Syntaxe : 
+        ```
+            uv run python app-suivi-reconciliation/manage.py dumpdata \
+            --natural-foreign \
+            --natural-primary \
+            --all \
+            --exclude=contenttypes \
+            --exclude=auth.Permission \
+            --exclude=sessions \
+            --output=app-suivi-reconciliation/data_export.json.gz
+        ```
+    -   Il peut arriver que cette commande ne fonctionne pas. Dans ce cas, premier réflexe, c'est de regarder les migrations. Certaines non appliquées
+    -   Cabler à nouveau la BDD sur l'instance postgres
+    -   Exécuter la commande suivante qui va charger les données exportées vers la nouvelle base:
+        ```
+            uv run python app-suivi-reconciliation/manage.py loaddata app-suivi-reconciliation/data_export.json.gz
+        ```
+    -   Ainsi, toutes les données de la base sqlite sont transférées vers la nouvelle base
++   Réinitialiser les séquences
+    -   PostgreSQL utilise des séquences pour certaines clés primaires auto-incrémentées.
+    -   L'objectif est donc de réinitialiser ces séquences pour éviter des collisions
+    -   On le fait pour toutes les applications déclarées dans le projet django
+    -   La syntaxe :
+        ```
+            uv run python app-suivi-reconciliation/manage.py sqlsequencereset accounts
+            uv run python app-suivi-reconciliation/manage.py sqlsequencereset projects
+            uv run python app-suivi-reconciliation/manage.py sqlsequencereset reconciliation
+            uv run python app-suivi-reconciliation/manage.py sqlsequencereset imports_app
+            uv run python app-suivi-reconciliation/manage.py sqlsequencereset dashboard
+        ```

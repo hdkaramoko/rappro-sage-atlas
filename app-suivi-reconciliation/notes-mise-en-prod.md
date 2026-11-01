@@ -294,3 +294,14 @@
             uv run python app-suivi-reconciliation/manage.py sqlsequencereset imports_app
             uv run python app-suivi-reconciliation/manage.py sqlsequencereset dashboard
         ```
++   Modification du manifest de déploiement
+    -   Rajout des éléments de connexion de la DB au manifest
+    -   Initialiser postgresql avec la syntaxe de migration : ```uv run python app-suivi-reconciliation/manage.py migrate```
+    -   Appliquer le nouveau déploiement du pod - attention, il faut récupérer le sha de l'ancien
+        ```
+            kubectl apply -f k8s/dev/deployment.yaml
+            kubectl set image deployment/rappro-sage-atlas-dev rappro-sage-atlas-dev=ghcr.io/hdkaramoko/rappro-sage-atlas:dev-<SHA>
+            kubectl rollout status deployment/rappro-sage-atlas-dev -n user-hdkaramoko --timeout=120s
+        ```
+    -   Faire les migrations
+        

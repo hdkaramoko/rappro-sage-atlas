@@ -318,6 +318,7 @@ class CampaignInventory(models.Model):
     fiscal_year = models.PositiveSmallIntegerField()
     data = models.JSONField(default=dict)
     control_key = models.CharField(max_length=64, blank=True, db_index=True)
+    ods_scope = models.CharField(max_length=64, blank=True, default="")
     present = models.BooleanField(default=True)
     change = models.CharField(max_length=16, default="NEW")
     differences = models.JSONField(default=dict)
@@ -328,7 +329,8 @@ class CampaignInventory(models.Model):
                 fields=("campaign", "business_key"), name="campaign_inventory_key"
             )
         ]
-        indexes = [models.Index(fields=("campaign", "change"))]
+        indexes = [models.Index(fields=("campaign", "change")),
+                   models.Index(fields=("campaign", "ods_scope"), name="atlas_campaign_ods_idx")]
 
 
 class CampaignGroup(models.Model):
@@ -417,3 +419,52 @@ class ImportRevision(models.Model):
     """Compteur SQLite transactionnel détectant toute mutation métier pendant la préparation."""
 
     revision = models.PositiveBigIntegerField(default=0)
+
+
+class CampaignSageEntry(models.Model):
+    """Photographie Sage immuable d'une campagne, indépendante des décisions.
+
+    `record_id` signe le contenu ; `entry_ref` conserve la clé technique v3,
+    potentiellement en collision (le contrôle devient alors indéterminé).
+    Le montant SQL est en EUR, signé, nullable, à six décimales maximum.
+    Les index couvrent la pièce et le groupe composite sans charger l'inventaire.
+    """
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.PROTECT, related_name="sage_inventory")
+    record_id = models.CharField(max_length=64)
+    entry_ref = models.CharField(max_length=64)
+    project_code = models.CharField(max_length=100)
+    fiscal_year = models.PositiveSmallIntegerField(null=True)
+    document = models.CharField(max_length=100)
+    control_key = models.CharField(max_length=64)
+    ods_scope = models.CharField(max_length=64, blank=True, default="")
+    amount = models.DecimalField(max_digits=22, decimal_places=6, null=True)
+    eligible = models.BooleanField(default=True)
+    data = models.JSONField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("campaign", "record_id"), name="campaign_sage_record")]
+        indexes = [
+            models.Index(fields=("campaign", "project_code", "fiscal_year", "document"), name="sage_campaign_piece_idx"),
+            models.Index(fields=("campaign", "control_key"), name="sage_campaign_group_idx"),
+            models.Index(fields=("campaign", "entry_ref"), name="sage_campaign_ref_idx"),
+            models.Index(fields=("campaign", "ods_scope"), name="sage_campaign_ods_idx"),
+        ]
+
+
+class CampaignGlobalControl(models.Model):
+    """Calcul initial immuable ; le service interne retourne les recalculs ciblés.
+
+    `data` distingue le contrôle des Comptabilisé du contrôle consolidé après
+    les confirmations applicatives. Aucune décision utilisateur n'est stockée ici.
+    """
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.PROTECT, related_name="global_controls")
+    key = models.CharField(max_length=64)
+    project_code = models.CharField(max_length=100)
+    state = models.CharField(max_length=16)
+    data = models.JSONField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("campaign", "key"), name="campaign_global_key")]
+        indexes = [models.Index(fields=("campaign", "project_code", "state"), name="global_campaign_state_idx")]

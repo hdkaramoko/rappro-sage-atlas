@@ -49,6 +49,8 @@ def test_configured_rule_overrides_only_experimental_review(rule):
 
 
 def test_amount_real_multiple_sage_rows(tmp_path, monkeypatch):
+    """Le contrat v2 conserve les métadonnées sans activer le contrôle collectif v3."""
+    monkeypatch.setattr(config, "PIECE_COHERENCE", {"enabled": True, "mode": "DIAGNOSTIC"})
     import json
     from matching_helpers import atlas_row, sage_row, frames
     from reconciliation.exporters.review import export_review_bundle
@@ -74,6 +76,8 @@ def test_fuzzy_real_result_requires_explicit_authorization():
 
 
 def test_jsonl_metadata_is_optional(tmp_path, monkeypatch):
+    """Le JSONL historique v2 publie l'autorisation uniquement si configurée."""
+    monkeypatch.setattr(config, "PIECE_COHERENCE", {"enabled": True, "mode": "DIAGNOSTIC"})
     import json
     from matching_helpers import atlas_row, frames
     from reconciliation.exporters.review import export_review_bundle

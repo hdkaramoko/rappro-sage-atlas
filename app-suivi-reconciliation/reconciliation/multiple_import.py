@@ -106,12 +106,31 @@ def import_control(campaign, data, *, inventory=None, previous_by_key=None, pers
 
 
 def import_control_batch(campaign, payloads):
-    """Charge preuves et arbitrages en deux lectures par lot, puis insère en masse."""
+    """Valide et insère `payloads`, liste d'au plus 500 contrôles, pour la campagne.
+
+    Charge Atlas et arbitrages par lot. Avec sage_inventory_v1, une lecture
+    supplémentaire vérifie l'exhaustivité des preuves Sage contre la photographie.
+    Lève ValidationError si composition, signature ou unicité incohérentes ;
+    toutes les écritures appartiennent à la transaction d'import parente.
+    """
     if any(not isinstance(data, dict) or not isinstance(data.get("key"), str) for data in payloads):
         raise ValidationError("Contrôle absent ou clé invalide")
     keys = [data["key"] for data in payloads]
     if len(keys) != len(set(keys)):
         raise ValidationError("Contrôle répété dans le lot")
+    from reconciliation_contract.sage_inventory import CAPABILITY
+    if CAPABILITY in campaign.metadata.get("capabilities", []):
+        sage = defaultdict(list)
+        excluded_keys = set()
+        for key, raw in campaign.sage_inventory.filter(control_key__in=keys).values_list("control_key", "data").iterator(chunk_size=500):
+            sage[key].append(raw["entry"])
+            if not raw["eligible"]:
+                excluded_keys.add(key)
+        for data in payloads:
+            if sorted(sage[data["key"]], key=digest) != sorted(data.get("entries", []), key=digest):
+                raise ValidationError("Preuves du contrôle contradictoires avec l'inventaire Sage")
+            if data["key"] in excluded_keys and "Type de pièce exclu des contrôles selon la politique de campagne" not in data.get("reasons", []):
+                raise ValidationError("Contrôle Sage ne respectant pas la politique d'exclusion")
     inventory = defaultdict(list)
     for key, data in campaign.inventory.filter(
         control_key__in=keys, present=True, data__bap_status="Comptabilisé"

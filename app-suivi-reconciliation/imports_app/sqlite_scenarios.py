@@ -114,9 +114,12 @@ class Scenarios(unittest.TestCase):
             self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
 
     def test_concurrent_decision_prevents_publication(self):
-        """Une vraie écriture concurrente invalide la copie sans perdre la décision."""
+        """Un nouvel import réel détecte la concurrence ; un réimport identique est idempotent."""
         import_bundle(self.path)
         first = Campaign.objects.get(is_current=True).pk
+        records = [json.loads(line) for line in self.path.read_text(encoding="utf-8").splitlines()]
+        records[0]["name"] = "Nouvelle campagne concurrente"
+        self.path.write_text("\n".join(json.dumps(r) for r in records), encoding="utf-8")
         edited = False
 
         def edit(phase, *args, **details):
@@ -190,7 +193,7 @@ class Scenarios(unittest.TestCase):
         self.assertEqual(Campaign.objects.count(), 1)
 
     def test_multiples_and_legacy_preserve_prepared_result(self):
-        """La publication SQL reproduit aussi les contributions et l'archive du parcours v1."""
+        """La publication d'une nouvelle campagne reporte les contributions et archive le v1."""
         from reconciliation.test_multiples import MultipleTests
 
         from .sqlite_staging import CAMPAIGN, PROJECTED, STAGED
@@ -218,6 +221,9 @@ class Scenarios(unittest.TestCase):
         self.path = self.folder / "fixture/campaign.jsonl"
         self.load()
         MultipleTests.validate(self, "A")
+        records = [json.loads(line) for line in self.path.read_text(encoding="utf-8").splitlines()]
+        records[0]["name"] = "Nouvelle photographie des multiples"
+        self.path.write_text("\n".join(json.dumps(r) for r in records), encoding="utf-8")
         self.load()
         campaign = Campaign.objects.get(is_current=True)
         self.assertEqual(campaign.reviews.get(source__source_id="A").comparison, "CARRIED")
@@ -252,6 +258,20 @@ class Scenarios(unittest.TestCase):
                     )
         finally:
             writer.close()
+
+    def test_lot1_inventory_and_controls_survive_staging(self):
+        """Transporte les nouvelles photographies Sage et contrôles dans la bascule SQL."""
+        root = Path(__file__).resolve().parents[2]
+        folder = self.folder / "lot1"
+        result = subprocess.run([str(root / ".venv/Scripts/python.exe"), "-m", "examples.lot1_fixture", str(folder)],
+                                cwd=root, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.path = folder / "campaign.jsonl"
+        self.load()
+        campaign = Campaign.objects.get(is_current=True)
+        self.assertEqual(campaign.sage_inventory.count(), 4)
+        self.assertEqual(campaign.global_controls.count(), 3)
+        self.assertTrue(campaign.global_controls.get(data__identity__strategy="ODS_ODG_BY_GROUP").data["auto_validated"])
 
     def test_activation_backs_up_and_refuses_running_worker(self):
         """L'installation préserve les campagnes et ne migre jamais sous un worker actif."""

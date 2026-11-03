@@ -90,3 +90,6 @@ AUTO_VALIDATION = {"enabled": True, "statuses": ["MATCH_CONFIRMED_ATLAS", "MATCH
 
 # Diagnostic par défaut ; ACTIVE autorise la validation collective explicite.
 PIECE_COHERENCE = {"enabled": True, "mode": "ACTIVE"}
+
+# Liste d'exclusion validée par le métier, vide tant qu'aucun préfixe n'est décidé.
+SAGE_EXCLUDED_PREFIXES = []

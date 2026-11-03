@@ -49,7 +49,7 @@ Les loaders préservent les charges décimales dans des colonnes privées parall
 aux colonnes historiques de matching. Les calculs d'inventaire utilisent Decimal.
 Les preuves JSONL Sage exposent directement le montant décimal, sans colonne privée.
 Les montants absents restent `null`, le zéro reste zéro et les signes sont conservés.
-Les montants Sage ont au plus six décimales ; l'import refuse une précision supérieure
+Les montants Sage ont au plus neuf décimales ; l'import refuse une précision supérieure
 plutôt que de l'arrondir silencieusement. Atlas conserve la précision monétaire
 historique de deux décimales. Le champ Atlas par défaut est `total_sage_charges`,
 avec `--accounted-amount-field total_project_charges` disponible.
@@ -64,7 +64,7 @@ avec `--accounted-amount-field total_project_charges` disponible.
 
 Les autres attributs Sage (type de pièce, journal, lignes, tiers, libellé original,
 date, devise, complétude, motif d'exclusion) sont conservés dans le JSON canonique.
-Le montant SQL utilise `DecimalField(22,6)` ; les calculs lisent les chaînes
+Le montant SQL utilise `DecimalField(25,9)` ; les calculs lisent les chaînes
 décimales du JSON, ce qui préserve également l'exactitude sous SQLite malgré ses
 limites de stockage numérique. Les photographies sont consultables en lecture
 seule dans l'administration. Les campagnes non publiées restent masquées.
@@ -184,6 +184,12 @@ lève explicitement « Contrôle global indisponible pour cette campagne ».
 * `0017` restaure les triggers de révision SQLite, y compris sur les tables
   reconstruites par des migrations antérieures, et protège les nouveaux modèles.
   PostgreSQL n'a pas besoin de ces triggers : les verrous existants sont conservés.
+* `0018` étend le montant Sage à `DecimalField(25,9)` : neuf décimales et
+  toujours seize chiffres entiers, sans arrondir les données. Les triggers
+  SQLite sont restaurés après l'altération du champ. Le JSONL existant n'a
+  pas besoin d'être régénéré ni resigné : déployer le code, appliquer la
+  migration, puis relancer l'import échoué. Ne pas revenir à six décimales
+  après import de montants plus précis sans examiner la perte de précision.
 
 Sur un environnement prévu pour la recette, sauvegarder la base puis exécuter
 depuis `app-suivi-reconciliation` : `../.venv/Scripts/python.exe manage.py migrate`.
@@ -333,3 +339,34 @@ campagne ; les fixtures ont été rendues explicites sans relâcher les contrôl
 Le scénario réel de concurrence a en outre mis en évidence les triggers SQLite
 manquants après reconstruction de tables : la migration 0017 les restaure, et
 ce scénario passe désormais.
+
+### Extension à neuf décimales — 3 novembre 2026
+
+L'import de `data/outputs/campagne_03112026.jsonl` révélait 18 montants Sage
+dépassant six décimales (16 à huit décimales, 2 à neuf). La validation admet
+désormais neuf décimales ; `0018_alter_campaignsageentry_amount` fait évoluer
+le champ SQL de `(22,6)` à `(25,9)`, sans réduire sa capacité entière ni modifier
+les signatures ou les montants du JSONL. Les valeurs dépassant neuf décimales
+restent refusées. Aucun arrondi/tronquage n'est introduit.
+
+Les tests dédiés couvrent les montants négatifs à huit décimales, les valeurs
+à neuf décimales et la notation scientifique équivalente, les fichiers à six
+décimales, la conservation des seize chiffres entiers, les absences et le refus
+de dix décimales. Le test d'import vérifie les valeurs JSON/SQL et le calcul
+global, ainsi que les triggers SQLite après migration.
+
+Déploiement : appliquer `python manage.py migrate` depuis l'application avec
+le nouvel environnement, puis relancer l'import du **même JSONL**. La base
+applicative existante n'a pas été migrée pendant ce correctif ; seuls les schémas
+des bases de test jetables ont été modifiés. La modification locale préexistante
+de `README.md` est conservée.
+
+Résultats du correctif : `.venv/Scripts/python.exe -m pytest -q` → **188 réussis,
+1 ignoré** ; depuis l'application, `../.venv/Scripts/python.exe manage.py test
+--noinput --verbosity 0` → **197 tests, OK, 2 ignorés** (PostgreSQL non disponible).
+`makemigrations --check --dry-run` ne détecte aucun écart ; `git diff --check`
+ne détecte aucune erreur d'espaces. L'avertissement `staticfiles` absent reste
+identique à la recette précédente. Une lecture complète du JSONL concerné
+avec `validate_inventory_record` valide les **487334 écritures Sage**, y compris
+les 18 montants auparavant rejetés, sans aucune erreur de validation d'inventaire.
+Ce contrôle ne constitue pas un import complet en base et ne modifie pas le fichier.

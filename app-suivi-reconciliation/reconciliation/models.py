@@ -426,7 +426,7 @@ class CampaignSageEntry(models.Model):
 
     `record_id` signe le contenu ; `entry_ref` conserve la clé technique v3,
     potentiellement en collision (le contrôle devient alors indéterminé).
-    Le montant SQL est en EUR, signé, nullable, à six décimales maximum.
+    Le montant SQL est en EUR, signé, nullable, à neuf décimales maximum.
     Les index couvrent la pièce et le groupe composite sans charger l'inventaire.
     """
 
@@ -438,7 +438,7 @@ class CampaignSageEntry(models.Model):
     document = models.CharField(max_length=100)
     control_key = models.CharField(max_length=64)
     ods_scope = models.CharField(max_length=64, blank=True, default="")
-    amount = models.DecimalField(max_digits=22, decimal_places=6, null=True)
+    amount = models.DecimalField(max_digits=25, decimal_places=9, null=True)
     eligible = models.BooleanField(default=True)
     data = models.JSONField()
 

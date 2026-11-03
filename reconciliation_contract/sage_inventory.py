@@ -66,7 +66,8 @@ def validate_inventory_record(data: dict, policy: dict) -> dict:
     """Revalide contenu, référence et signature ; lève ValueError si altérés.
 
     Le serveur recalcule la clé technique, la complétude et la politique ;
-    aucune décision ni mutation de base n'est réalisée ici.
+    les montants EUR signés sont admis jusqu'à neuf décimales sans arrondi.
+    Aucune décision ni mutation de base n'est réalisée ici.
     """
     if not isinstance(data, dict) or not isinstance(data.get("entry"), dict):
         raise ValueError("Écriture Sage mal formée")
@@ -88,8 +89,8 @@ def validate_inventory_record(data: dict, policy: dict) -> dict:
     if entry["ref"] != digest(identity) or entry.get("identity_complete") is not all(v not in (None, "") for v in identity):
         raise ValueError("Identité Sage incohérente")
     amount = entry.get("amount")
-    if amount is not None and (not isinstance(amount, str) or money(amount) is None or money(amount).as_tuple().exponent < -6):
-        raise ValueError("Montant Sage invalide (six décimales maximum)")
+    if amount is not None and (not isinstance(amount, str) or money(amount) is None or money(amount).as_tuple().exponent < -9):
+        raise ValueError("Montant Sage invalide (neuf décimales maximum)")
     canonical = entry_from_sage({
         "Projet": entry["project_code"], "Numéro pièce": entry["document"],
         "Date comptable": entry["date"], "Journal": entry["journal"],

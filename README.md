@@ -14,7 +14,7 @@ uv sync
 uv run pytest
 uv run python -m reconciliation.main --atlas "data/JDD.xlsx" --sage "data/LISTPJT4.csv"
 uv run python -m reconciliation.main --atlas "data/JDD.xlsx" --sage "data/LISTPJT4.csv" --output "output/rapprochement.xlsx"
-uv run python -m reconciliation.main --atlas "data/inputs/JDD.xlsx" --sage "data/inputs/LISTPJT4.csv" --year 2026 --review-output "data/outputs/campagne_ddmm2026.jsonl"
+uv run python -m reconciliation.main --atlas "data/inputs/JDD.xlsx" --sage "data/inputs/ZLISTPJT.csv" --year 2026 --review-output "data/outputs/campagne_ddmm2026.jsonl"
 ```
 
 La CLI affiche une synthèse ; l'API Python retourne les résultats détaillés.

@@ -2,6 +2,7 @@
 
 import copy
 import json
+from decimal import Decimal
 
 import pandas as pd
 import pytest
@@ -140,6 +141,24 @@ def test_inventory_signatures_and_decimal_source(tmp_path):
     altered["entry"]["amount"] = "999"
     with pytest.raises(ValueError):
         validate_inventory_record(altered, exclusion_policy())
+
+
+@pytest.mark.parametrize("amount", ["-20.69563956", "2.712633512", "0.000000001", "123456789.123456", "9999999999999999.123456789", None])
+def test_inventory_accepts_up_to_nine_decimals_without_rounding(amount):
+    """Accepte les précisions historiques et neuf décimales sans changer contenu ni signatures."""
+    data = record(amount)
+    original = copy.deepcopy(data)
+    assert validate_inventory_record(data, exclusion_policy()) == original
+    if amount is None:
+        assert data["entry"]["amount"] is None
+    else:
+        assert Decimal(data["entry"]["amount"]) == Decimal(amount)
+
+
+def test_inventory_rejects_ten_decimals():
+    """La nouvelle limite refuse dix décimales plutôt que de tronquer le montant source."""
+    with pytest.raises(ValueError, match="neuf décimales maximum"):
+        validate_inventory_record(record("0.0000000001"), exclusion_policy())
 
 
 def test_distinct_sources_with_same_canonical_identity_are_preserved(tmp_path):

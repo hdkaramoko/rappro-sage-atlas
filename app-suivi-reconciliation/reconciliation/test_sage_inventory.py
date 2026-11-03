@@ -195,3 +195,33 @@ class SageInventoryTests(TestCase):
             constraints = connection.introspection.get_constraints(cursor, CampaignSageEntry._meta.db_table)
         for name in ("sage_campaign_piece_idx", "sage_campaign_group_idx", "sage_campaign_ref_idx", "sage_campaign_ods_idx"):
             self.assertIn(name, constraints)
+
+    def test_import_preserves_nine_decimal_amounts(self):
+        """Importe huit/neuf décimales exactement en JSON et SQL sur la base jetable.
+
+        Les nouvelles pièces sans Atlas utilisent le véritable import JSONL ;
+        aucun arrondi ni changement des signatures métier n'est nécessaire.
+        """
+        records = copy.deepcopy(self.records)
+        original = next(r["data"] for r in records if r.get("type") == "sage_inventory")
+        position = next(i for i, r in enumerate(records) if r.get("type") == "proposal")
+        for i, amount in enumerate(("-20.69563956", "2.712633512")):
+            entry = {**original["entry"], "document": f"FAC-PRECISION-{i}", "amount": amount}
+            entry["ref"] = digest([entry[k] for k in ("project_code", "fiscal_year", "document", "journal", "line", "analytic_line")])
+            data = inventory_record(entry, records[0]["sage_exclusions"])
+            records.insert(position, {"type": "sage_inventory", "data": data})
+        records[0]["load_quality"]["sage"]["rows_final"] += 2
+        campaign = self.load(records)
+        for i, amount in enumerate(("-20.69563956", "2.712633512")):
+            saved = campaign.sage_inventory.get(document=f"FAC-PRECISION-{i}")
+            self.assertEqual(saved.data["entry"]["amount"], amount)
+            self.assertEqual(saved.amount, Decimal(amount))
+            self.assertEqual(campaign.global_controls.get(key=saved.control_key).data["sage_total"], amount)
+        field = CampaignSageEntry._meta.get_field("amount")
+        self.assertEqual((field.max_digits, field.decimal_places), (25, 9))
+        if connection.vendor == "sqlite":
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name=%s", [CampaignSageEntry._meta.db_table])
+                triggers = {row[0] for row in cursor.fetchall()}
+            for event in ("INSERT", "UPDATE", "DELETE"):
+                self.assertIn(f"import_revision_reconciliation_campaignsageentry_{event}", triggers)

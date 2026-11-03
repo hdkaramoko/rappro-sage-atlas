@@ -1,12 +1,73 @@
 from django.core.exceptions import ValidationError
+from django.test import SimpleTestCase
 from django.urls import reverse
 from reconciliation_contract.piece_coherence import atlas_entry, sage_entry, check_piece
 
 from . import test_campaigns as fixtures
 from .models import Campaign, LineReview, ReviewEvent
+from .piece_coherence import _same_atlas_entry, validate_proposal_check
+
+
+class ProposalDiagnosticValidationTests(SimpleTestCase):
+    """Vérifie l'équivalence décimale sans relâcher l'intégrité des autres preuves."""
+
+    def test_equivalent_decimal_formats_preserve_signed_diagnostic(self):
+        """Accepte formats entiers, décimaux et scientifiques sans réécrire la signature."""
+        import copy
+        for source, diagnostic_amount in (("374", "374.0"), ("8820", "8820.00"),
+                                          ("-374", "-374.000"), ("0.001", "1E-3"),
+                                          ("0", "-0.00"), (None, None)):
+            with self.subTest(source=source, diagnostic=diagnostic_amount):
+                row = fixtures.atlas(**{"N° pièce SAGE": "D", "Total charges SAGE (€)": source})
+                entry = {**atlas_entry(row), "amount": diagnostic_amount}
+                diagnostic = check_piece("P", "D", [entry], [])
+                payload = {"atlas": [row], "piece_coherence": diagnostic}
+                original = copy.deepcopy(payload)
+                self.assertIs(validate_proposal_check(payload), diagnostic)
+                self.assertEqual(payload, original)
+
+    def test_business_differences_are_rejected(self):
+        """Un centime, une absence, un signe ou tout autre champ différent restent refusés."""
+        row = fixtures.atlas(**{"N° pièce SAGE": "D", "Total charges SAGE (€)": "374"})
+        entry = atlas_entry(row)
+        diagnostic = check_piece("P", "D", [{**entry, "amount": "374.0"}], [])
+        changes = {"Id": "OTHER", "Code projet": "OTHER", "Année": 2025,
+                   "N° pièce SAGE": "OTHER", "Date comptable": "2025-01-01",
+                   "Code tiers SAGE": "OTHER", "N° BAP (SAGE)": "OTHER"}
+        for field, value in list(changes.items()) + [("Total charges SAGE (€)", v) for v in ("374.01", "-374", None)]:
+            with self.subTest(field=field, value=value):
+                with self.assertRaisesMessage(ValidationError, "Ligne Atlas absente ou contradictoire"):
+                    validate_proposal_check({"atlas": [{**row, field: value}], "piece_coherence": diagnostic})
+        self.assertFalse(_same_atlas_entry({"amount": None}, {"amount": "0"}))
+        self.assertFalse(_same_atlas_entry({"amount": None}, {"amount": "NaN"}))
+        self.assertFalse(_same_atlas_entry({"amount": "NaN"}, {"amount": "NaN"}))
+
+    def test_tampered_diagnostic_and_multiple_sources_are_rejected(self):
+        """La signature reste obligatoire et une proposition doit avoir une seule source."""
+        import copy
+        row = fixtures.atlas(**{"N° pièce SAGE": "D", "Total charges SAGE (€)": "374"})
+        diagnostic = check_piece("P", "D", [{**atlas_entry(row), "amount": "374.0"}], [])
+        altered = copy.deepcopy(diagnostic)
+        altered["atlas"][0]["amount"] = "374.00"
+        with self.assertRaises(ValidationError):
+            validate_proposal_check({"atlas": [row], "piece_coherence": altered})
+        with self.assertRaises(ValidationError):
+            validate_proposal_check({"atlas": [row, row], "piece_coherence": diagnostic})
 
 
 class PieceDiagnosticTests(fixtures.CampaignTests):
+    def test_equivalent_decimal_format_imports_without_changing_diagnostic(self):
+        """Importe le JSONL existant malgré 100/100.0 et conserve le diagnostic signé."""
+        import copy
+        row, payload = self.diagnostic_payload()
+        data = payload["piece_coherence"]
+        data = check_piece(data["project"], data["document"],
+                           [{**entry, "amount": "100.0"} for entry in data["atlas"]], data["sage"])
+        payload["piece_coherence"] = data
+        original = copy.deepcopy(data)
+        campaign = self.load(inventory=[row], proposals=[payload])
+        self.assertEqual(campaign.reviews.get().group.data["piece_coherence"], original)
+
     def diagnostic_payload(self):
         row = fixtures.atlas(**{"N° pièce SAGE": "D", "Date comptable": "2026-01-01",
                                 "Total charges SAGE (€)": "100", "Code tiers SAGE": "T",

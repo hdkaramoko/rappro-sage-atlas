@@ -370,3 +370,29 @@ identique à la recette précédente. Une lecture complète du JSONL concerné
 avec `validate_inventory_record` valide les **487334 écritures Sage**, y compris
 les 18 montants auparavant rejetés, sans aucune erreur de validation d'inventaire.
 Ce contrôle ne constitue pas un import complet en base et ne modifie pas le fichier.
+
+### Comparaison des montants Atlas du diagnostic — 3 novembre 2026
+
+Le même JSONL présentait 705 propositions dont le montant et celui du diagnostic
+avaient des formats différents mais une valeur identique (`374` et `374.0`, par
+exemple). `piece_coherence.py:validate_proposal_check` vérifie toujours d'abord
+la signature originale du diagnostic, puis compare le montant individuel en
+Decimal fini, **exactement et sans tolérance**. Les autres champs restent
+strictement comparés. Une absence ne correspond pas à zéro, et un changement de
+signe, un écart d'un centime ou un montant invalide restent refusés.
+
+Cette correction ne réécrit ni données ni signatures ; aucune migration
+supplémentaire ou régénération du JSONL n'est nécessaire. Les tests de
+`test_piece_coherence.py` vérifient les formats équivalents, le rejet des vrais
+écarts/autres champs modifiés, les diagnostics altérés et l'import conservant
+le diagnostic signé d'origine.
+
+Vérifications : les 31 tests ciblés de `reconciliation.test_piece_coherence`
+passent. La validation en lecture seule des 1957 diagnostics présents dans
+`campagne_03112026.jsonl` ne produit aucune erreur, y compris sur les 705
+différences de format auparavant rejetées. Le fichier n'a pas été modifié et
+aucun import complet de ces données en base n'a été effectué.
+La suite Django complète (`../.venv/Scripts/python.exe manage.py test --noinput
+--verbosity 0`) passe également : **201 tests, OK, 2 ignorés** faute de PostgreSQL.
+`git diff --check` ne détecte aucune erreur d'espaces. L'avertissement habituel
+sur le répertoire `staticfiles` absent est sans incidence sur les tests backend.

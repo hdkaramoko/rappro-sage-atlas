@@ -7,13 +7,42 @@ from reconciliation_contract import STANDARD, digest, money
 from decimal import Decimal
 
 
+def _same_atlas_entry(source: dict, diagnostic: dict) -> bool:
+    """Compare deux entrées Atlas canoniques sans modifier leurs preuves signées.
+
+    Les montants individuels EUR sont comparés en Decimal fini, exactement et
+    sans tolérance : « 374 » et « 374.0 » sont égaux, deux valeurs absentes
+    aussi. Une absence ne vaut jamais zéro ; un montant invalide ne correspond
+    jamais. Tous les autres champs et leur présence restent strictement égaux.
+    Retourne un booléen, sans effet de bord ni arrondi.
+    """
+    left, right = source.get("amount"), diagnostic.get("amount")
+    same_amount = (left is None and right is None) or (
+        money(left) is not None and money(left) == money(right)
+    )
+    return same_amount and (
+        {key: value for key, value in source.items() if key != "amount"}
+        == {key: value for key, value in diagnostic.items() if key != "amount"}
+    )
+
+
 def validate_proposal_check(payload):
+    """Vérifie le diagnostic signé d'une proposition moteur `payload` (dict).
+
+    Retourne le diagnostic d'origine, ou None si absent. Recalcule sa signature
+    avant de vérifier l'appartenance de l'unique ligne Atlas ; seuls les formats
+    textuels équivalents du montant EUR sont tolérés, via Decimal exact. Une
+    différence métier, une composition invalide ou une altération lève
+    ValidationError. Aucun montant, signature, fichier ou objet SQL n'est modifié.
+    """
     data = payload.get("piece_coherence")
     if data is None:
         return None
     try:
         validate_check(data)
-        if len(payload["atlas"]) != 1 or any(atlas_entry(raw) not in data["atlas"] for raw in payload["atlas"]):
+        if len(payload["atlas"]) != 1 or not any(
+            _same_atlas_entry(atlas_entry(payload["atlas"][0]), row) for row in data["atlas"]
+        ):
             raise ValueError("Ligne Atlas absente ou contradictoire avec le diagnostic")
     except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
         raise ValidationError(f"Contrôle de cohérence SAGE invalide : {exc}") from exc

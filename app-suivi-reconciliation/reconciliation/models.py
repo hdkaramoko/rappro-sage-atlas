@@ -20,7 +20,11 @@ class ReconciliationQuerySet(QuerySet):
 
 
 class ReconciliationTransaction(models.Model):
-    """État source courant d'une transaction, enrichi d'une correction séparée."""
+    """État source courant d'une transaction, enrichi d'une correction séparée.
+
+    Les codes budgétaires admettent 255 caractères et leurs libellés sont des
+    textes sans limite métier arbitraire, pour préserver les sources importées.
+    """
 
     project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="transactions")
     business_key = models.CharField(max_length=255, unique=True)
@@ -51,8 +55,8 @@ class ReconciliationTransaction(models.Model):
     source_project_label = models.CharField("libellé projet source", max_length=255, blank=True)
     fiscal_year = models.PositiveSmallIntegerField("année", null=True, blank=True)
     activity = models.CharField("activité", max_length=255, blank=True)
-    budget_line_code = models.CharField("code ligne budgétaire", max_length=100, blank=True)
-    budget_line_label = models.CharField("libellé ligne budgétaire", max_length=255, blank=True)
+    budget_line_code = models.CharField("code ligne budgétaire", max_length=255, blank=True)
+    budget_line_label = models.TextField("libellé ligne budgétaire", blank=True)
     atlas_label = models.CharField("libellé ATLAS", max_length=500, blank=True)
     atlas_expense_nature = models.CharField("nature de dépense ATLAS", max_length=255, blank=True)
     sage_third_party_code = models.CharField("code tiers SAGE", max_length=100, blank=True)

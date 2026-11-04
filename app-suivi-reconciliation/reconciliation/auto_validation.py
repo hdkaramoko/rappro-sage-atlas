@@ -3,28 +3,110 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from decimal import Decimal
 from reconciliation_contract.auto_validation import AUTO_VALIDATION_RULES
-from .models import ReviewEvent
+from reconciliation_contract import compare, control_identity, digest, entry_from_sage
+from .models import ControlContribution, LineReview, ReviewEvent
 from .review import FIELDS, decide, is_current, signature
 from .campaigns import decision_record
 
 
-def apply_automatic_validations(campaign, *, progress=None):
-    from .collective_validation import apply_collective_validations
-    handled = apply_collective_validations(campaign, progress=progress)
-    # Recenser toutes les revendications avant de décider : l'ordre du fichier
-    # ne doit pas donner la priorité à la première de deux preuves partagées.
-    claims = {}
-    for frozen in campaign.reviews.select_related("group").iterator(chunk_size=500):
-        data = frozen.group.data
+def automatic_blockers(campaign):
+    """Recense les conflits avant toute AUTO, indépendamment de l'ordre des lignes.
+
+    `campaign` fournit les propositions photographiées et les contrôles v3.
+    Retourne {line_id: motif}. Exact v3 est contrôlé par référence d'écriture
+    complète et capacité signée agrégée de pièce ; aucun partage partiel d'une
+    même écriture n'est autorisé. Les autres règles et anciens contrats gardent
+    leur garde pièce/date. Les propositions non autorisées participent néanmoins
+    aux revendications pour ne pas masquer un concurrent ambigu. Lecture seule.
+    """
+    from .multiple_review import exact_entry
+    claims, refs, uncertain, identities = {}, {}, {}, {}
+    candidates, amounts, owners = {}, {}, {}
+    blocked = {}
+    rows = campaign.reviews.select_related("group", "line__group", "line__campaign", "line__transaction__project")
+    for frozen in rows.iterator(chunk_size=500):
+        line, data = frozen.line, frozen.group.data
         proofs = [r for c in data.get("evidence", []) for r in c.get("rows", [])]
-        keys = {(frozen.source["project_code"], str(r.get("Numéro pièce", "")),
-                 str(r.get("Date comptable", ""))[:10]) for r in proofs}
+        keys = set()
+        for raw in proofs:
+            key = (frozen.source["project_code"], str(raw.get("Numéro pièce", "")).strip().upper(),
+                   str(raw.get("Date comptable", ""))[:10])
+            keys.add(key)
+            entry = entry_from_sage(raw)
+            if entry["identity_complete"] and raw.get("entry_ref") == entry["ref"]:
+                refs.setdefault(entry["ref"], set()).add(line.pk)
+            else:
+                uncertain.setdefault(key, set()).add(line.pk)
         if data.get("rule") == "MATCH_CONFIRMED_ATLAS":
-            keys.add((frozen.source["project_code"], frozen.source.get("sage_document_number"),
+            keys.add((frozen.source["project_code"], str(frozen.source.get("sage_document_number") or "").strip().upper(),
                       str(frozen.source.get("accounting_date", ""))[:10]))
         for key in keys:
-            claims.setdefault(key, set()).add(frozen.line_id)
-    shared_lines = {pk for members in claims.values() if len(members) > 1 for pk in members}
+            claims.setdefault(key, set()).add(line.pk)
+        exact = campaign.metadata.get("schema_version") == 3 and data.get("rule") == "MATCH_EXACT"
+        identities[line.pk] = (exact, keys)
+        if (not exact or not data.get("auto_validation")
+                or line.version and line.validation_source == "MANUAL"):
+            continue
+        try:
+            entry = exact_entry(line)
+            candidates[line.pk] = entry
+            key = digest(control_identity(entry, sage=True))
+            amounts.setdefault(key, []).append(str(line.group.sage_total))
+            owners.setdefault(key, set()).add(line.pk)
+        except ValidationError as exc:
+            blocked[line.pk] = " ; ".join(exc.messages)
+    for line_id, (exact, keys) in identities.items():
+        if not exact and any(len(claims[key]) > 1 for key in keys):
+            blocked[line_id] = "Preuve partagée entre propositions : contrôle manuel requis"
+        if exact and any(uncertain.get(key, set()) - {line_id} for key in keys):
+            blocked[line_id] = "Identité d'écriture SAGE insuffisante chez une proposition concurrente"
+    for members in refs.values():
+        if len(members) > 1:
+            for line_id in members:
+                if identities[line_id][0]:
+                    blocked[line_id] = "Écriture SAGE réutilisée entre propositions : contrôle manuel requis"
+    others = {}
+    existing = ControlContribution.objects.filter(control__campaign=campaign, control__key__in=owners).exclude(line_id__in=candidates).select_related(
+        "control", "line__group", "line__campaign", "line__transaction__project")
+    for contribution in existing.iterator(chunk_size=500):
+        if contribution.line.state == "VALIDATED" and is_current(contribution.line):
+            others.setdefault(contribution.control.key, []).append(str(contribution.amount))
+    controls = {c.key: c for c in campaign.controls.filter(key__in=owners)}
+    for key, members in owners.items():
+        control = controls.get(key)
+        if control is None:
+            reason = "Pièce SAGE absente des contrôles : affectation automatique impossible"
+        else:
+            data = control.data
+            diagnosis = compare([r.get(data["amount_field"]) for r in data["atlas"]] + amounts[key] + others.get(key, []),
+                                [r["amount"] for r in data["entries"]], reasons=data["reasons"], tolerance=data["tolerance"])
+            reason = ("Dépassement collectif du montant disponible de la pièce SAGE" if diagnosis["status"] == "EXCESS"
+                      else "Calcul non fiable : " + " ; ".join(diagnosis["reasons"]) if diagnosis["status"] == "UNKNOWN" else "")
+        if reason:
+            for line_id in members:
+                blocked.setdefault(line_id, reason)
+    return blocked
+
+
+def apply_automatic_validations(campaign, *, progress=None):
+    """Applique les autorisations moteur aux décisions futures de `campaign`.
+
+    Appelée dans la transaction d'import après les reports, cette fonction
+    précontrôle toutes les revendications avant les décisions. Les Confirmé
+    utilisent les charges Sage Atlas, les autres règles les charges projet.
+    Exact v3 peut partager une pièce uniquement avec des écritures distinctes,
+    identifiables et sans dépassement agrégé. Les priorités humaines, signatures,
+    événements et savepoints existants sont conservés. `progress` est un rappel
+    optionnel. Retourne None ; un refus métier est photographié avec son motif.
+    """
+    from .collective_validation import apply_collective_validations
+    handled = apply_collective_validations(campaign, progress=progress)
+    blockers = {key: value for key, value in automatic_blockers(campaign).items() if key not in handled}
+    # Retirer toutes les anciennes AUTO refusées avant d'examiner les autres :
+    # aucune priorité ne doit résulter de l'ordre des réservations reportées.
+    stale = LineReview.objects.filter(pk__in=blockers, validation_source="AUTO", campaign=campaign)
+    ControlContribution.objects.filter(control__campaign=campaign, line_id__in=stale.values("pk")).delete()
+    stale.update(source_signature="")
     rows = campaign.reviews.select_related(
         "group", "line__transaction__project", "line__group", "line__campaign",
         "line__updated_by", "line__validation_origin",
@@ -44,6 +126,7 @@ def apply_automatic_validations(campaign, *, progress=None):
             if not metadata:
                 line.source_signature = ""
                 line.save(update_fields=["source_signature"])
+                ControlContribution.objects.filter(control__campaign=campaign, line=line).delete()
                 frozen.reasons.append("Autorisation automatique absente : contrôle manuel requis")
                 frozen.decision = decision_record(line)
                 frozen.save(update_fields=["decision", "reasons"])
@@ -54,14 +137,16 @@ def apply_automatic_validations(campaign, *, progress=None):
         if not metadata:
             continue
         try:
-            if line.pk in shared_lines:
-                raise ValidationError("Preuve partagée entre propositions : contrôle manuel requis")
+            if line.pk in blockers:
+                raise ValidationError(blockers[line.pk])
             if metadata != {"source": "AUTO", "rule": line.group.rule, "state": "VALIDATED"}:
                 raise ValidationError("Métadonnées automatiques invalides")
             if line.group.match_status != "MATCHED" or line.group.rule not in AUTO_VALIDATION_RULES or line.group.lines.count() != 1:
                 raise ValidationError("Proposition automatique non unique ou non fiable")
-            amount = line.transaction.total_project_charges
-            if amount is None or line.group.sage_total is None or abs(amount-line.group.sage_total) > Decimal("0.01"):
+            amount = (line.transaction.total_sage_charges if line.group.rule == "MATCH_CONFIRMED_ATLAS"
+                      else line.transaction.total_project_charges)
+            if (amount is None or line.group.sage_total is None or abs(amount-line.group.sage_total) > Decimal("0.01")
+                    or line.group.rule == "MATCH_CONFIRMED_ATLAS" and amount * line.group.sage_total < 0):
                 raise ValidationError("Montants incompatibles avec une validation automatique")
             values = {name: {"mode": "KEEP"} for name in FIELDS}
             if line.group.rule != "MATCH_CONFIRMED_ATLAS":
@@ -92,6 +177,7 @@ def apply_automatic_validations(campaign, *, progress=None):
                 line.refresh_from_db()
                 line.source_signature = ""
                 line.save(update_fields=["source_signature"])
+                ControlContribution.objects.filter(control__campaign=campaign, line=line).delete()
                 frozen.decision = decision_record(line)
             frozen.reasons.extend(exc.messages)
             frozen.save(update_fields=["reasons", "decision"])

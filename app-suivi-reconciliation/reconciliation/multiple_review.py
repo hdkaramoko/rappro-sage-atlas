@@ -6,7 +6,7 @@ from decimal import Decimal
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
-from reconciliation_contract import STANDARD, compare, control_identity, digest, entry_from_sage
+from reconciliation_contract import STANDARD, compare, control_identity, digest, entry_from_sage, money
 
 from .models import Campaign, ControlContribution, MultipleControl, MultipleEvent
 
@@ -25,6 +25,60 @@ def candidates_for(line):
                 raise ValidationError("Écritures candidates contradictoires")
             result[entry["ref"]] = entry
     return result
+
+
+def exact_entry(line):
+    """Retourne l'unique écriture complète d'une proposition Exact v3.
+
+    `line` est une LineReview avec transaction, groupe et campagne chargés.
+    Vérifie la référence v3, la cardinalité réelle, projet/exercice, montants
+    individuels projet/Sage et leurs signes avec tolérance de 0,01 EUR. Les
+    doublons ne sont pas dédupliqués pour autoriser une preuve ambiguë.
+    Lève ValidationError si non démontrable. Aucun effet de bord SQL/fichier.
+    """
+    raw = [r for candidate in line.group.evidence for r in candidate.get("rows", [])]
+    if (not line.campaign_id or line.campaign.metadata.get("schema_version") != 3
+            or line.group.rule != "MATCH_EXACT" or line.group.match_status != "MATCHED"
+            or len(line.group.evidence) != 1 or len(raw) != 1):
+        raise ValidationError("Écriture SAGE exacte non unique ou identité insuffisante")
+    candidates = candidates_for(line)
+    if len(candidates) != 1:
+        raise ValidationError("Écriture SAGE exacte non unique")
+    entry = next(iter(candidates.values()))
+    amount, total, project = money(entry["amount"]), money(line.group.sage_total), money(line.transaction.total_project_charges)
+    if (not entry["identity_complete"] or entry["project_code"] != line.transaction.project.code
+            or entry["fiscal_year"] != line.transaction.fiscal_year):
+        raise ValidationError("Identité d'écriture SAGE absente ou hors projet/exercice")
+    if (amount is None or total is None or project is None
+            or abs(total - amount) > Decimal("0.01") or abs(project - amount) > Decimal("0.01")
+            or total * amount < 0 or project * amount < 0):
+        raise ValidationError("Montants signés incompatibles avec l'écriture SAGE exacte")
+    return entry
+
+
+def compatible_exact_peer(line, contribution):
+    """Autorise une pièce partagée entre deux contributions AUTO Exact distinctes.
+
+    `line` est la proposition automatique en cours ; `contribution` une
+    réservation déjà validée. Recontrôle les preuves individuelles, la fraîcheur,
+    le montant effectif et la référence réellement réservée. Retourne False
+    sur ambiguïté, décision manuelle ou preuve réutilisée, sans modifier la base.
+    Cette exemption n'est appelée que par le parcours automatique Exact.
+    """
+    from .review import effective, is_current
+    other = contribution.line
+    if other.validation_source != "AUTO" or other.state != "VALIDATED" or not is_current(other):
+        return False
+    try:
+        left, right = exact_entry(line), exact_entry(other)
+        resolved = effective(other)
+        return (left["ref"] != right["ref"] and contribution.entries == [right["ref"]]
+                and contribution.amount == resolved["amount"]
+                and money(resolved["amount"]) == money(other.group.sage_total)
+                and str(resolved["document"]).strip().upper() == right["document"]
+                and str(resolved["date"])[:10] == right["date"])
+    except ValidationError:
+        return False
 
 
 def context_for(line):
@@ -155,12 +209,20 @@ def allocation_plan(line, resolved, selection):
     return plan
 
 
-def diagnose_plan(line, plan, *, manual=False):
-    """Ajoute les validations actuelles à la source, remplace la contribution de cette ligne."""
+def diagnose_plan(line, plan, *, manual=False, automatic=False):
+    """Calcule les diagnostics des réservations `plan` de `line`, sans écrire.
+
+    Ajoute les contributions des autres lignes aux charges Sage Atlas sources.
+    `manual` conserve les alertes des sélections manuelles ; `automatic` permet
+    uniquement aux AUTO Exact à écritures distinctes et actuelles de partager
+    une pièce. Les références partagées et dépassements restent bloquants.
+    Retourne une liste de diagnostics EUR ; aucune dérogation n'est accordée ici.
+    """
     diagnostics = []
     for control, amount, refs in plan:
         data = control.data
-        others = list(control.contributions.exclude(line=line).select_related("line__transaction"))
+        others = list(control.contributions.exclude(line=line).select_related(
+            "line__transaction__project", "line__group", "line__campaign"))
         contributions = [c.amount for c in others] + [amount]
         source_amounts = [r.get(data["amount_field"]) for r in data["atlas"]]
         diagnostic = compare(
@@ -193,22 +255,37 @@ def diagnose_plan(line, plan, *, manual=False):
             source_lines=[r["source_id"] for r in data["atlas"]],
             shared_entries=shared,
             shared_piece=any(c.line.group_id != line.group_id
-                and not compatible_piece_peer(line, c.line) for c in others),
+                and not compatible_piece_peer(line, c.line)
+                and not (automatic and compatible_exact_peer(line, c)) for c in others),
         )
         diagnostics.append(diagnostic)
     return diagnostics
 
 
-def apply_projection(line, resolved, selection, *, state, confirmed, comment):
-    """Contrôle puis remplace la réservation ; l'appelant détient le verrou de campagne."""
+def apply_projection(line, resolved, selection, *, state, confirmed, comment, automatic=False):
+    """Contrôle puis remplace les réservations v3 de `line` sous verrou de campagne.
+
+    `resolved` contient le montant individuel EUR et la pièce/date effectifs ;
+    `selection` conserve le parcours manuel existant. `automatic=True` revalide
+    la preuve unique Exact et autorise les seuls pairs AUTO Exact distincts.
+    Les alertes manuelles, références partagées, dépassements et données inconnues
+    restent soumis aux contrôles existants (`confirmed` et commentaire).
+    Retourne le diagnostic ; ValidationError annule les écritures parentes.
+    """
     if not line.campaign_id or line.campaign.metadata.get("schema_version") != 3:
         if selection:
             raise ValidationError("Une campagne v3 est requise pour affecter des écritures")
         return {}
     diagnostics, plan = [], []
     if state == "VALIDATED":
+        if automatic and line.group.rule == "MATCH_EXACT":
+            entry = exact_entry(line)
+            if (str(resolved["document"]).strip().upper() != entry["document"]
+                    or str(resolved["date"])[:10] != entry["date"]
+                    or money(resolved["amount"]) != money(line.group.sage_total)):
+                raise ValidationError("Affectation automatique différente de l'écriture SAGE exacte")
         plan = allocation_plan(line, resolved, selection)
-        diagnostics = diagnose_plan(line, plan, manual=bool(selection))
+        diagnostics = diagnose_plan(line, plan, manual=bool(selection), automatic=automatic)
         unknown = [d for d in diagnostics if d["status"] == "UNKNOWN"]
         if unknown:
             raise ValidationError(

@@ -120,7 +120,18 @@ def decide(
     _automatic_assignment=None,
     _previous_automatic_assignment=None,
 ):
-    """Verrouille le groupe pour éviter deux répartitions concurrentes incompatibles."""
+    """Enregistre une décision avec permissions, signatures et verrous campagne/groupe.
+
+    `line_id` identifie la ligne, `user` son auteur ; `state`, `values` KEEP/SET/CLEAR
+    et `comment` définissent la décision individuelle. Les versions et
+    `expected_source` protègent sa fraîcheur. Les paramètres d'affectation et de
+    confirmation conservent les avertissements manuels existants. Le parcours
+    interne `_automatic` recontrôle les preuves Exact avant réservation et ne
+    permet le partage de pièce qu'entre écritures AUTO distinctes et actuelles.
+    Retourne LineReview ; ValidationError/PermissionDenied annulent la transaction.
+    Persiste décision, contributions, événement et photographie de campagne sans
+    modifier les montants sources Atlas/Sage ni les campagnes historiques.
+    """
     entry = LineReview.objects.get(pk=line_id)
     # Verrouiller une identité stable : après attente d'un import concurrent,
     # la campagne lue doit être recontrôlée, même si elle vient d'être close.
@@ -225,7 +236,8 @@ def decide(
                            else _previous_automatic_assignment)
     line.automatic_assignment = (_automatic_assignment or {}) if _automatic else {}
     diagnostic = apply_projection(
-        line, resolved, selection, state=state, confirmed=multiple_confirm, comment=comment
+        line, resolved, selection, state=state, confirmed=multiple_confirm, comment=comment,
+        automatic=_automatic,
     )
     before = {"state": line.state, "values": line.values, "version": line.version}
     before["manual_assignment"] = line.manual_assignment

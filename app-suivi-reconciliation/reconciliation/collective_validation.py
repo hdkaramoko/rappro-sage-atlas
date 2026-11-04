@@ -31,6 +31,14 @@ def reject_piece(campaign, frozen_rows, messages):
 
 
 def prepare_piece(campaign, rows, owners):
+    """Prépare les affectations bijectives d'une pièce Confirmé en mode ACTIVE.
+
+    `rows` contient les photographies de campagne, `owners` tous les ayants droit.
+    Compare les charges Sage Atlas (jamais les charges projet) aux montants
+    individuels Sage, avec tolérance signée de 0,01 EUR et contrôle collectif.
+    Retourne les affectations par Id Atlas ; ValidationError si preuve incomplète,
+    décision humaine, identité partagée ou incohérence. Lecture SQL sans mutation.
+    """
     if campaign.metadata.get("schema_version") != 3 or campaign.metadata.get("piece_coherence_mode") != "ACTIVE":
         raise ValidationError("Activation collective absente : contrôle manuel requis")
     data = rows[0].group.data.get("piece_coherence")
@@ -51,8 +59,8 @@ def prepare_piece(campaign, rows, owners):
                 or group_data.get("auto_validation") != {"source": "AUTO", "state": "VALIDATED", "rule": "MATCH_CONFIRMED_ATLAS"}
                 or line.group.lines.count() != 1 or line.manual_assignment):
             raise ValidationError("Autorisation collective incomplète ou proposition non admissible")
-        amount, total = line.transaction.total_project_charges, line.group.sage_total
-        if amount is None or total is None or abs(amount - total) > Decimal("0.01"):
+        amount, total = line.transaction.total_sage_charges, line.group.sage_total
+        if amount is None or total is None or abs(amount - total) > Decimal("0.01") or amount * total < 0:
             raise ValidationError("Montants Atlas/SAGE incompatibles avec la validation automatique")
     # Les dates ne découpent pas la pièce ; l'affectation individuelle respecte
     # néanmoins les preuves pièce/date exigées par le service métier existant.

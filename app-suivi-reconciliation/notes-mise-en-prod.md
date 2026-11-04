@@ -304,4 +304,12 @@
             kubectl rollout status deployment/rappro-sage-atlas-dev -n user-hdkaramoko --timeout=120s
         ```
     -   Faire les migrations
-        
+
+
+Accorder les privileges pour des requetes
++   Identifier le pod PostgreSQL : kubectl get pods -n user-hdkaramoko | grep postgresql-cnpg-555845
++   Ouvrir une session PostgreSQL : kubectl exec -it -n user-hdkaramoko <nom-du-pod> -- psql -U postgres -d defaultdb
++   Accorder les droits à ton utilisateur : 
+    GRANT USAGE ON SCHEMA public TO "user-hdkaramoko";
+    GRANT SELECT, INSERT, UPDATE, DELETE  ON ALL TABLES IN SCHEMA public TO "user-hdkaramoko";
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "user-hdkaramoko";

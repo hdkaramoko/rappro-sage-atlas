@@ -126,9 +126,16 @@ def inventory_key(data):
 
 
 def insert_inventory(campaign, rows):
-    """Insère un lot et conserve la clé de contrôle pour les recherches indexées."""
+    """Insère `rows`, lot de dictionnaires Atlas normalisés, dans `campaign`.
+
+    Compare les clés métier au précédent inventaire par une requête de lot,
+    puis insère les photographies et leurs clés standard/composites indexées.
+    La portée ODS sans libellé sert au contrôle d'unicité bilatérale du lot 1.
+    Retourne None ; ValidationError sur identité répétée annule l'import parent.
+    """
     from reconciliation_contract import control_identity
     from reconciliation_contract import digest as control_digest
+    from reconciliation_contract.sage_inventory import ods_scope
 
     keys = [inventory_key(data) for data in rows]
     previous = {}
@@ -167,6 +174,7 @@ def insert_inventory(campaign, rows):
                 control_key=control_digest(control_identity(data))
                 if campaign.metadata.get("schema_version") == 3
                 else "",
+                ods_scope=ods_scope(data),
                 change=change,
                 differences=differences,
             )
@@ -326,9 +334,23 @@ def add_absences(campaign):
 
 
 def import_campaign(header, stream, *, job=None, progress=None):
-    """Appelé dans la transaction import_bundle ; aucun état partiel n'est publié."""
+    """Importe `header` et l'itérateur JSONL `stream` dans la transaction parente.
+
+    Valide ordre, compteurs et contrôles v2/v3. La capacité sage_inventory_v1
+    ajoute une photographie Sage par lots de 500 et une empreinte du flux
+    normalisé UTF-8 avant la fin de fichier. `job`/`progress` conservent le
+    suivi asynchrone existant. Retourne le nombre de propositions. Toute
+    ValidationError annule les écritures et conserve la publication précédente.
+    Initialise les contrôles globaux après les validations applicatives sans
+    modifier la cascade, les décisions historiques ou les sources Atlas.
+    """
     from .multiple_import import import_control_batch
     from .review_import import upsert_group
+    from .sage_import import insert_sage_batch, validate_capabilities
+
+    sage_enabled = validate_capabilities(header)
+    stream_hash = hashlib.sha256()
+    stream_hash.update((json.dumps(header, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
 
     progress = progress or (lambda *args, **kwargs: None)
 
@@ -382,11 +404,27 @@ def import_campaign(header, stream, *, job=None, progress=None):
     control_batch = []
     reviews_batch = []
     projects = {}
+    sage_batch, sage_count, sage_started = [], 0, False
     for number, text in enumerate(stream, 2):
         if complete:
             raise ValidationError("Données après la fin du fichier")
         payload = json.loads(text)
+        if "complete" not in payload:
+            stream_hash.update((json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
+        if sage_batch and payload.get("type") != "sage_inventory":
+            insert_sage_batch(campaign, sage_batch)
+            sage_batch = []
         if "complete" in payload:
+            if sage_enabled and (
+                type(payload.get("sage_inventory_count")) is not int
+                or payload["sage_inventory_count"] != sage_count
+                or payload.get("stream_sha256") != stream_hash.hexdigest()
+            ):
+                raise ValidationError("Inventaire Sage incomplet ou empreinte du flux incohérente")
+            if sage_enabled:
+                expected_sage = header.get("load_quality", {}).get("sage", {}).get("rows_final")
+                if expected_sage is not None and expected_sage != sage_count:
+                    raise ValidationError("Population Sage différente du compteur d'extraction")
             if control_batch:
                 import_control_batch(campaign, control_batch)
                 control_batch = []
@@ -424,7 +462,18 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 import_control_batch(campaign, control_batch)
                 control_batch = []
                 progress("Contrôles préparés", control_count)
-        elif payload.get("type") == "inventory" and not proposals_started:
+        elif payload.get("type") == "sage_inventory" and sage_enabled and not proposals_started:
+            if batch:
+                insert_inventory(campaign, batch)
+                batch = []
+            sage_started = True
+            sage_batch.append(payload.get("data"))
+            sage_count += 1
+            if len(sage_batch) == BATCH_SIZE:
+                insert_sage_batch(campaign, sage_batch)
+                sage_batch = []
+                progress("Inventaire Sage préparé", sage_count)
+        elif payload.get("type") == "inventory" and not proposals_started and not sage_started:
             data = normalize_inventory(payload.get("atlas"), extended=v3)
             if year is not None and data["fiscal_year"] != year:
                 raise ValidationError("L'inventaire contient une ligne hors de l'année de campagne")
@@ -630,5 +679,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
 
     progress("Validation automatique en cours", count)
     apply_automatic_validations(campaign, progress=progress)
+    if sage_enabled:
+        from .global_control import initialize_controls
+        initialize_controls(campaign, progress=progress)
     progress("Publication terminée", count)
     return count

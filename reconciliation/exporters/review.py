@@ -19,8 +19,23 @@ INVENTORY_COLUMNS = ("Code projet", "Année", "Id", "Statut BAP", "Total charges
 
 def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None,
                         scope="atlas-complet", source_paths=None, year=None,
-                        controls=None, amount_field="total_sage_charges", tolerance="0.01"):
-    """Un enregistrement par groupe, sources Atlas et lignes Sage complètes incluses."""
+                        controls=None, amount_field="total_sage_charges", tolerance="0.01",
+                        include_sage_inventory=False, excluded_prefixes=None):
+    """Publie atomiquement un JSONL v2/v3 à partir des DataFrames et du résultat.
+
+    `controls` est un itérateur v3 ; `include_sage_inventory` déclare la
+    capacité sage_inventory_v1 et exige v3. `excluded_prefixes` est une liste
+    stricte, vide par défaut/configuration. L'inventaire Sage complet est
+    parcouru en flux avant les propositions. Une empreinte SHA256 certifie
+    tous les enregistrements avant le marqueur final. Retourne le Path publié ;
+    ValueError/OSError annulent le temporaire sans remplacer la sortie précédente.
+    Les charges sont en EUR, `tolerance` est une chaîne décimale en euros.
+    """
+    from reconciliation_contract.sage_inventory import CAPABILITY, exclusion_policy
+    from reconciliation import config
+    if include_sage_inventory and controls is None:
+        raise ValueError("L'inventaire Sage exige les contrôles v3")
+    policy = exclusion_policy(config.SAGE_EXCLUDED_PREFIXES if excluded_prefixes is None else excluded_prefixes)
     from reconciliation.auto_validation import validate_config, proposal_metadata
     options = validate_config()
     from reconciliation.piece_coherence import build_piece_checks
@@ -43,19 +58,28 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
         for column in EXTRA_INVENTORY:
             if column not in canonical:
                 canonical[column] = atlas[column] if column in atlas else None
+        for column, origin in (("Total charges SAGE (€)", "_total_sage_decimal"),
+                               ("Total charges projet (€)", "_total_project_decimal")):
+            if origin in atlas:
+                canonical[column] = atlas[origin]
     candidates = {g["group_id"]: g for g in result.attrs["sage_candidates"]}
     handle = NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, delete=False)
     temporary = Path(handle.name)
     count = 0
+    stream_hash = hashlib.sha256()
     try:
         with handle:
             def emit(payload):
-                """Écrit un enregistrement JSON strict dans le fichier temporaire."""
-                handle.write(json.dumps(json_value(payload), ensure_ascii=False, allow_nan=False) + "\n")
+                """Écrit le dictionnaire JSON et signe les octets UTF-8 hors marqueur final."""
+                line = json.dumps(json_value(payload), ensure_ascii=False, allow_nan=False) + "\n"
+                handle.write(line)
+                if "complete" not in payload:
+                    stream_hash.update(line.encode("utf-8"))
 
             now = datetime.now(timezone.utc).isoformat()
             version = 3 if controls is not None else 2
             emit({"type": "campaign", "schema_version": version,
+                  **({"capabilities": [CAPABILITY], "sage_exclusions": policy} if include_sage_inventory else {}),
                   "piece_coherence_mode": "ACTIVE" if piece_active else "DIAGNOSTIC",
                   "controls_available": controls is not None,
                   "amount_field": amount_field, "tolerance": tolerance,
@@ -75,7 +99,14 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                 columns = (*INVENTORY_COLUMNS, *ATLAS_CONTEXT)
                 for values in canonical[list(columns)].itertuples(index=False, name=None):
                     emit({"type": "inventory", "atlas": dict(zip(columns, values))})
-            for record in result.to_dict("records"):
+            sage_count = 0
+            if include_sage_inventory:
+                from reconciliation.sage_inventory import inventory_records
+                for data in inventory_records(sage, policy):
+                    emit({"type": "sage_inventory", "data": data})
+                    sage_count += 1
+            for values in result.itertuples(index=False, name=None):
+                record = dict(zip(result.columns, values))
                 rows = canonical.iloc[list(record["atlas_source_positions"])].to_dict("records")
                 for row in rows:
                     value = row.get("Date comptable")
@@ -90,6 +121,11 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                 for candidate in record["candidate_ids"]:
                     group = candidates[candidate]
                     evidence.append({"id": candidate, "rows": sage.iloc[list(group["source_positions"])].to_dict("records")})
+                for candidate in evidence:
+                    for row in candidate["rows"]:
+                        if "_charges_decimal" in row:
+                            row["Charges (Dépenses)"] = row.pop("_charges_decimal")
+                        row.pop("_sage_source_fingerprint", None)
                 if version == 3:
                     from reconciliation_contract import entry_from_sage
                     for candidate in evidence:
@@ -117,7 +153,9 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                     emit({"type": "control", "data": control})
                     control_count += 1
                     statuses[control['status']] += 1
-            emit({"complete": count, "inventory_count": len(canonical), **({"control_count": control_count, "control_statuses": dict(statuses)} if version == 3 else {})})
+            emit({"complete": count, "inventory_count": len(canonical),
+                  **({"sage_inventory_count": sage_count, "stream_sha256": stream_hash.hexdigest()} if include_sage_inventory else {}),
+                  **({"control_count": control_count, "control_statuses": dict(statuses)} if version == 3 else {})})
             if version == 3:
                 logging.info('Contrôles multiples : %s', dict(statuses))
         os.replace(temporary, target)

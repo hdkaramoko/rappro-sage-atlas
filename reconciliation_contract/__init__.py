@@ -88,7 +88,15 @@ def control_identity(row, *, sage=False):
 
 
 def entry_from_sage(raw):
-    """Décrit une vraie écriture analytique, jamais un total de candidat agrégé."""
+    """Décrit une écriture analytique issue d'un dictionnaire source Sage.
+
+    Retourne identité SHA256, champs texte conservant les zéros initiaux et
+    charges EUR décimales signées (None si absentes). La valeur décimale
+    préservée par le loader prime sur la colonne flottante du matching ; les
+    anciens JSONL sans cette valeur suivent la politique v3 historique.
+    Aucun effet de bord ; une identité incomplète est explicitement marquée.
+    """
+    amount = money(raw.get("_charges_decimal", raw.get("Charges (Dépenses)")))
     row = {
         "project_code": text(raw.get("Projet")).upper(),
         "document": text(raw.get("Numéro pièce")).upper(),
@@ -100,9 +108,7 @@ def entry_from_sage(raw):
         "label": text(raw.get("Libellé pièce")),
         "original_label": str(raw.get("Libellé pièce") or ""),
         "currency": text(raw.get("Devise")).upper(),
-        "amount": str(money(raw.get("Charges (Dépenses)")))
-        if money(raw.get("Charges (Dépenses)")) is not None
-        else None,
+        "amount": str(amount) if amount is not None else None,
     }
     row["fiscal_year"] = year_of(row["date"])
     identity = [

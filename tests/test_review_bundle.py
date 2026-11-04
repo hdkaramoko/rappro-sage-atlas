@@ -1,8 +1,17 @@
 import json
+import pytest
+
+from reconciliation import config
 
 from matching_helpers import atlas_row, frames, sage_row
 from reconciliation.exporters.review import export_review_bundle
 from reconciliation.matching import match_reconciliations
+
+
+@pytest.fixture(autouse=True)
+def legacy_diagnostic_mode(monkeypatch):
+    """Exerce explicitement les exports v2 historiques sans activation collective."""
+    monkeypatch.setattr(config, "PIECE_COHERENCE", {"enabled": True, "mode": "DIAGNOSTIC"})
 
 
 def test_validation_context_is_preserved_in_inventory_and_proposals(tmp_path):

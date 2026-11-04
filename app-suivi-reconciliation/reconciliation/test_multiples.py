@@ -482,7 +482,7 @@ class MultipleTests(TestCase):
         self.assertEqual(newer.controls.get(strategy="ODS_ODG_BY_GROUP").state, "TO_REVIEW")
 
     def test_unknown_policy_blocks_without_bypassing_and_historical_v2_remains_readable(self):
-        """Une confirmation utilisateur ne remplace jamais un calcul impossible."""
+        """Refuse un calcul impossible et lit le v2 historique en mode diagnostic compatible."""
         records = copy.deepcopy(self.records)
         records[0]["amount_field"] = None
         for r in records:
@@ -497,6 +497,7 @@ class MultipleTests(TestCase):
         old = [r for r in copy.deepcopy(self.records) if r.get("type") != "control"]
         old[0]["schema_version"] = 2
         old[0]["controls_available"] = False
+        old[0]["piece_coherence_mode"] = "DIAGNOSTIC"
         for r in old:
             if r.get("type") == "proposal":
                 r["schema_version"] = 2

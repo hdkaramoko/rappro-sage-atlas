@@ -20,6 +20,8 @@ STAGED = (
     "reconciliation_campaigninventory",
     "reconciliation_campaigngroup",
     "reconciliation_multiplecontrol",
+    "reconciliation_campaignsageentry",
+    "reconciliation_campaignglobalcontrol",
 )
 PROJECTED = (
     "projects_project",
@@ -34,7 +36,8 @@ CAMPAIGN = "reconciliation_campaign"
 REVISION = "reconciliation_importrevision"
 BATCH = 500
 LABELS = dict(
-    zip(STAGED, ("Inventaire", "Preuves des groupes", "Contrôles des multiples"), strict=True)
+    zip(STAGED, ("Inventaire", "Preuves des groupes", "Contrôles des multiples",
+                 "Inventaire Sage", "Contrôles globaux"), strict=True)
 )
 
 

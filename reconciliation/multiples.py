@@ -26,8 +26,18 @@ INVENTORY = {
 
 
 def inventory_rows(atlas):
-    """Parcourt les seuls champs du contrat, sans recopier toutes les colonnes Atlas."""
-    canonical = atlas.reindex(columns=list(INVENTORY))
+    """Retourne en flux les dictionnaires canoniques Atlas du DataFrame `atlas`.
+
+    Conserve les champs v3 et les montants individuels en chaînes EUR à deux
+    décimales. Les colonnes décimales du loader priment sur les flottants du
+    matching ; None reste distinct de zéro et les signes sont conservés.
+    Aucune mutation de la source ni écriture de fichier/base.
+    """
+    canonical = atlas.reindex(columns=list(INVENTORY)).copy()
+    for column, origin in (("Total charges SAGE (€)", "_total_sage_decimal"),
+                           ("Total charges projet (€)", "_total_project_decimal")):
+        if origin in atlas:
+            canonical[column] = atlas[origin]
     for values in canonical[list(INVENTORY)].itertuples(index=False, name=None):
         row = json_value(dict(zip(INVENTORY.values(), values)))
         if row["accounting_date"]:
@@ -50,13 +60,20 @@ def inventory_rows(atlas):
         yield row
 
 
-def build_controls(atlas, sage, result, *, amount_field="total_sage_charges", tolerance="0.01"):
+def build_controls(atlas, sage, result, *, amount_field="total_sage_charges", tolerance="0.01", excluded_prefixes=None):
     """Indexe les pièces utiles sur SAGE complet, sans produit Atlas × SAGE.
 
     Les lignes déjà comptabilisées sont les seules contributions sources.
     Les pièces des propositions sont aussi conservées pour les validations futures.
+    `excluded_prefixes`, liste optionnelle de préfixes de trois caractères, rend
+    les contrôles concernés UNKNOWN sans filtrer les candidats de la cascade.
+    Retourne un itérateur de photographies v3 signées, montants EUR individuels
+    et tolérance décimale en euros. Les exclusions invalides lèvent ValueError.
+    Aucun accès SQL ni écriture de fichier ; mémoire proportionnelle aux clés utiles.
     """
     identities, accounted, evidence = {}, defaultdict(list), defaultdict(list)
+    from reconciliation_contract.sage_inventory import exclusion_policy
+    exclusions = exclusion_policy([] if excluded_prefixes is None else excluded_prefixes)["prefixes"]
     for row in inventory_rows(atlas):
         if row["bap_status"] not in ("Comptabilisé", "Envoyé SAGE"):
             continue
@@ -87,6 +104,8 @@ def build_controls(atlas, sage, result, *, amount_field="total_sage_charges", to
     summary = atlas.attrs.get("load_summary", {})
     for key, identity in sorted(identities.items()):
         reasons = []
+        if any(entry["document"][:3] in exclusions for entry in evidence[key]):
+            reasons.append("Type de pièce exclu des contrôles selon la politique de campagne")
         if identity["parts"][0] in uncertain_projects or sage.attrs.get(
             "load_summary", {}
         ).get("invalid_accounting_dates", 0):

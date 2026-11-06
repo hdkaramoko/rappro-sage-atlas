@@ -41,7 +41,11 @@ from .sqlite_staging import staged_import  # noqa: E402
 
 
 class Scenarios(unittest.TestCase):
-    """Utilise une base migrée neuve pour chaque scénario, indépendante du serveur."""
+    """Utilise une base neuve et vérifie publication, reprises et actions Lot 2 concurrentes.
+
+    Les fichiers/bases sont isolés du serveur ; les scénarios exercent les vraies
+    connexions SQLite, les liens manuels et les triggers de révision.
+    """
 
     def setUp(self):
         """Isole fichiers et connexions, y compris les triggers de révision."""
@@ -272,6 +276,65 @@ class Scenarios(unittest.TestCase):
         self.assertEqual(campaign.sage_inventory.count(), 4)
         self.assertEqual(campaign.global_controls.count(), 3)
         self.assertTrue(campaign.global_controls.get(data__identity__strategy="ODS_ODG_BY_GROUP").data["auto_validated"])
+
+    def test_lot2_correction_prevents_publication_of_a_stale_import(self):
+        """Une correction concurrente garde son audit et invalide la préparation SQLite.
+
+        La reprise importe une nouvelle campagne sans propager la correction
+        locale précédente. Exerce les vraies tables/triggers sur base sur disque.
+        """
+        from reconciliation.business import correct_inventory, retained_amount
+        from reconciliation.test_sage_inventory import sign_records
+        root = Path(__file__).resolve().parents[2]
+        folder = self.folder / "lot2"
+        subprocess.run([str(root / ".venv/Scripts/python.exe"), "-m", "examples.lot1_fixture", str(folder)],
+                       cwd=root, check=True, capture_output=True, timeout=60)
+        self.path = folder / "campaign.jsonl"
+        records = [json.loads(line) for line in self.path.read_text(encoding="utf-8").splitlines()]
+        for row in records:
+            if row.get("type") == "proposal":
+                row.pop("auto_validation", None)
+        sign_records(records)
+        self.path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records), encoding="utf-8")
+        self.load()
+        first = Campaign.objects.get(is_current=True)
+        ProjectPortfolio.objects.create(user=self.user, project=Project.objects.get(code="P"))
+        inventory = first.inventory.get(source_id="C")
+        records[0]["name"] = "Nouvelle campagne pendant correction"
+        sign_records(records)
+        self.path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records), encoding="utf-8")
+        changed = False
+
+        def edit(phase, *args, **details):
+            """Simule une vraie action métier après un lot caché, hors verrou SQLite."""
+            nonlocal changed
+            if phase.startswith("Écriture par lots") and not changed:
+                correct_inventory(inventory.pk, self.user, reason="AMOUNT", amount="5000", expected_version=0)
+                changed = True
+
+        with self.assertRaises(ValidationError):
+            self.load(edit)
+        self.assertTrue(changed)
+        self.assertEqual(Campaign.objects.get(is_current=True).pk, first.pk)
+        inventory.refresh_from_db()
+        self.assertEqual(retained_amount(inventory), 5000)
+        self.assertEqual(inventory.business_events.count(), 1)
+        self.load()
+        current = Campaign.objects.get(is_current=True)
+        self.assertNotEqual(current.pk, first.pk)
+        self.assertFalse(hasattr(current.inventory.get(source_id="C"), "adjustment"))
+        from reconciliation.business import confirm_inventory_link
+        source = current.inventory.get(source_id="S")
+        entry = current.sage_inventory.get(document="FAC123", amount="4000")
+        confirm_inventory_link(source.pk, self.user, entry_ids=[entry.pk], comment="Lien avant nouvel import", expected_version=0)
+        records[0]["name"] = "Campagne après lien manuel local"
+        sign_records(records)
+        self.path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records), encoding="utf-8")
+        self.load()
+        latest = Campaign.objects.get(is_current=True)
+        self.assertFalse(hasattr(latest.inventory.get(source_id="S"), "inventory_match"))
+        self.assertFalse(latest.reviews.get(source__source_id="S").decision["current"])
+        self.assertTrue(current.inventory.get(source_id="S").inventory_match.active)
 
     def test_activation_backs_up_and_refuses_running_worker(self):
         """L'installation préserve les campagnes et ne migre jamais sous un worker actif."""

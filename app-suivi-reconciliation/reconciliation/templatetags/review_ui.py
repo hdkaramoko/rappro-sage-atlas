@@ -9,6 +9,32 @@ register = template.Library()
 register.filter("euros", money)
 
 
+@register.filter
+def global_state_label(value):
+    """Traduit l'état courant de contrôle en libellé métier ; aucune mutation."""
+    return {"EQUILIBRE": "Équilibré", "ECART": "Écart", "INDETERMINE": "À revoir", "EXCLU": "Exclu"}.get(value, "À revoir")
+
+
+@register.filter
+def business_action_label(value):
+    """Traduit le type d'événement Lot 2 sans exposer de structure technique."""
+    return {"CORRECTION": "Correction enregistrée", "CORRECTION_CANCEL": "Correction annulée", "LINK": "Rapprochement manuel confirmé",
+            "UNLINK": "Rapprochement manuel annulé", "DECISION": "Décision de rapprochement"}.get(value, "Action métier")
+
+
+@register.filter
+def adjustment_reason_label(value):
+    """Traduit un motif de correction centralisé ; retourne un tiret si absent."""
+    from reconciliation.models import AtlasAdjustment
+    return dict(AtlasAdjustment.Reason.choices).get(value, "—")
+
+
+@register.filter
+def business_decision_label(value):
+    """Traduit l'état de décision stocké dans un audit métier ; aucune modification."""
+    return {"VALIDATED": "Confirmé", "REJECTED": "Refusé", "DRAFT": "À valider"}.get(value, "—")
+
+
 @register.simple_tag
 def piece_comparison(data):
     """Regroupe les preuves conservées, sans recalculer la décision métier."""

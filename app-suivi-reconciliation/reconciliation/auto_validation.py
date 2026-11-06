@@ -17,9 +17,12 @@ def automatic_blockers(campaign):
     complète et capacité signée agrégée de pièce ; aucun partage partiel d'une
     même écriture n'est autorisé. Les autres règles et anciens contrats gardent
     leur garde pièce/date. Les propositions non autorisées participent néanmoins
-    aux revendications pour ne pas masquer un concurrent ambigu. Lecture seule.
+    aux revendications pour ne pas masquer un concurrent ambigu. Les décisions
+    locales du Lot 2 exigent une nouvelle revue après changement de campagne,
+    même si le moteur réémet une autorisation AUTO. Lecture seule.
     """
     from .multiple_review import exact_entry
+    from .business import LOCAL_BUSINESS_REVIEW_REASON
     claims, refs, uncertain, identities = {}, {}, {}, {}
     candidates, amounts, owners = {}, {}, {}
     blocked = {}
@@ -44,7 +47,7 @@ def automatic_blockers(campaign):
             claims.setdefault(key, set()).add(line.pk)
         exact = campaign.metadata.get("schema_version") == 3 and data.get("rule") == "MATCH_EXACT"
         identities[line.pk] = (exact, keys)
-        if (not exact or not data.get("auto_validation")
+        if (not exact or not data.get("auto_validation") or LOCAL_BUSINESS_REVIEW_REASON in frozen.reasons
                 or line.version and line.validation_source == "MANUAL"):
             continue
         try:
@@ -96,10 +99,12 @@ def apply_automatic_validations(campaign, *, progress=None):
     utilisent les charges Sage Atlas, les autres règles les charges projet.
     Exact v3 peut partager une pièce uniquement avec des écritures distinctes,
     identifiables et sans dépassement agrégé. Les priorités humaines, signatures,
-    événements et savepoints existants sont conservés. `progress` est un rappel
+    événements et savepoints existants sont conservés. Une correction/un lien
+    de campagne précédente n'est jamais réactivé automatiquement. `progress` est un rappel
     optionnel. Retourne None ; un refus métier est photographié avec son motif.
     """
     from .collective_validation import apply_collective_validations
+    from .business import LOCAL_BUSINESS_REVIEW_REASON
     handled = apply_collective_validations(campaign, progress=progress)
     blockers = {key: value for key, value in automatic_blockers(campaign).items() if key not in handled}
     # Retirer toutes les anciennes AUTO refusées avant d'examiner les autres :
@@ -116,6 +121,8 @@ def apply_automatic_validations(campaign, *, progress=None):
             progress("Validations automatiques examinées", number)
         line = frozen.line
         if line.pk in handled:
+            continue
+        if LOCAL_BUSINESS_REVIEW_REASON in frozen.reasons:
             continue
         metadata = frozen.group.data.get("auto_validation")
         # Toute décision humaine, y compris un brouillon enregistré, est prioritaire.

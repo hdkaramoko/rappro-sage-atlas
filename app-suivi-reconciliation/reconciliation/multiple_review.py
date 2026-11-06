@@ -270,6 +270,8 @@ def apply_projection(line, resolved, selection, *, state, confirmed, comment, au
     la preuve unique Exact et autorise les seuls pairs AUTO Exact distincts.
     Les alertes manuelles, références partagées, dépassements et données inconnues
     restent soumis aux contrôles existants (`confirmed` et commentaire).
+    Les réservations actives du nouvel inventaire manuel sont exclusives et ne
+    peuvent pas être contournées par une ancienne sélection de candidats moteur.
     Retourne le diagnostic ; ValidationError annule les écritures parentes.
     """
     if not line.campaign_id or line.campaign.metadata.get("schema_version") != 3:
@@ -285,6 +287,10 @@ def apply_projection(line, resolved, selection, *, state, confirmed, comment, au
                     or money(resolved["amount"]) != money(line.group.sage_total)):
                 raise ValidationError("Affectation automatique différente de l'écriture SAGE exacte")
         plan = allocation_plan(line, resolved, selection)
+        from .models import ManualAllocation
+        refs = {ref for _, _, references in plan for ref in references}
+        if refs and ManualAllocation.objects.filter(active=True, entry__campaign=line.campaign, entry__entry_ref__in=refs).exists():
+            raise ValidationError("Cette écriture Sage est déjà affectée à un rapprochement manuel d'inventaire.")
         diagnostics = diagnose_plan(line, plan, manual=bool(selection), automatic=automatic)
         unknown = [d for d in diagnostics if d["status"] == "UNKNOWN"]
         if unknown:

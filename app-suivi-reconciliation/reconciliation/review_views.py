@@ -13,7 +13,7 @@ from django.urls import reverse
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 
-from .models import Campaign, LineReview, ReconciliationTransaction
+from .models import Campaign, CampaignInventory, LineReview, ReconciliationTransaction
 from .presentation import RULE_LABELS, decorate, history_rows
 from .review import decide, effective, is_current, signature
 from .review_forms import LineReviewForm
@@ -119,7 +119,13 @@ def review_list(request):
 
 @login_required
 def review_detail(request, pk):
-    """Présente les preuves et transmet la décision au service transactionnel."""
+    """Présente les preuves autorisées et délègue les décisions atomiques de la revue pk.
+
+    GET est sans effet métier. POST contrôle versions/signature et conserve le
+    parcours existant ; les actions Lot 2 pointent vers la ligne exacte de
+    campagne, où les sources et montants retenus restent distincts. Retourne
+    HTML/redirection, affiche les ValidationError et masque les lignes hors droits.
+    """
     line = get_object_or_404(visible(request.user), pk=pk)
     # N'accepte comme retour qu'une URL relative de la liste métier.
     return_url = request.GET.get("return", "")
@@ -222,6 +228,8 @@ def review_detail(request, pk):
             "piece_active": bool(line.campaign_id and line.campaign.metadata.get("piece_coherence_mode") == "ACTIVE"),
             "piece_assignment": line.automatic_assignment,
             "line": line,
+            "business_inventory": CampaignInventory.objects.filter(campaign_id=line.campaign_id, business_key=line.transaction.business_key,
+                                                                     present=True).select_related("adjustment").first() if line.campaign_id else None,
             "manual_candidates": manual_candidates,
             "form": form,
             "return_url": return_url,

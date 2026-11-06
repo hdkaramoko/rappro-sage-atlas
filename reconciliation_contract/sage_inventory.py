@@ -106,7 +106,7 @@ def validate_inventory_record(data: dict, policy: dict) -> dict:
 
 def consolidate(identity: dict, atlas: list[dict], records: list[dict],
                 allocations: list[dict], *, amount_field: str = "total_sage_charges",
-                tolerance: str = "0.01", scope_reasons: Iterable[str] = ()) -> dict:
+                tolerance: str = "0.01", scope_reasons: Iterable[str] = (), manual_ods: bool = False) -> dict:
     """Calcule les états Comptabilisé et global pour une seule clé métier.
 
     Standard : projet/exercice/pièce ; ODS : projet/exercice/tiers/libellé
@@ -116,6 +116,8 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     Les montants absents, identités partagées et allocations ambiguës rendent
     le résultat INDETERMINE. Une proposition non confirmée ne contribue pas.
     ODS sans libellé n'est automatiquement rapproché qu'en un-pour-un fiable.
+    `manual_ods` autorise seulement la résolution explicitement confirmée par
+    l'application de preuves ODS identifiées ; elle ne crée jamais d'auto-validation.
     Retourne un dictionnaire signé sans aucun effet de bord.
     """
     if money(tolerance) is None or money(tolerance) < 0:
@@ -134,11 +136,11 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
         reasons.append("Identité Atlas absente ou répétée")
     # Les colonnes de charges du contrat sont libellées en EUR. La devise
     # source Sage décrit l'opération et ne change pas la devise de ces charges.
-    if any(text(a.get("currency")).upper() not in ("", "EUR") for a in atlas):
+    if any(text(a.get("currency")).upper().split(" - ", 1)[0] not in ("", "EUR") for a in atlas):
         reasons.append("Devise Atlas non EUR à confirmer")
     if identity["strategy"] == ODS:
         # Une somme de plusieurs opérations ne démontre pas leur unicité.
-        if len(atlas) != 1 or len(entries) != 1:
+        if not manual_ods and (len(atlas) != 1 or len(entries) != 1):
             reasons.append("Unicité économique ODS/ODG non démontrée")
         for e in entries:
             prefix, journal = e["document"][:3], e["journal"]
@@ -149,7 +151,8 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
                             and all(v not in (None, "") for v in identity["parts"][:-1])
                             and len(atlas) == len(entries) == 1
                             and not label(atlas[0].get("atlas_label")) and not label(entries[0]["label"]))
-    if missing_label_unique:
+    if missing_label_unique or (manual_ods and identity["strategy"] == ODS and not identity["parts"][-1]
+                               and all(v not in (None, "") for v in identity["parts"][:-1])):
         checked_identity = {**identity, "parts": [*identity["parts"][:-1], "<libellé absent unique>"]}
     source = snapshot(checked_identity, atlas, entries, amount_field=amount_field,
                       tolerance=tolerance, reasons=reasons)
@@ -180,7 +183,7 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
             allocation_reasons.append("Répartition partielle ou plusieurs-vers-plusieurs non démontrée")
             continue
         confirmed.append({**allocation, "amount": str(amount)})
-    if identity["strategy"] == ODS and confirmed:
+    if identity["strategy"] == ODS and confirmed and not manual_ods:
         allocation_reasons.append("Affectation Envoyé SAGE ODS/ODG à examiner")
     source_total, sage_total = money(source["atlas_total"]), money(source["sage_total"])
     sent_total = sum((money(a["amount"]) for a in confirmed), Decimal(0))
@@ -206,6 +209,6 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
             "accounted_reasons": base_reasons, "reasons": global_reasons,
             "atlas_ids": [list(v) for v in atlas_ids], "sage_refs": sorted(e["ref"] for e in entries),
             "confirmed_allocations": confirmed, "atlas_count": len(atlas), "sage_count": len(entries),
-            "auto_validated": initial_state == "EQUILIBRE" and bool(atlas),
+            "auto_validated": initial_state == "EQUILIBRE" and bool(atlas) and not manual_ods,
             "amount_field": amount_field, "tolerance": tolerance}
     return {**data, "signature": digest(data)}

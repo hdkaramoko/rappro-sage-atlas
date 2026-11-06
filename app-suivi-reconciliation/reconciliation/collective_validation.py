@@ -37,7 +37,8 @@ def prepare_piece(campaign, rows, owners):
     Compare les charges Sage Atlas (jamais les charges projet) aux montants
     individuels Sage, avec tolérance signée de 0,01 EUR et contrôle collectif.
     Retourne les affectations par Id Atlas ; ValidationError si preuve incomplète,
-    décision humaine, identité partagée ou incohérence. Lecture SQL sans mutation.
+    décision humaine, identité partagée ou incohérence. Une base métier Lot 2
+    d'une ancienne campagne nécessite une nouvelle revue. Lecture SQL sans mutation.
     """
     if campaign.metadata.get("schema_version") != 3 or campaign.metadata.get("piece_coherence_mode") != "ACTIVE":
         raise ValidationError("Activation collective absente : contrôle manuel requis")
@@ -51,6 +52,9 @@ def prepare_piece(campaign, rows, owners):
     if owners - {r.line_id for r in rows}:
         raise ValidationError("Autre proposition revendiquant la pièce SAGE")
     for frozen in rows:
+        from .business import LOCAL_BUSINESS_REVIEW_REASON
+        if LOCAL_BUSINESS_REVIEW_REASON in frozen.reasons:
+            raise ValidationError(LOCAL_BUSINESS_REVIEW_REASON)
         line, group_data = frozen.line, frozen.group.data
         if line.version and line.validation_source == "MANUAL":
             raise ValidationError("Décision humaine prioritaire : pièce laissée au contrôle manuel")

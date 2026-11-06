@@ -217,7 +217,13 @@ def source_record(line):
 
 
 def decision_record(line):
-    """Photographie décision, auteur, origine, affectation et diagnostic multiple."""
+    """Photographie JSON de la décision, ses versions et références réelles.
+
+    `line` fournit sources et relations ; les montants EUR restent décimaux.
+    Inclut la correction et le lien manuel de campagne sans fabriquer de preuve
+    moteur. Lecture SQL éventuelle des allocations, aucun écrit.
+    """
+    from .business import manual_link_snapshot
     return json_data(
         {
             "validation_source": line.validation_source,
@@ -226,6 +232,8 @@ def decision_record(line):
             "values": line.values,
             "manual_assignment": line.manual_assignment,
             "automatic_assignment": line.automatic_assignment,
+            "adjustment_version": line.adjustment_version,
+            "inventory_link": manual_link_snapshot(line.inventory_link) if line.inventory_link_id else None,
             "multiple_context": line.multiple_context,
             "multiple_diagnostic": line.multiple_diagnostic,
             "comment": line.comment,
@@ -343,6 +351,9 @@ def import_campaign(header, stream, *, job=None, progress=None):
     ValidationError annule les écritures et conserve la publication précédente.
     Initialise les contrôles globaux après les validations applicatives sans
     modifier la cascade, les décisions historiques ou les sources Atlas.
+    Les corrections/liens Lot 2 ne sont jamais repris implicitement : leur
+    projection est invalidée sur une nouvelle campagne. Les hooks ciblés sont
+    suspendus pendant les auto-validations initiales, avant le calcul initial.
     """
     from .multiple_import import import_control_batch
     from .review_import import upsert_group
@@ -578,11 +589,19 @@ def import_campaign(header, stream, *, job=None, progress=None):
                             get_user_model().objects.filter(username=prior.get("actor", "")).first()
                         )
                     line.updated_by = author
+                local_business = bool(line.inventory_link_id or line.adjustment_version
+                                      or old and (old.decision.get("inventory_link") or old.decision.get("adjustment_version")))
+                line.inventory_link = None
+                line.adjustment_version = 0
                 line.campaign = campaign
                 fingerprint = signature(line)
-                unchanged = bool(old and old.fingerprint == fingerprint)
+                unchanged = bool(old and old.fingerprint == fingerprint and not local_business)
                 comparison = "UNCHANGED" if unchanged else "CHANGED" if old else "NEW"
                 reasons = []
+                if local_business:
+                    from .business import LOCAL_BUSINESS_REVIEW_REASON
+                    line.source_signature = ""
+                    reasons.append(LOCAL_BUSINESS_REVIEW_REASON)
                 if old and not unchanged:
                     current_source = source_record(line)
                     for field, label in {
@@ -622,6 +641,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
                         "values",
                         "manual_assignment",
                         "automatic_assignment",
+                        "inventory_link",
+                        "adjustment_version",
                         "multiple_context",
                         "multiple_diagnostic",
                         "comment",
@@ -678,7 +699,12 @@ def import_campaign(header, stream, *, job=None, progress=None):
     from .auto_validation import apply_automatic_validations
 
     progress("Validation automatique en cours", count)
-    apply_automatic_validations(campaign, progress=progress)
+    from .business import IMPORTING
+    token = IMPORTING.set(True)
+    try:
+        apply_automatic_validations(campaign, progress=progress)
+    finally:
+        IMPORTING.reset(token)
     if sage_enabled:
         from .global_control import initialize_controls
         initialize_controls(campaign, progress=progress)

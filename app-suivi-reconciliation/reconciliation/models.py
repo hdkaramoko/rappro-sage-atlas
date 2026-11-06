@@ -230,7 +230,11 @@ class ReviewGroup(models.Model):
 
 
 class LineReview(models.Model):
-    """Instantané métier explicite : KEEP / SET / CLEAR pour chaque champ."""
+    """Instantané KEEP/SET/CLEAR et base de correction/lien propre à une campagne.
+
+    Les références Lot 2 ne sont pas des preuves moteur et ne sont jamais
+    reportées implicitement dans une nouvelle campagne.
+    """
 
     transaction = models.OneToOneField(
         ReconciliationTransaction, on_delete=models.PROTECT, related_name="line_review"
@@ -240,6 +244,8 @@ class LineReview(models.Model):
     values = models.JSONField(default=dict)
     manual_assignment = models.JSONField(default=list)
     automatic_assignment = models.JSONField(default=dict)
+    inventory_link = models.ForeignKey("ManualReconciliation", null=True, blank=True, on_delete=models.PROTECT)
+    adjustment_version = models.PositiveIntegerField(default=0)
     multiple_context = models.JSONField(default=dict)
     multiple_diagnostic = models.JSONField(default=dict)
     comment = models.TextField(blank=True)
@@ -313,7 +319,10 @@ class Campaign(models.Model):
 
 
 class CampaignInventory(models.Model):
-    """Inventaire minimal, comparé en lots ; les absences restent des observations."""
+    """Photographie Atlas ; business_version protège les actions locales concurrentes.
+
+    Les sources data restent immuables ; corrections/liens sont des objets dédiés.
+    """
 
     campaign = models.ForeignKey(Campaign, on_delete=models.PROTECT, related_name="inventory")
     business_key = models.CharField(max_length=255)
@@ -326,6 +335,7 @@ class CampaignInventory(models.Model):
     present = models.BooleanField(default=True)
     change = models.CharField(max_length=16, default="NEW")
     differences = models.JSONField(default=dict)
+    business_version = models.PositiveIntegerField(default=0)
 
     class Meta:
         constraints = [
@@ -457,7 +467,7 @@ class CampaignSageEntry(models.Model):
 
 
 class CampaignGlobalControl(models.Model):
-    """Calcul initial immuable ; le service interne retourne les recalculs ciblés.
+    """Calcul initial immuable et résultat courant versionné des recalculs ciblés.
 
     `data` distingue le contrôle des Comptabilisé du contrôle consolidé après
     les confirmations applicatives. Aucune décision utilisateur n'est stockée ici.
@@ -468,7 +478,88 @@ class CampaignGlobalControl(models.Model):
     project_code = models.CharField(max_length=100)
     state = models.CharField(max_length=16)
     data = models.JSONField()
+    current_data = models.JSONField(null=True, blank=True)
+    current_updated_at = models.DateTimeField(null=True, blank=True)
+    current_version = models.PositiveIntegerField(default=0)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=("campaign", "key"), name="campaign_global_key")]
         indexes = [models.Index(fields=("campaign", "project_code", "state"), name="global_campaign_state_idx")]
+
+
+class AtlasAdjustment(models.Model):
+    """Correction locale à une ligne de campagne, sans modifier la photographie source.
+
+    AMOUNT retient un montant EUR à deux décimales ; DUPLICATE exclut la ligne
+    du calcul sans la supprimer. Les annulations conservent l'objet et l'audit.
+    """
+
+    class Reason(models.TextChoices):
+        """Motifs métier centralisés des corrections financières du Lot 2."""
+        AMOUNT = "AMOUNT", "Montant erroné"
+        DUPLICATE = "DUPLICATE", "Doublon"
+
+    inventory = models.OneToOneField(CampaignInventory, on_delete=models.PROTECT, related_name="adjustment")
+    reason = models.CharField(max_length=16, choices=Reason.choices)
+    amount = models.DecimalField(max_digits=18, decimal_places=2, null=True)
+    active = models.BooleanField(default=True)
+    version = models.PositiveIntegerField(default=1)
+    comment = models.TextField(blank=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class ManualReconciliation(models.Model):
+    """Confirmation manuelle issue de l'inventaire, distincte de toute preuve moteur.
+
+    Liée à une seule source de campagne ; toute modification de correction après
+    confirmation rend le lien à revoir jusqu'à une nouvelle confirmation explicite.
+    """
+
+    inventory = models.OneToOneField(CampaignInventory, on_delete=models.PROTECT, related_name="inventory_match")
+    active = models.BooleanField(default=True)
+    amount = models.DecimalField(max_digits=18, decimal_places=2)
+    adjustment_version = models.PositiveIntegerField(default=0)
+    version = models.PositiveIntegerField(default=1)
+    comment = models.TextField(blank=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class ManualAllocation(models.Model):
+    """Réservation d'une écriture Sage entière ; annulation logique et unicité active.
+
+    Les montants EUR conservent les neuf décimales sources. Les références en
+    collision sont refusées par le service avant l'insertion sous verrou campagne.
+    """
+
+    link = models.ForeignKey(ManualReconciliation, on_delete=models.PROTECT, related_name="allocations")
+    entry = models.ForeignKey(CampaignSageEntry, on_delete=models.PROTECT, related_name="manual_allocations")
+    amount = models.DecimalField(max_digits=25, decimal_places=9)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        """Une écriture entière ne peut être réservée qu'une fois à l'état actif."""
+        constraints = [models.UniqueConstraint(fields=("entry",), condition=Q(active=True), name="one_active_manual_entry")]
+
+
+class CampaignAction(models.Model):
+    """Audit append-only d'une action Lot 2 et clé d'idempotence de sa soumission.
+
+    Les snapshots avant/après incluent les contrôles concernés ; aucun événement
+    passé n'est supprimé lors d'une annulation. request_hash interdit de réemployer
+    un identifiant réseau avec une autre action ou d'autres paramètres.
+    """
+
+    inventory = models.ForeignKey(CampaignInventory, on_delete=models.PROTECT, related_name="business_events")
+    request_id = models.UUIDField(unique=True)
+    request_hash = models.CharField(max_length=64)
+    kind = models.CharField(max_length=24)
+    before = models.JSONField(default=dict)
+    after = models.JSONField(default=dict)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        """Présente l'audit dans l'ordre inverse des actions sans écraser l'historique."""
+        ordering = ("-pk",)

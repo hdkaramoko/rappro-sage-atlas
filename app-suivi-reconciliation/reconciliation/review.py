@@ -21,7 +21,13 @@ FIELDS = {
 
 
 def source_snapshot(line):
-    """Photographie les champs déterminants et les contrôles fixes, sans solde utilisateur."""
+    """Retourne les preuves source et bases métier de fraîcheur de LineReview.
+
+    Conserve les sources immuables et signatures historiques (Lot 2 absent).
+    Si une base de correction/lien existe, inclut sa version locale ; les soldes
+    des autres décisions ne sont jamais signés. Lecture relationnelle éventuelle,
+    aucun écrit. Les montants sont sérialisés en décimales, sans float.
+    """
     item = line.transaction
 
     def stable(value):
@@ -68,6 +74,10 @@ def source_snapshot(line):
         },
         **({"multiple_context": line.multiple_context} if line.multiple_context else {}),
         **({"automatic_assignment": line.automatic_assignment} if line.automatic_assignment else {}),
+        **({"business_basis": {"adjustment_version": line.adjustment_version,
+                               "inventory_link": line.inventory_link_id,
+                               "link_version": line.inventory_link.version if line.inventory_link_id else None}}
+           if line.adjustment_version or line.inventory_link_id else {}),
     }
 
 
@@ -131,6 +141,8 @@ def decide(
     Retourne LineReview ; ValidationError/PermissionDenied annulent la transaction.
     Persiste décision, contributions, événement et photographie de campagne sans
     modifier les montants sources Atlas/Sage ni les campagnes historiques.
+    Le Lot 2 capture les anciennes/nouvelles cibles et recalcule leur état courant
+    dans cette même transaction, hors auto-validations de l'import initial.
     """
     entry = LineReview.objects.get(pk=line_id)
     # Verrouiller une identité stable : après attente d'un import concurrent,
@@ -232,6 +244,8 @@ def decide(
         raise ValidationError(
             "Expliquez votre affectation manuelle dans le commentaire avant validation"
         )
+    from .business import prepare_review_change, after_review_change
+    business_context = prepare_review_change(line, resolved, state, automatic=_automatic, actor=user)
     previous_assignment = (line.automatic_assignment if _previous_automatic_assignment is None
                            else _previous_automatic_assignment)
     line.automatic_assignment = (_automatic_assignment or {}) if _automatic else {}
@@ -287,4 +301,5 @@ def decide(
     from .campaigns import save_decision_snapshot
 
     save_decision_snapshot(line)
+    after_review_change(business_context, line, user)
     return line

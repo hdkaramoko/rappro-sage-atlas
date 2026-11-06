@@ -307,9 +307,71 @@
 
 
 Accorder les privileges pour des requetes
-+   Identifier le pod PostgreSQL : kubectl get pods -n user-hdkaramoko | grep postgresql-cnpg-555845
-+   Ouvrir une session PostgreSQL : kubectl exec -it -n user-hdkaramoko <nom-du-pod> -- psql -U postgres -d defaultdb
++   Identifier le pod PostgreSQL : ```kubectl get pods -n user-hdkaramoko | grep postgresql-cnpg-555845```
++   Ouvrir une session PostgreSQL : ```kubectl exec -it -n user-hdkaramoko <nom-du-pod> -- psql -U postgres -d defaultdb```
 +   Accorder les droits à ton utilisateur : 
-    GRANT USAGE ON SCHEMA public TO "user-hdkaramoko";
-    GRANT SELECT, INSERT, UPDATE, DELETE  ON ALL TABLES IN SCHEMA public TO "user-hdkaramoko";
-    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "user-hdkaramoko";
+    ```
+        GRANT USAGE ON SCHEMA public TO "user-hdkaramoko";
+        GRANT SELECT, INSERT, UPDATE, DELETE  ON ALL TABLES IN SCHEMA public TO "user-hdkaramoko";
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.accounts_user_groups_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.accounts_user_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.accounts_user_user_permissions_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.auth_group_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.auth_group_permissions_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.auth_permission_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.django_admin_log_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.django_content_type_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.django_migrations_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.imports_app_importbatch_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.imports_app_transactionobservation_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.projects_portfolioimport_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.projects_project_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.projects_projectportfolio_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_campaign_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_campaignglobalcontrol_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_campaigngroup_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_campaigninventory_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_campaignreview_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_campaignsageentry_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_controlcontribution_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_correctionhistory_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_importrevision_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_linereview_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_multiplecontrol_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_multipleevent_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_reconciliationtransaction_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_reviewevent_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_reviewgroup_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.accounts_user TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.accounts_user_groups TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.accounts_user_user_permissions TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.auth_group TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.auth_group_permissions TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.auth_permission TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.django_admin_log TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.django_content_type TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.django_migrations TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.django_session TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.imports_app_importbatch TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.imports_app_matchingjob TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.imports_app_transactionobservation TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.projects_portfolioimport TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.projects_project TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.projects_projectportfolio TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_campaign TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_campaignglobalcontrol TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_campaigngroup TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_campaigninventory TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_campaignreview TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_campaignsageentry TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_controlcontribution TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_correctionhistory TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_importrevision TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_linereview TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_multiplecontrol TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_multipleevent TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_reconciliationtransaction TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_reviewevent TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_reviewgroup TO "user-hdkaramoko";
+    ```

@@ -351,8 +351,9 @@ def import_campaign(header, stream, *, job=None, progress=None):
     ValidationError annule les écritures et conserve la publication précédente.
     Initialise les contrôles globaux après les validations applicatives sans
     modifier la cascade, les décisions historiques ou les sources Atlas.
-    Les corrections/liens Lot 2 ne sont jamais repris implicitement : leur
-    projection est invalidée sur une nouvelle campagne. Les hooks ciblés sont
+    Les projections Lot 2 sont d'abord invalidées, puis reprises après le calcul
+    initial uniquement sur sources identiques, uniques et capacités compatibles.
+    Sinon une proposition auditée attend confirmation. Les hooks ciblés sont
     suspendus pendant les auto-validations initiales, avant le calcul initial.
     """
     from .multiple_import import import_control_batch
@@ -708,5 +709,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
     if sage_enabled:
         from .global_control import initialize_controls
         initialize_controls(campaign, progress=progress)
+        from .business_carry import carry_business_actions
+        carry_business_actions(campaign, progress=progress)
+        progress("Reprise des actions métier contrôlée", count)
     progress("Publication terminée", count)
     return count

@@ -32,8 +32,11 @@ def inventory_detail(request, pk):
         "campaign", "adjustment", "inventory_match__actor", "adjustment__actor"), pk=pk)
     initial = {"version": inventory.business_version}
     adjustment = getattr(inventory, "adjustment", None)
+    pending = inventory.business_events.filter(kind="CARRY_PENDING").first() if inventory.business_version == 0 else None
     correction_initial = {**initial, "reason": adjustment.reason if adjustment and adjustment.active else "AMOUNT",
                           "amount": adjustment.amount if adjustment and adjustment.active else source_amount(inventory)}
+    if pending and pending.after.get("adjustment"):
+        correction_initial.update(pending.after["adjustment"])
     action = request.POST.get("action", "") if request.method == "POST" else ""
     correction = AdjustmentForm(request.POST if action == "correct" else None, initial=correction_initial)
     operation = BusinessActionForm(request.POST if action and action != "correct" else None, initial=initial)
@@ -110,6 +113,7 @@ def inventory_detail(request, pk):
         "correction_gap": retained - original if retained is not None and original is not None else None,
         "correction": correction, "operation": operation, "search": search, "page": page,
         "preview": preview, "search_error": search_error, "adjustment": adjustment, "link": link,
+        "carry_pending": pending, "carry_event": inventory.business_events.filter(kind="CARRY").first(),
         "allocations": link.allocations.filter(active=True).select_related("entry") if link else [],
         "requires_replace": bool(link and link.active or line and line.version and line.state in ("VALIDATED", "REJECTED")),
         "controls": controls, "controls_available": CAPABILITY in inventory.campaign.metadata.get("capabilities", []),

@@ -270,16 +270,16 @@ class BusinessTests(TestCase):
         self.assertEqual(control.current_version, version)
         self.assertEqual(untouched.current_version, 0)
 
-    def test_new_campaign_does_not_carry_manual_link_or_correction(self):
-        """Les nouvelles lignes de campagne n'héritent pas des décisions locales Lot 2."""
+    def test_new_campaign_carries_identical_manual_link(self):
+        """Les sources identiques reprennent le lien sans modifier la campagne d'origine."""
         self.confirm()
         first = self.campaign
         old_source = self.inventory().data
         self.campaign = self.load()
-        self.assertIsNone(getattr(self.inventory(), "inventory_match", None))
+        self.assertTrue(self.inventory().inventory_match.active)
         frozen = self.campaign.reviews.get(source__source_id="S")
-        self.assertFalse(frozen.decision["current"])
-        self.assertNotEqual(frozen.comparison, "CARRIED")
+        self.assertTrue(frozen.decision["current"])
+        self.assertTrue(self.inventory().business_events.filter(kind="CARRY").exists())
         self.assertTrue(first.reviews.get(source__source_id="S").decision["current"])
         self.assertEqual(old_source, self.inventory().data)
 
@@ -470,7 +470,7 @@ class BusinessTests(TestCase):
         self.assertEqual(self.result()["state"], "EQUILIBRE")
 
     def test_corrected_auto_is_not_automatically_reactivated_in_next_campaign(self):
-        """Une correction explicite sur AUTO exige une revue future sans reporter son montant."""
+        """La correction persiste mais ne réactive jamais à elle seule une décision AUTO."""
         records = copy.deepcopy(self.records)
         next(r for r in records if r.get("type") == "proposal")["auto_validation"] = {
             "source": "AUTO", "rule": "MATCH_EXACT", "state": "VALIDATED"}
@@ -480,7 +480,7 @@ class BusinessTests(TestCase):
         row = self.inventory()
         correct_inventory(row.pk, self.user, reason="AMOUNT", amount="3500", expected_version=0)
         self.campaign = self.load(records)
-        self.assertIsNone(getattr(self.inventory(), "adjustment", None))
+        self.assertEqual(self.inventory().adjustment.amount, Decimal("3500"))
         self.assertFalse(self.campaign.reviews.get(source__source_id="S").decision["current"])
         self.assertEqual(Decimal(self.result()["confirmed_sent_total"]), Decimal(0))
 
@@ -495,6 +495,148 @@ class BusinessTests(TestCase):
         self.assertTrue(any(value == "INVENTORY_MANUAL" for value in rows[1]))
         self.assertTrue(any(isinstance(value, str) and '"document": "FAC123"' in value for value in rows[1]))
         book.close()
+
+    def test_amount_correction_persists_on_identical_sources_over_three_campaigns(self):
+        """Une correction seule persiste sans fabriquer une confirmation Sage."""
+        row = self.inventory("C")
+        correct_inventory(row.pk, self.user, reason="AMOUNT", amount="5000", expected_version=0)
+        first = self.campaign
+        for _ in range(2):
+            self.campaign = self.load()
+            self.assertEqual(retained_amount(self.inventory("C")), Decimal("5000"))
+            self.assertTrue(self.inventory("C").business_events.filter(kind="CARRY").exists())
+        self.assertEqual(first.inventory.get(source_id="C").adjustment.amount, Decimal("5000"))
+        self.assertIsNone(getattr(self.inventory("C"), "inventory_match", None))
+
+    def test_changed_atlas_proposes_correction_and_keeps_it_visible_next_time(self):
+        """Un montant source changé suspend la reprise et préremplit une proposition lisible."""
+        row = self.inventory("C")
+        correct_inventory(row.pk, self.user, reason="AMOUNT", amount="5000", expected_version=0)
+        records = copy.deepcopy(self.records)
+        next(r for r in records if r.get("type") == "inventory" and r["atlas"]["Id"] == "C")["atlas"]["Total charges SAGE (€)"] = "6100"
+        for _ in range(2):
+            self.campaign = self.load(records)
+            row = self.inventory("C")
+            self.assertIsNone(getattr(row, "adjustment", None))
+            self.assertEqual(retained_amount(row), Decimal("6100"))
+            response = self.client.get(reverse("reconciliation:inventory-detail", args=[row.pk]))
+            self.assertContains(response, "Action précédente à confirmer")
+            self.assertEqual(response.context["correction"].initial["amount"], "5000.00")
+
+    def test_cancelled_actions_are_not_revived(self):
+        """Une annulation explicite empêche toute résurrection dans une nouvelle extraction."""
+        self.confirm()
+        row = self.inventory()
+        cancel_inventory_link(row.pk, self.user, expected_version=row.business_version)
+        row = self.inventory("C")
+        correct_inventory(row.pk, self.user, reason="AMOUNT", amount="5000", expected_version=0)
+        row = self.inventory("C")
+        correct_inventory(row.pk, self.user, cancel=True, expected_version=row.business_version)
+        self.campaign = self.load()
+        self.assertIsNone(getattr(self.inventory(), "inventory_match", None))
+        self.assertIsNone(getattr(self.inventory("C"), "adjustment", None))
+        self.assertFalse(self.campaign.inventory.filter(business_events__kind="CARRY").exists())
+
+    def test_duplicate_without_witness_requires_confirmation(self):
+        """Une exclusion de doublon sans autre ligne identique n'est jamais reconduite seule."""
+        row = self.inventory("C")
+        correct_inventory(row.pk, self.user, reason="DUPLICATE", expected_version=0)
+        self.campaign = self.load()
+        self.assertIsNone(getattr(self.inventory("C"), "adjustment", None))
+        self.assertTrue(self.inventory("C").business_events.filter(kind="CARRY_PENDING").exists())
+
+    def test_carry_without_author_rights_becomes_pending(self):
+        """Le retrait du portefeuille interdit la reprise et laisse une proposition sans affectation."""
+        self.confirm()
+        from projects.models import ProjectPortfolio
+        ProjectPortfolio.objects.filter(user=self.user).delete()
+        self.campaign = self.load()
+        self.assertIsNone(getattr(self.inventory(), "inventory_match", None))
+        self.assertTrue(self.inventory().business_events.filter(kind="CARRY_PENDING").exists())
+
+    def test_replaying_carry_does_not_duplicate_allocations_or_audit(self):
+        """Un second appel sur la même campagne ne réapplique aucune action déjà reprise."""
+        from .business_carry import carry_business_actions
+        self.confirm()
+        self.campaign = self.load()
+        count = CampaignAction.objects.count()
+        allocations = ManualAllocation.objects.count()
+        carry_business_actions(self.campaign)
+        self.assertEqual(CampaignAction.objects.count(), count)
+        self.assertEqual(ManualAllocation.objects.count(), allocations)
+
+    def test_changed_sage_or_ambiguous_content_never_reuses_the_link(self):
+        """Une modification Sage ou deux copies métier empêchent la reprise complète."""
+        from .business_carry import carry_business_actions
+        self.confirm()
+        with patch("reconciliation.business_carry.carry_business_actions"):
+            self.campaign = self.load()
+        entry = self.entry()
+        entry.data["entry"]["label"] = "Libellé changé"
+        entry.save(update_fields=["data"])
+        carry_business_actions(self.campaign)
+        self.assertIsNone(getattr(self.inventory(), "inventory_match", None))
+        self.assertTrue(self.inventory().business_events.filter(kind="CARRY_PENDING").exists())
+        count = CampaignAction.objects.count()
+        carry_business_actions(self.campaign)
+        self.assertEqual(CampaignAction.objects.count(), count)
+
+    def test_ambiguous_sage_content_requires_confirmation(self):
+        """Deux écritures au même contenu ne fournissent pas une identité unique."""
+        from .business_carry import carry_business_actions
+        self.confirm()
+        with patch("reconciliation.business_carry.carry_business_actions"):
+            self.campaign = self.load()
+        entry = self.entry()
+        entry.pk = None
+        entry.record_id = digest([entry.record_id, "collision fictive"])
+        entry.entry_ref = digest([entry.entry_ref, "autre référence"])
+        entry.save(force_insert=True)
+        carry_business_actions(self.campaign)
+        self.assertIsNone(getattr(self.inventory(), "inventory_match", None))
+        self.assertTrue(self.inventory().business_events.filter(kind="CARRY_PENDING").exists())
+
+    def test_whole_selection_and_corrections_are_carried_together(self):
+        """Deux écritures entières sont reprises après la correction du Comptabilisé voisin."""
+        row = self.inventory("C")
+        correct_inventory(row.pk, self.user, reason="AMOUNT", amount="0", expected_version=0)
+        row = self.inventory()
+        correct_inventory(row.pk, self.user, reason="AMOUNT", amount="10000", expected_version=0)
+        self.confirm(entries=list(self.campaign.sage_inventory.filter(document="FAC123").values_list("pk", flat=True)))
+        self.campaign = self.load()
+        row = self.inventory()
+        self.assertEqual(row.adjustment.amount, Decimal("10000"))
+        self.assertEqual(row.inventory_match.allocations.filter(active=True).count(), 2)
+        self.assertEqual(self.result()["state"], "EQUILIBRE")
+
+    def test_insufficient_capacity_rolls_back_correction_and_link_carry(self):
+        """Un Comptabilisé voisin augmenté refuse le lien sans laisser de correction partielle."""
+        row = self.inventory()
+        correct_inventory(row.pk, self.user, reason="AMOUNT", amount="4000", expected_version=0)
+        self.confirm()
+        records = copy.deepcopy(self.records)
+        next(r for r in records if r.get("type") == "inventory" and r["atlas"]["Id"] == "C")["atlas"]["Total charges SAGE (€)"] = "7000"
+        self.campaign = self.load(records)
+        row = self.inventory()
+        self.assertIsNone(getattr(row, "adjustment", None))
+        self.assertIsNone(getattr(row, "inventory_match", None))
+        self.assertEqual(row.business_version, 0)
+        self.assertTrue(row.business_events.filter(kind="CARRY_PENDING").exists())
+
+    def test_duplicate_witness_must_still_exist(self):
+        """L'exclusion persiste avec son témoin identique puis s'arrête lorsque celui-ci disparaît."""
+        records = copy.deepcopy(self.records)
+        clone = copy.deepcopy(next(r for r in records if r.get("type") == "inventory" and r["atlas"]["Id"] == "C"))
+        clone["atlas"]["Id"] = "C2"
+        records.insert(2, clone)
+        self.campaign = self.load(records)
+        row = self.inventory("C")
+        correct_inventory(row.pk, self.user, reason="DUPLICATE", expected_version=0)
+        self.campaign = self.load(records)
+        self.assertEqual(retained_amount(self.inventory("C")), Decimal(0))
+        self.campaign = self.load()
+        self.assertIsNone(getattr(self.inventory("C"), "adjustment", None))
+        self.assertTrue(self.inventory("C").business_events.filter(kind="CARRY_PENDING").exists())
 
     def test_legacy_validation_cannot_bypass_inventory_capacity_with_a_comment(self):
         """Un bouton historique ne contourne pas la capacité fiable du Lot 2 par dérogation."""

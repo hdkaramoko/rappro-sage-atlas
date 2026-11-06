@@ -19,7 +19,8 @@ def global_state_label(value):
 def business_action_label(value):
     """Traduit le type d'événement Lot 2 sans exposer de structure technique."""
     return {"CORRECTION": "Correction enregistrée", "CORRECTION_CANCEL": "Correction annulée", "LINK": "Rapprochement manuel confirmé",
-            "UNLINK": "Rapprochement manuel annulé", "DECISION": "Décision de rapprochement"}.get(value, "Action métier")
+            "UNLINK": "Rapprochement manuel annulé", "DECISION": "Décision de rapprochement",
+            "CARRY": "Actions reprises automatiquement", "CARRY_PENDING": "Reprise à confirmer"}.get(value, "Action métier")
 
 
 @register.filter

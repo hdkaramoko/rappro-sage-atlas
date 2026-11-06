@@ -280,8 +280,8 @@ class Scenarios(unittest.TestCase):
     def test_lot2_correction_prevents_publication_of_a_stale_import(self):
         """Une correction concurrente garde son audit et invalide la préparation SQLite.
 
-        La reprise importe une nouvelle campagne sans propager la correction
-        locale précédente. Exerce les vraies tables/triggers sur base sur disque.
+        La relance reprend la correction sur les sources identiques. Exerce
+        les vraies tables/triggers et la copie des actions sur base sur disque.
         """
         from reconciliation.business import correct_inventory, retained_amount
         from reconciliation.test_sage_inventory import sign_records
@@ -322,7 +322,7 @@ class Scenarios(unittest.TestCase):
         self.load()
         current = Campaign.objects.get(is_current=True)
         self.assertNotEqual(current.pk, first.pk)
-        self.assertFalse(hasattr(current.inventory.get(source_id="C"), "adjustment"))
+        self.assertEqual(current.inventory.get(source_id="C").adjustment.amount, 5000)
         from reconciliation.business import confirm_inventory_link
         source = current.inventory.get(source_id="S")
         entry = current.sage_inventory.get(document="FAC123", amount="4000")
@@ -332,8 +332,8 @@ class Scenarios(unittest.TestCase):
         self.path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records), encoding="utf-8")
         self.load()
         latest = Campaign.objects.get(is_current=True)
-        self.assertFalse(hasattr(latest.inventory.get(source_id="S"), "inventory_match"))
-        self.assertFalse(latest.reviews.get(source__source_id="S").decision["current"])
+        self.assertTrue(latest.inventory.get(source_id="S").inventory_match.active)
+        self.assertTrue(latest.reviews.get(source__source_id="S").decision["current"])
         self.assertTrue(current.inventory.get(source_id="S").inventory_match.active)
 
     def test_activation_backs_up_and_refuses_running_worker(self):

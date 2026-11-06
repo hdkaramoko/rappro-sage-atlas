@@ -18,7 +18,7 @@ référence `total_sage_charges` des Confirmé, affichage dans Données sources,
 | À créer | recherche indépendante des candidats moteur | inventaire Sage filtré projet/campagne/exercice/éligibilité, sélection et confirmation explicites |
 | À créer | affectations manuelles d'inventaire | références réelles, consommation intégrale et exclusive, annulation logique |
 | À adapter | détail de revue et inventaire de campagne | deux actions Corriger/Rechercher, détail des sources/valeurs retenues et historique |
-| À adapter | reprise de campagne et staging SQLite | aucune reprise implicite des nouveaux liens/corrections ; révision des nouveaux modèles |
+| À adapter | reprise de campagne et staging SQLite | reprise contrôlée et auditée des actions identiques ; révision des nouveaux modèles |
 
 Choix conservateurs : pas d'affectation partielle implicite ; seules des écritures
 entières, identifiables et dont la somme explique le montant retenu dans la
@@ -177,10 +177,11 @@ contenu est refusé. Les confirmations concurrentes incompatibles ne peuvent pas
 publier deux consommations ; les erreurs invitent à actualiser.
 
 Les callbacks de l'import sont suspendus uniquement pendant ses validations
-initiales, puis le calcul initial complet existant est exécuté. Les corrections
-et liens ne sont **jamais reportés implicitement** : nouvelles lignes d'inventaire
-sans objets métier, revue antérieure nécessitant confirmation, y compris si le
-moteur réémet une autorisation AUTO. Les anciennes photographies restent intactes.
+initiales, puis le calcul initial complet existant est exécuté. La reprise
+contrôlée des actions métier est ensuite exécutée ; voir les règles détaillées
+dans [la documentation de persistance](persistance_actions_sage_atlas.md).
+Les anciennes photographies restent intactes. Une correction seule ne réactive
+jamais une ancienne validation AUTO : un rapprochement confirmé reste nécessaire.
 Un réimport des mêmes octets garde son idempotence historique et ne réévalue pas
 en masse les décisions.
 
@@ -229,7 +230,7 @@ en masse les décisions.
 | Concurrence PostgreSQL | transactions / réservation unique | `BusinessConcurrencyTests.test_only_one_conflicting_confirmation_can_commit` (PostgreSQL requis) |
 | Transfert | clés avant/après | `test_transfer_recalculates_both_old_and_new_piece` |
 | Idempotence | UUID + empreinte de requête | `test_retries_are_idempotent_and_request_ids_cannot_change_payload` |
-| Historique/reprise | snapshots, refus de reprise implicite | `test_new_campaign_does_not_carry_manual_link_or_correction`, `test_corrected_auto_is_not_automatically_reactivated_in_next_campaign` |
+| Historique/reprise | snapshots, reprise contrôlée et propositions | `test_new_campaign_carries_identical_manual_link`, `test_corrected_auto_is_not_automatically_reactivated_in_next_campaign` |
 | UI, absence d'effet en recherche | vues/formulaires/templates | `test_ui_preview_has_no_side_effects_and_formats_amounts`, `test_form_post_correction_and_confirmation_are_audited` |
 | Exports | snapshot allocations dans export campagne | `test_manual_export_contains_actual_inventory_allocations` |
 | Historique sans inventaire Sage | capacité explicitement vérifiée | `test_old_campaign_without_sage_inventory_displays_unavailable` |
@@ -259,7 +260,10 @@ unicité lorsque concernés). Un inventaire AST du diff compare aussi les
 définitions avec HEAD pour détecter les docstrings absentes, y compris helpers
 et classes Meta.
 
-## Vérifications exécutées le 6 novembre 2026
+## Vérifications initiales du Lot 2, le 6 novembre 2026
+
+Ces résultats précèdent l'évolution de persistance. Ses vérifications sont
+consignées dans [la documentation de persistance](persistance_actions_sage_atlas.md).
 
 - Contrat et moteur Python : `.venv/Scripts/python.exe -m pytest -q` —
   **192 tests réussis, 1 ignoré** (test sur données réelles à activer explicitement).
@@ -268,7 +272,7 @@ et classes Meta.
   PostgreSQL ; ils n'ont pas été exécutés dans cet environnement SQLite.
 - Dernière vérification ciblée : `python manage.py test
   imports_app.test_sqlite_staging --noinput --verbosity 0` — succès après ajout
-  des assertions de non-reprise d'un rapprochement manuel dans la campagne suivante.
+  des assertions initiales sur le passage d'un rapprochement manuel à la campagne suivante.
 - Les **26 tests métier Lot 2** passent, dont le contrôle de volume avec
   2 000 écritures supplémentaires : moins de 90 requêtes SQL et au plus deux
   clés de contrôle recalculées pour l'action testée.
@@ -289,7 +293,8 @@ leurs bases jetables ; aucune migration de la base applicative existante n'est
 exécutée pendant le développement.
 
 L'historique demeure consultable sans réimportation. Un nouveau fichier source
-n'emporte aucune correction locale. Les affectations partielles nouvelles restent
+reprend les actions compatibles selon les règles de persistance documentées.
+Les affectations partielles nouvelles restent
 à revoir : pas d'éditeur de fractions/graphe, pas de réécriture Atlas/Sage, pas de
 Celery/Redis ni de tâche permanente. Les règles historiques de fichiers sans
 inventaire Sage restent consultables mais ne fournissent pas de faux contrôle global.

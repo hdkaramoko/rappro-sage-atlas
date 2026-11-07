@@ -14,6 +14,7 @@ from .review import signature
 
 
 class ReviewUITests(TestCase):
+    """Vérifie le rendu métier, les permissions et la pagination des écrans de revue."""
     def setUp(self):
         self.user = get_user_model().objects.create_user("ux", password="test")
         self.project = Project.objects.create(code="P", label="Projet")
@@ -50,6 +51,7 @@ class ReviewUITests(TestCase):
         return LineReview.objects.create(transaction=item, group=group)
 
     def test_default_uses_status_not_rule(self):
+        """Le parcours par défaut inclut les cas manuels après les propositions, sans filtre caché."""
         fuzzy = ReviewGroup.objects.create(
             project=self.project, key="fuzzy", rule="MATCH_FUZZY_REVIEW", match_status="MATCHED"
         )
@@ -59,7 +61,7 @@ class ReviewUITests(TestCase):
         self.make_line("B", fuzzy)
         self.make_line("C", unmatched)
         response = self.client.get(reverse("reconciliation:reviews"))
-        self.assertEqual(response.context["page"].paginator.count, 2)
+        self.assertEqual(response.context["page"].paginator.count, 3)
         self.assertNotContains(response, "Brouillon")
         response = self.client.get(reverse("reconciliation:reviews"), {"match_status": ""})
         self.assertEqual(response.context["page"].paginator.count, 3)

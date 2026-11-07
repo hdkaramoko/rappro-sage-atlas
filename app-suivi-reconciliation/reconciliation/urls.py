@@ -1,11 +1,12 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import business_views, campaign_views, multiple_views, review_views
+from . import business_views, campaign_views, global_views, multiple_views, review_views
 from .database_export import database_export
 
 app_name = "reconciliation"
 urlpatterns = [
+    path("validation/controles/<int:pk>/", global_views.global_control_detail, name="global-control-detail"),
     path("campagnes/inventaire/<int:pk>/", business_views.inventory_detail, name="inventory-detail"),
     path("administration/export-json/", database_export, name="database-export"),
     path("campagnes/<int:pk>/multiples/", multiple_views.control_list, name="multiples"),

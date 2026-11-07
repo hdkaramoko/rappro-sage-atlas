@@ -193,6 +193,17 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
 @media(max-width:760px){.multiple-summary {grid-template-columns:1fr}.multiple-summary dd {font-size:20px}}
 
 /* Les filtres s'adaptent à la largeur disponible, y compris sidebar repliée. */
+.journey-tabs {display:flex;gap:12px;margin:18px 0;border-bottom:1px solid var(--line)}
+.journey-tabs a {padding:12px;text-decoration:none;border-bottom:3px solid transparent}
+.journey-tabs a[aria-current] {border-color:var(--blue);font-weight:700}
+.multi-filter {position:relative;min-width:140px}
+.multi-filter summary,.revision-panel>summary {cursor:pointer;padding:12px;border:1px solid var(--line);border-radius:8px}
+.multi-filter summary span {display:block;font-size:12px;color:var(--muted)}
+.multi-filter fieldset {position:absolute;top:100%;left:0;z-index:12;background:white;border:1px solid var(--line);border-radius:8px;padding:12px;min-width:240px;max-height:300px;overflow:auto;box-shadow:0 6px 18px #0002}
+.multi-filter label {display:flex;gap:8px;align-items:center;padding:7px 4px;font-weight:400}
+.multi-filter input[type=checkbox] {width:auto;margin:0}
+.multi-filter summary:focus-visible,.revision-panel>summary:focus-visible {outline:3px solid #93b4ff;outline-offset:2px}
+.revision-panel {margin:18px 0}.revision-panel>summary {font-weight:600}.revision-panel>form {padding:16px 0}
 .review-filter-layout {container-type:inline-size}
 .review-filter-layout .review-filters {grid-template-columns:repeat(3,minmax(0,1fr))}
 .review-filters .field {min-width:0}
@@ -200,7 +211,7 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
 .review-filters .origin-filter {width:140px;max-width:100%}
 .review-filters .page-size-filter {width:70px;max-width:100%}
 @container (min-width:1100px) {
-  .review-filter-layout .review-filters {grid-template-columns:minmax(110px,1fr) 145px minmax(160px,1.2fr) 130px 140px minmax(240px,2fr) 70px}
+  .review-filter-layout .review-filters {grid-template-columns:repeat(4,minmax(140px,1fr)) minmax(200px,2fr) 70px}
   .review-filters .search-field {grid-column:auto}
 }
 @container (max-width:700px) {

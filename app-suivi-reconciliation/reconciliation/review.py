@@ -141,6 +141,8 @@ def decide(
     Retourne LineReview ; ValidationError/PermissionDenied annulent la transaction.
     Persiste décision, contributions, événement et photographie de campagne sans
     modifier les montants sources Atlas/Sage ni les campagnes historiques.
+    L'événement conserve aussi l'origine MANUAL/AUTO et la campagne de la décision
+    précédente pour rendre une contestation d'auto-validation explicable.
     Le Lot 2 capture les anciennes/nouvelles cibles et recalcule leur état courant
     dans cette même transaction, hors auto-validations de l'import initial.
     """
@@ -253,7 +255,9 @@ def decide(
         line, resolved, selection, state=state, confirmed=multiple_confirm, comment=comment,
         automatic=_automatic,
     )
-    before = {"state": line.state, "values": line.values, "version": line.version}
+    before = {"state": line.state, "values": line.values, "version": line.version,
+              "validation_source": line.validation_source, "auto_validation_rule": line.auto_validation_rule,
+              "validation_origin_id": line.validation_origin_id}
     before["manual_assignment"] = line.manual_assignment
     before["automatic_assignment"] = previous_assignment
     line.validation_source = "AUTO" if _automatic else "MANUAL"

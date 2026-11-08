@@ -122,6 +122,8 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     `individual_tolerance_verified` est une attestation serveur ciblée des nouvelles
     affectations Confirmé/Exact : une seule écriture signée peut différer du montant
     réservé de la tolérance, sans autoriser de fraction ni contourner l'unicité.
+    Les charges comparées sont déjà en EUR : les devises d'origine Atlas et Sage
+    ne provoquent ni conversion supplémentaire ni anomalie à elles seules.
     """
     if money(tolerance) is None or money(tolerance) < 0:
         raise ValueError("Tolérance invalide")
@@ -137,10 +139,8 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     atlas_ids = [(a.get("project_code"), a.get("fiscal_year"), a.get("source_id")) for a in atlas]
     if len(atlas_ids) != len(set(atlas_ids)) or any(not a[-1] for a in atlas_ids):
         reasons.append("Identité Atlas absente ou répétée")
-    # Les colonnes de charges du contrat sont libellées en EUR. La devise
-    # source Sage décrit l'opération et ne change pas la devise de ces charges.
-    if any(text(a.get("currency")).upper().split(" - ", 1)[0] not in ("", "EUR") for a in atlas):
-        reasons.append("Devise Atlas non EUR à confirmer")
+    # Les deux sources exposent des colonnes de charges EUR ; leur devise
+    # d'opération n'est pas l'unité de ces montants et ne justifie pas un veto.
     if identity["strategy"] == ODS:
         # Une somme de plusieurs opérations ne démontre pas leur unicité.
         if not manual_ods and (len(atlas) != 1 or len(entries) != 1):

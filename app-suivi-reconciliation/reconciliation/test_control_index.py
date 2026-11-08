@@ -150,4 +150,4 @@ class ControlIndexMigrationTests(TransactionTestCase):
             self.assertEqual(list(campaign.global_controls.order_by("pk").values_list("current_state", "has_pending")), expected)
             self.assertTrue(ReviewControlContext.objects.filter(campaign=campaign).exists())
         finally:
-            MigrationExecutor(connection).migrate([("reconciliation", "0021_control_workspace_indexes")])
+            MigrationExecutor(connection).migrate([("reconciliation", "0022_global_control_eur_charges")])

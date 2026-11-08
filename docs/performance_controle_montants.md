@@ -1,5 +1,9 @@
 # Performance de la vue Contrôle des montants — 8 novembre 2026
 
+**Complément fonctionnel :** le [correctif charges EUR](controle_global_charges_eur.md)
+retire le faux motif de devise d'origine et actualise le résultat courant de la
+campagne active via la migration 0022. Les index et optimisations décrits ici restent inchangés.
+
 ## Cause et mesures avant changement
 
 La liste recherchait pour chaque contrôle sa clé dans les JSON de décision du

@@ -38,7 +38,8 @@ INVENTORY = {
     "N° pièce SAGE": "sage_document_number",
     "Date comptable": "accounting_date",
 }
-LABELS = {value: key for key, value in {**INVENTORY, **ATLAS_CONTEXT}.items()}
+LABELS = {**{value: key for key, value in {**INVENTORY, **ATLAS_CONTEXT}.items()},
+          "sage_label": "Libellé SAGE dans Atlas"}
 BATCH_SIZE = 500
 
 
@@ -65,8 +66,14 @@ def stable_evidence(evidence):
     )
 
 
-def normalize_inventory(raw, *, extended=False):
-    """Schéma étroit : pas de création d'un objet ORM Atlas pour chaque ligne hors matching."""
+def normalize_inventory(raw, *, extended=False, ods_label_policy=None):
+    """Normalise la photographie Atlas sans créer de transaction hors matching.
+
+    Libellé SAGE est facultatif pour l'ancien format, obligatoire comme colonne
+    pour la nouvelle politique ODS (une valeur vide reste autorisée et signalée
+    dans le diagnostic). Les deux libellés sont séparés ; aucune source réécrite.
+    Retourne le dictionnaire canonique ; ValidationError si schéma incomplet.
+    """
     if not isinstance(raw, dict) or not set(INVENTORY).issubset(raw):
         raise ValidationError(
             "Inventaire incomplet : les huit champs sont obligatoires (valeurs nulles admises)."
@@ -84,6 +91,10 @@ def normalize_inventory(raw, *, extended=False):
         if not set(EXTRA_INVENTORY).issubset(raw):
             raise ValidationError("Inventaire v3 incomplet : tiers, libellé et devise requis")
         data.update({field: str(raw[column] or "") for column, field in EXTRA_INVENTORY.items()})
+        if ods_label_policy and "Libellé SAGE" not in raw:
+            raise ValidationError("Inventaire ODS incomplet : colonne Libellé SAGE requise")
+        if "Libellé SAGE" in raw:
+            data["sage_label"] = str(raw["Libellé SAGE"] or "")
     for field in ("project_code", "source_id", "bap_status", "sage_document_number"):
         data[field] = str(data[field] or "").strip()
     data["project_code"] = data["project_code"].upper()
@@ -367,6 +378,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
     initial uniquement sur sources identiques, uniques et capacités compatibles.
     Sinon une proposition auditée attend confirmation. Les hooks ciblés sont
     suspendus pendant les auto-validations initiales, avant le calcul initial.
+    La politique ods_label_policy exige Libellé SAGE pour les nouveaux flux ;
+    son absence conserve le contrat historique sans réécrire les campagnes.
     """
     from .multiple_import import import_control_batch
     from .review_import import upsert_group
@@ -381,6 +394,10 @@ def import_campaign(header, stream, *, job=None, progress=None):
     if header.get("schema_version") not in (2, 3):
         raise ValidationError("Version de campagne non prise en charge")
     v3 = header["schema_version"] == 3
+    from reconciliation_contract import ODS_LABEL_POLICY
+    ods_label_policy = header.get("ods_label_policy")
+    if ods_label_policy not in (None, ODS_LABEL_POLICY) or ods_label_policy and not v3:
+        raise ValidationError("Politique de libellé ODS non prise en charge")
     piece_mode = header.get("piece_coherence_mode", "DIAGNOSTIC")
     if piece_mode not in ("DIAGNOSTIC", "ACTIVE"):
         raise ValidationError("Mode de cohérence SAGE inconnu")
@@ -498,7 +515,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 sage_batch = []
                 progress("Inventaire Sage préparé", sage_count)
         elif payload.get("type") == "inventory" and not proposals_started and not sage_started:
-            data = normalize_inventory(payload.get("atlas"), extended=v3)
+            data = normalize_inventory(payload.get("atlas"), extended=v3, ods_label_policy=ods_label_policy)
             if year is not None and data["fiscal_year"] != year:
                 raise ValidationError("L'inventaire contient une ligne hors de l'année de campagne")
             batch.append(data)
@@ -533,7 +550,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 raise ValidationError("Groupe répété dans la campagne")
             group_keys.add(payload.get("key"))
             # Concordance inventaire / proposition, avant mutation de la projection de travail.
-            parsed = [normalize_inventory(raw, extended=v3) for raw in payload.get("atlas", [])]
+            parsed = [normalize_inventory(raw, extended=v3, ods_label_policy=ods_label_policy) for raw in payload.get("atlas", [])]
             existing = {
                 row.business_key: row.data
                 for row in campaign.inventory.filter(

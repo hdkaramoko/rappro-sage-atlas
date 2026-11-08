@@ -115,7 +115,9 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     La tolérance est en euros (défaut un centime), les signes sont préservés.
     Les montants absents, identités partagées et allocations ambiguës rendent
     le résultat INDETERMINE. Une proposition non confirmée ne contribue pas.
-    ODS sans libellé n'est automatiquement rapproché qu'en un-pour-un fiable.
+    Le libellé ODS des nouvelles sources Comptabilisé vient de Libellé SAGE.
+    L'exception sans libellé en un-pour-un fiable reste réservée aux anciennes
+    sources, où le champ canonique sage_label était absent.
     `manual_ods` autorise seulement la résolution explicitement confirmée par
     l'application de preuves ODS identifiées ; elle ne crée jamais d'auto-validation.
     Retourne un dictionnaire signé sans aucun effet de bord.
@@ -153,6 +155,7 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     missing_label_unique = (identity["strategy"] == ODS and not identity["parts"][-1]
                             and all(v not in (None, "") for v in identity["parts"][:-1])
                             and len(atlas) == len(entries) == 1
+                            and "sage_label" not in atlas[0]
                             and not label(atlas[0].get("atlas_label")) and not label(entries[0]["label"]))
     if missing_label_unique or (manual_ods and identity["strategy"] == ODS and not identity["parts"][-1]
                                and all(v not in (None, "") for v in identity["parts"][:-1])):

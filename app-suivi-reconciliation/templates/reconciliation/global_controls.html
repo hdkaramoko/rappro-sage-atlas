@@ -1,6 +1,7 @@
 {% extends "base.html" %}{% load review_ui static %}{% block title %}Mes rapprochements · Contrôle des montants{% endblock %}{% block content %}
 <header class="page-heading"><div><h1>Mes rapprochements</h1><p>Contrôlez les pièces et les montants Atlas × Sage.</p></div></header>
 {% include "components/review_tabs.html" %}
+{% if campaign and not campaign.metadata.ods_label_policy %}<p class="notice warning">Ancien format ODS/ODG : les clés de cette campagne utilisent le libellé Atlas historique. Un nouveau JSONL et une nouvelle campagne sont nécessaires pour utiliser le Libellé SAGE du fichier Atlas.</p>{% endif %}
 {% if campaign %}<p class="notice">{{ campaign.name }} · Les montants incluent les lignes Comptabilisé et les Envoyé SAGE confirmés.</p>{% else %}<p class="notice">Aucune campagne courante disponible.</p>{% endif %}
 <form method="get" class="filter-bar"><input type="hidden" name="view" value="controls">{% for filter in filter_menus %}{% include "components/multifilter.html" %}{% endfor %}<div class="field"><label for="global-search">Projet, pièce ou tiers ODS/ODG</label><input id="global-search" name="q" value="{{ search }}"></div><button>Appliquer</button><a href="{% url 'reconciliation:reviews' %}?view=controls">Réinitialiser</a></form>
 <p><strong>{{ page.paginator.count }}</strong> contrôles</p>

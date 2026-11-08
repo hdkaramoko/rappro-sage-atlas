@@ -20,6 +20,8 @@ def business_inputs(campaign, keys, atlas, allocations, contributions, snapshots
     EUR, quelques lectures par lot, aucune écriture ni scan global de campagne.
     `snapshots` contient les décisions de cette campagne pour éviter de relire
     les versions mutables de revue lorsqu'une campagne est historique.
+    Une projection manuelle ODS adapte uniquement le libellé technique sélectionné
+    par le contrat (SAGE pour les nouvelles sources comptabilisées, ATLAS historique).
     """
     business_keys = {c.line.transaction.business_key for c in contributions}
     inventories = list(CampaignInventory.objects.filter(campaign=campaign, present=True).filter(
@@ -96,7 +98,8 @@ def business_inputs(campaign, keys, atlas, allocations, contributions, snapshots
                 identity = control_identity(entries[0].entry.data["entry"], sage=True)
                 source = {**inventory.data, campaign.metadata["amount_field"]: str(amount), "manual_inventory_link": link.pk}
                 if identity["strategy"] == ODS:
-                    source.update(sage_third_party_code=identity["parts"][2], atlas_label=identity["parts"][3])
+                    source["sage_third_party_code"] = identity["parts"][2]
+                    source["sage_label" if "sage_label" in source else "atlas_label"] = identity["parts"][3]
                 else:
                     source["sage_document_number"] = identity["parts"][2]
                 atlas[key].append(source)

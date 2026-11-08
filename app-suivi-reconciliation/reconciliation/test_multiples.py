@@ -431,7 +431,7 @@ class MultipleTests(TestCase):
                 if r.get("type") == "inventory" and r["atlas"]["Id"] == "C"
             )
         )
-        raw.update({"Id": "ODS-A", "N° pièce SAGE": "ODS-ATLAS", "Libellé ATLAS": "Café Mission"})
+        raw.update({"Id": "ODS-A", "N° pièce SAGE": "ODS-ATLAS", "Libellé ATLAS": "Texte Atlas", "Libellé SAGE": "Café Mission"})
         records.insert(1, {"type": "inventory", "atlas": raw})
         source = normalize_inventory(raw, extended=True)
         # Les preuves moteur contiennent le contrat multiple, pas le contexte de validation.
@@ -496,6 +496,7 @@ class MultipleTests(TestCase):
         self.validate()
         old = [r for r in copy.deepcopy(self.records) if r.get("type") != "control"]
         old[0]["schema_version"] = 2
+        old[0].pop("ods_label_policy", None)
         old[0]["controls_available"] = False
         old[0]["piece_coherence_mode"] = "DIAGNOSTIC"
         for r in old:

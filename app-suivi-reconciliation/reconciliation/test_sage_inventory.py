@@ -169,8 +169,8 @@ class SageInventoryTests(TestCase):
         with self.assertRaisesMessage(ValidationError, "indisponible"):
             list(campaign_controls(legacy))
 
-    def test_label_absent_with_other_label_is_not_unique(self):
-        """Un autre groupe du même tiers empêche l'auto-validation sans libellé."""
+    def test_other_sage_label_does_not_merge_distinct_groups(self):
+        """Un groupe identifié par Libellé SAGE n'est pas contaminé par un autre libellé du tiers."""
         campaign = self.load()
         ods = campaign.sage_inventory.get(document="ODG-SAGE")
         entry = {**ods.data["entry"], "document": "ODS-OTHER", "label": "Autre", "original_label": "Autre"}
@@ -181,8 +181,8 @@ class SageInventoryTests(TestCase):
                                         control_key=record["control_key"], ods_scope=ods_scope(entry, sage=True),
                                         amount=Decimal("100"), data=record)
         data = next(d for d in campaign_controls(campaign) if d["key"] == ods.control_key)
-        self.assertEqual(data["state"], "INDETERMINE")
-        self.assertFalse(data["auto_validated"])
+        self.assertEqual(data["state"], "EQUILIBRE")
+        self.assertTrue(data["auto_validated"])
 
     def test_batched_calculation_queries_and_sql_indexes(self):
         """Les groupes partagent les lectures SQL ; aucun N+1 par écriture Sage."""

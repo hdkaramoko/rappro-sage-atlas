@@ -22,6 +22,7 @@ INVENTORY = {
     "N° pièce SAGE": "sage_document_number",
     "Date comptable": "accounting_date",
     **EXTRA_INVENTORY,
+    "Libellé SAGE": "sage_label",
 }
 
 
@@ -32,6 +33,8 @@ def inventory_rows(atlas):
     décimales. Les colonnes décimales du loader priment sur les flottants du
     matching ; None reste distinct de zéro et les signes sont conservés.
     Aucune mutation de la source ni écriture de fichier/base.
+    Libellé SAGE est conservé séparément, vide si absent, pour les contrôles ODS
+    comptabilisés. Il ne remplace jamais le libellé utilisé par le matching Envoyé.
     """
     canonical = atlas.reindex(columns=list(INVENTORY)).copy()
     for column, origin in (("Total charges SAGE (€)", "_total_sage_decimal"),
@@ -54,7 +57,7 @@ def inventory_rows(atlas):
             "sage_document_number",
         ):
             row[name] = str(row[name] or "").strip()
-        for name in EXTRA_INVENTORY.values():
+        for name in (*EXTRA_INVENTORY.values(), "sage_label"):
             row[name] = str(row[name] or "")
         row["project_code"] = row["project_code"].upper()
         yield row

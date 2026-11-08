@@ -33,7 +33,11 @@ def sage_row(**changes):
 
 
 def atlas_row(identifier="A", **changes):
-    """Construit une charge individuelle déjà comptabilisée, distincte d'un total moteur."""
+    """Construit une charge comptabilisée avec deux libellés explicites pour la recette.
+
+    Par défaut les libellés source se ressemblent ; les tests de sélection fournissent
+    volontairement des valeurs différentes. Ce choix de fixture n'est pas un repli métier.
+    """
     return {
         "Id": identifier,
         "Code projet": "P",
@@ -44,6 +48,7 @@ def atlas_row(identifier="A", **changes):
         "N° pièce SAGE": "D",
         "Date comptable": "2026-01-01",
         "Libellé ATLAS": "Café mission",
+        "Libellé SAGE": changes.get("Libellé ATLAS", "Café mission"),
         "Code tiers SAGE": "001",
         "N° BAP (SAGE)": "B",
         "Devise": "EUR",

@@ -33,8 +33,11 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     Le marqueur validation_policy active les seules nouvelles campagnes v3.
     Les autorisations Exact multilignes sont publiées après preuve bijective ;
     un groupe ambigu conserve sa proposition mais aucune autorisation AUTO.
+    En v3, Libellé SAGE Atlas est transmis séparément dans l'inventaire et les
+    propositions, avec une politique ODS explicite ; le matching reste sur ATLAS.
     """
     from reconciliation_contract.sage_inventory import CAPABILITY, exclusion_policy
+    from reconciliation_contract import ODS_LABEL_POLICY
     from reconciliation import config
     if include_sage_inventory and controls is None:
         raise ValueError("L'inventaire Sage exige les contrôles v3")
@@ -58,6 +61,7 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
         canonical[column] = [context_number(json_value(value)) for value in atlas[column]] if column in atlas else None
     if controls is not None:
         from reconciliation_contract import EXTRA_INVENTORY
+        canonical["Libellé SAGE"] = atlas["Libellé SAGE"].reset_index(drop=True) if "Libellé SAGE" in atlas else None
         for column in EXTRA_INVENTORY:
             if column not in canonical:
                 canonical[column] = atlas[column] if column in atlas else None
@@ -82,7 +86,7 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
             now = datetime.now(timezone.utc).isoformat()
             version = 3 if controls is not None else 2
             emit({"type": "campaign", "schema_version": version,
-                  **({"validation_policy": "confirmed-exact-v2"} if version == 3 else {}),
+                  **({"validation_policy": "confirmed-exact-v2", "ods_label_policy": ODS_LABEL_POLICY} if version == 3 else {}),
                   **({"capabilities": [CAPABILITY], "sage_exclusions": policy} if include_sage_inventory else {}),
                   "piece_coherence_mode": "ACTIVE" if piece_active else "DIAGNOSTIC",
                   "controls_available": controls is not None,

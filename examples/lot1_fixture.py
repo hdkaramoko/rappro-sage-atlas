@@ -11,7 +11,8 @@ from reconciliation.main import main
 def generate(folder: str) -> int:
     """Écrit dans `folder` deux sources et le JSONL du cas 6000 + 4000 = 10000.
 
-    Ajoute une pièce sans Atlas et un ODS sans libellé à correspondance unique.
+    Ajoute une pièce sans Atlas et un ODS avec Libellé ATLAS vide mais Libellé SAGE
+    renseigné, afin d'exercer le choix du libellé comptable sans changer le matching.
     Retourne le code CLI ; seuls ces fichiers synthétiques sont créés.
     """
     root = Path(folder)
@@ -27,12 +28,13 @@ def generate(folder: str) -> int:
          "Total charges projet (€)": "100", "Total charges SAGE (€)": "100", "N° pièce SAGE": "ODS-ATLAS",
          "Date comptable": "01/01/2026", "Code tiers SAGE": "002", "Libellé ATLAS": "", "N° BAP (SAGE)": "", "Devise": "EUR"},
     ]
+    atlas[-1]["Libellé SAGE"] = "ODG Recette"
     sage = []
     for line, document, amount, party, label, bap in [
         ("001", "FAC123", "6000", "001", "Mission", "B1"),
         ("002", "FAC123", "4000", "001", "Mission", "B2"),
         ("003", "FAC999", "50", "003", "Sans Atlas", "B3"),
-        ("004", "ODG-SAGE", "100", "002", "", ""),
+        ("004", "ODG-SAGE", "100", "002", "ODG Recette", ""),
     ]:
         sage.append({"Projet": "P", "Numéro pièce": document, "Date comptable": "01/01/2026",
                      "Journal": "ACH", "N° de ligne comptable": line, "N° de ligne Analytique": "01",

@@ -108,8 +108,9 @@ def test_collisions_multiple_journals_and_scope_mismatches():
 
 @pytest.mark.parametrize("atlas_label,sage_label,expected", [("Café mission", "CAFE MISSION", "EQUILIBRE"), ("", "", "EQUILIBRE"), ("", "mission", "INDETERMINE"), ("alpha", "beta", "INDETERMINE")])
 def test_ods_unique_group_with_or_without_label(atlas_label, sage_label, expected):
-    """ODS ignore les numéros intersources ; seul un groupe unique fiable est automatique."""
+    """Le contrat historique conserve ses clés et son exception de libellé absent unique."""
     a = source("10000", **{"N° pièce SAGE": "ODS-ATLAS", "Libellé ATLAS": atlas_label})
+    a.pop("sage_label", None)
     s = record(**{"Numéro pièce": "ODG-SAGE", "Libellé pièce": sage_label})
     result = calculate(atlas=[a], records=[s])
     assert result["state"] == expected
@@ -120,10 +121,10 @@ def test_ods_unique_group_with_or_without_label(atlas_label, sage_label, expecte
 
 def test_ods_amount_mismatch_and_prefix_journal_disagreement():
     """Une égalité composite n'efface ni écart monétaire ni convention contradictoire."""
-    a = source("10000", **{"N° pièce SAGE": "ODS-A", "Libellé ATLAS": ""})
-    s = record("9000", **{"Numéro pièce": "ODS-S", "Libellé pièce": ""})
+    a = source("10000", **{"N° pièce SAGE": "ODS-A", "Libellé ATLAS": "", "Libellé SAGE": "ODG Montant"})
+    s = record("9000", **{"Numéro pièce": "ODS-S", "Libellé pièce": "ODG Montant"})
     assert calculate(atlas=[a], records=[s])["state"] == "ECART"
-    s = record(**{"Numéro pièce": "FAC123", "Journal": "ODS", "Libellé pièce": ""})
+    s = record(**{"Numéro pièce": "FAC123", "Journal": "ODS", "Libellé pièce": "ODG Montant"})
     assert calculate(atlas=[a], records=[s])["state"] == "INDETERMINE"
 
 

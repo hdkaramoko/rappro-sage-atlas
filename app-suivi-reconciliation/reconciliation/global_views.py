@@ -2,51 +2,28 @@
 
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import BooleanField, Case, Exists, F, Func, IntegerField, OuterRef, Q, Value, When
+from django.db.models import Case, F, IntegerField, Q, Value, When
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_GET
 
 from .campaign_views import inventory_for, projects_for
 from .journey import filter_menu, safe_return, selections
-from .models import Campaign, CampaignGlobalControl, CampaignReview, ControlContribution, ManualAllocation
-
-
-class HasControlContext(Func):
-    """Teste une clé de contexte JSON dynamique en SQL SQLite et PostgreSQL.
-
-    Expressions ORM paramétrées uniquement ; aucune interpolation de saisie SQL.
-    Sert à signaler les propositions non confirmées concernant le contrôle affiché.
-    """
-    output_field = BooleanField()
-    arity = 2
-
-    def as_sqlite(self, compiler, connection, **extra_context):
-        """Compile le test d'existence SQLite ; les clés sont des empreintes hexadécimales."""
-        context, cp = compiler.compile(self.source_expressions[0])
-        key, kp = compiler.compile(self.source_expressions[1])
-        return f"json_type({context}, '$.' || {key}) IS NOT NULL", [*cp, *kp]
-
-    def as_postgresql(self, compiler, connection, **extra_context):
-        """Compile l'opérateur JSONB PostgreSQL, sans conversion en recherche textuelle."""
-        context, cp = compiler.compile(self.source_expressions[0])
-        key, kp = compiler.compile(self.source_expressions[1])
-        return f"({context} ? {key})", [*cp, *kp]
+from .models import Campaign, CampaignGlobalControl, ControlContribution, ManualAllocation, ReviewControlContext
 
 
 def global_controls_for(user):
     """Retourne les contrôles publiés du portefeuille avec leur résultat courant.
 
     Le statut stocké n'est pas remplacé par une égalité calculée dans la vue.
-    Un contexte Envoyé non confirmé ajoute une alerte distincte en lecture seule.
-    Les requêtes corrélées et filtres restent SQL jusqu'à la pagination.
+    Les colonnes techniques current_state/has_pending sont actualisées lors des
+    écritures métier. Les filtres d'état n'explorent aucun JSON ni sous-requête
+    corrélée. Une recherche textuelle explicite peut encore filtrer l'identité JSON.
+    Le JSON courant n'est chargé que pour la page demandée ou la fiche précise.
     """
-    pending = CampaignReview.objects.filter(campaign_id=OuterRef("campaign_id"),
-        project__code=OuterRef("project_code")).exclude(decision__state="VALIDATED", decision__current=True).filter(
-            HasControlContext(F("decision__multiple_context__controls"), OuterRef("key")))
     return CampaignGlobalControl.objects.filter(campaign__published=True,
         project_code__in=projects_for(user).values("code")).select_related("campaign").annotate(
-            result=Coalesce("current_data", "data"), pending=Exists(pending))
+            result=Coalesce("current_data", "data"), pending=F("has_pending"))
 
 
 def control_workspace(request):
@@ -55,6 +32,9 @@ def control_workspace(request):
     Appelé depuis la vue authentifiée Mes rapprochements. EQUILIBRE n'est présenté
     comme réconcilié qu'en l'absence de proposition concernant la pièce encore
     non confirmée. ODS/ODG conserve la clé composite existante. Aucune écriture.
+    Pagination sur les seuls identifiants avant chargement des JSON. Le filtre
+    anomalies ne trie pas une priorité constante ; les autres vues utilisent les
+    colonnes légères indexées et non les résultats JSON complets.
     """
     campaign = Campaign.objects.filter(is_current=True).first()
     rows = global_controls_for(request.user).filter(campaign=campaign)
@@ -62,23 +42,30 @@ def control_workspace(request):
     selected = selections(request.GET, "project", projects)
     states = [("ANOMALY", "Anomalies à examiner"), ("RECONCILED", "Réconciliés"), ("EXCLUDED", "Exclus")]
     chosen = selections(request.GET, "control_state", [key for key, _ in states], ("ANOMALY",))
-    reconciled = Q(result__state="EQUILIBRE", pending=False)
+    reconciled = Q(current_state="EQUILIBRE", has_pending=False)
     if selected:
         rows = rows.filter(project_code__in=selected)
     if chosen:
         condition = Q(pk__in=[])
         if "ANOMALY" in chosen:
-            condition |= Q(result__state__in=["ECART", "INDETERMINE"]) | Q(pending=True)
+            condition |= Q(current_state__in=["ECART", "INDETERMINE"]) | Q(has_pending=True)
         if "RECONCILED" in chosen:
             condition |= reconciled
         if "EXCLUDED" in chosen:
-            condition |= Q(result__state="EXCLU", pending=False)
+            condition |= Q(current_state="EXCLU", has_pending=False)
         rows = rows.filter(condition)
     search = request.GET.get("q", "").strip()
     if search:
         rows = rows.filter(Q(project_code__icontains=search) | Q(result__identity__parts__2__icontains=search))
-    rows = rows.annotate(priority=Case(When(reconciled, then=Value(1)), default=Value(0), output_field=IntegerField()))
-    page = Paginator(rows.order_by("priority", "project_code", "pk"), 50).get_page(request.GET.get("page"))
+    if chosen == ["ANOMALY"] or chosen == ["RECONCILED"] or chosen == ["EXCLUDED"]:
+        rows = rows.order_by("project_code", "pk")
+    else:
+        rows = rows.annotate(priority=Case(When(reconciled, then=Value(1)), default=Value(0), output_field=IntegerField()))
+        rows = rows.order_by("priority", "project_code", "pk")
+    page = Paginator(rows.values_list("pk", flat=True), 50).get_page(request.GET.get("page"))
+    identifiers = list(page.object_list)
+    controls = {row.pk: row for row in global_controls_for(request.user).filter(pk__in=identifiers)}
+    page.object_list = [controls[pk] for pk in identifiers if pk in controls]
     return render(request, "reconciliation/global_controls.html", {"active_view": "controls", "campaign": campaign,
         "page": page, "search": search,
         "filter_menus": [filter_menu("project", "Projet", [(p, p) for p in projects], selected),
@@ -99,8 +86,8 @@ def global_control_detail(request, pk):
     control = get_object_or_404(global_controls_for(request.user), pk=pk)
     assigned = ManualAllocation.objects.filter(entry__campaign=control.campaign, entry__control_key=control.key,
         active=True, link__active=True).values("link__inventory_id")
-    related = CampaignReview.objects.filter(campaign=control.campaign, project__code=control.project_code).filter(
-        HasControlContext(F("decision__multiple_context__controls"), Value(control.key))).values("line__transaction__business_key")
+    related = ReviewControlContext.objects.filter(campaign=control.campaign, project_code=control.project_code,
+        key=control.key).values("review__line__transaction__business_key")
     contributions = ControlContribution.objects.filter(control__campaign=control.campaign,
         control__key=control.key).values("line__transaction__business_key")
     rows = inventory_for(request.user).filter(campaign=control.campaign, present=True).filter(

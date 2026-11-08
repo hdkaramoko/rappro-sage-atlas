@@ -1,5 +1,10 @@
 # Parcours métier Sage–Atlas — lot intermédiaire
 
+**8 novembre 2026 :** la [consultation des contrôles est désormais indexée](performance_controle_montants.md).
+La migration 0021 prépare les campagnes existantes sans modifier leurs décisions
+ni leurs résultats financiers ; les détails de déploiement et de performance sont
+dans ce complément.
+
 Évolution du 6 novembre 2026 sur `dev-feature-lot2-validations-manuelles`.
 Le HEAD et l'arbre de travail ont été contrôlés avant modification ; le Lot 2
 et la persistance étaient déjà présents, l'arbre était propre.
@@ -159,7 +164,7 @@ présenté comme une nouvelle synthèse Lot 3 des filtres à l'écran.
 | Pagination / retour / compteur | `review_list`, `safe_return`, `query_replace` existant | `test_multi_selection_pagination_preserves_every_value`, `test_ui` |
 | Décisions périmées | `review_list`, `decorate` existant | `test_stale_validation_is_back_in_to_examine` |
 | Anomalies et résultat courant | `global_controls_for`, `control_workspace` | `test_global_view_uses_current_totals_and_anomalies_by_default` |
-| Égalité insuffisante | `HasControlContext`, états stockés | `test_equal_totals_with_unconfirmed_context_are_not_resolved`, `test_zero_gap_ambiguous_control_is_not_reconciled` |
+| Égalité insuffisante | `ReviewControlContext`, alertes et états indexés | `test_equal_totals_with_unconfirmed_context_are_not_resolved`, `test_zero_gap_ambiguous_control_is_not_reconciled` |
 | Droits / ODS | `projects_for`, clés composites existantes | `test_global_scope_and_ods_identity_are_preserved` |
 | Lecture seule / charge | Querysets et Paginator | `test_filters_and_global_list_are_read_only_and_paginated`, test de volume Lot 2 existant |
 | Non-régression | services Lot 1/Lot 2 inchangés hors enrichissement d'audit | suites `test_business`, auto-validations, cohérence pièce, imports et staging |
@@ -202,15 +207,18 @@ ont un commentaire français structuré ; elles n'envoient aucune requête.
 6. Au clavier : ouvrir les menus par Entrée/Espace, parcourir et cocher les choix,
    vérifier Toutes et le résumé, puis soumettre. Vérifier aussi en largeur mobile.
 
-Aucune migration, régénération JSONL, configuration de base ou modification du
-moteur n'est requise. Redéployer l'application et ses fichiers statiques selon le
-circuit habituel. Aucun déploiement ni accès à la base de production n'a été effectué.
+Le lot UX initial ne nécessitait pas de migration. L'optimisation du 8 novembre
+requiert la migration technique 0021 ; aucune régénération JSONL, nouvelle
+configuration de base ou modification du moteur n'est requise pour celle-ci.
+Redéployer l'application et ses fichiers statiques selon le circuit habituel.
+Aucun déploiement ni accès à la base de production n'a été effectué.
 
 La recherche du contexte non confirmé utilise les contextes de contrôle déjà
 photographiés ; elle n'invente pas de cible pour une proposition sans contexte.
-Les expressions SQL JSON disposent de variantes SQLite/PostgreSQL. Leur compilation
-PostgreSQL a été vérifiée sans connexion ; exécution et plans de production restent
-à vérifier en recette PostgreSQL dédiée. Aucun second état financier n'est persisté.
+Les filtres d'état utilisent des colonnes et contextes indexés SQLite/PostgreSQL.
+Leur compilation PostgreSQL a été vérifiée sans connexion ; exécution et plans de
+production restent à vérifier en recette PostgreSQL dédiée. Aucun second calcul
+financier n'est introduit : les colonnes techniques projettent les résultats existants.
 
 La validation visuelle et clavier n'a pas été exécutée dans un navigateur dans
 cette session. `node --check` n'a pas pu être lancé : Node n'est pas installé.

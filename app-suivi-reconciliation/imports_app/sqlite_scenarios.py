@@ -264,7 +264,7 @@ class Scenarios(unittest.TestCase):
             writer.close()
 
     def test_lot1_inventory_and_controls_survive_staging(self):
-        """Transporte les nouvelles photographies Sage et contrôles dans la bascule SQL."""
+        """Transporte photographies, états indexés et contextes dans la publication atomique."""
         root = Path(__file__).resolve().parents[2]
         folder = self.folder / "lot1"
         result = subprocess.run([str(root / ".venv/Scripts/python.exe"), "-m", "examples.lot1_fixture", str(folder)],
@@ -274,6 +274,9 @@ class Scenarios(unittest.TestCase):
         self.load()
         campaign = Campaign.objects.get(is_current=True)
         self.assertEqual(campaign.sage_inventory.count(), 4)
+        self.assertFalse(campaign.global_controls.filter(current_state__isnull=True).exists())
+        self.assertFalse(campaign.global_controls.filter(has_pending__isnull=True).exists())
+        self.assertTrue(campaign.review_control_contexts.exists())
         self.assertEqual(campaign.global_controls.count(), 3)
         self.assertTrue(campaign.global_controls.get(data__identity__strategy="ODS_ODG_BY_GROUP").data["auto_validated"])
 

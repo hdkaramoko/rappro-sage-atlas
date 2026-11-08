@@ -373,6 +373,22 @@ class CampaignReview(models.Model):
     reasons = models.JSONField(default=list)
     fingerprint = models.CharField(max_length=64)
 
+    def save(self, *args, **kwargs):
+        """Persiste le snapshot puis synchronise ses seuls index de consultation.
+
+        Les opérations sont atomiques ; aucune source ni décision n'est recalculée.
+        Les imports en lot suspendent cette synchronisation jusqu'à leur publication.
+        Les mises à jour sans changement de décision ne nécessitent aucun indexage.
+        """
+        from django.db import transaction
+        from .control_index import indexing_suspended, sync_review
+        with transaction.atomic(using=kwargs.get("using")):
+            result = super().save(*args, **kwargs)
+            fields = kwargs.get("update_fields")
+            if not indexing_suspended.get() and (fields is None or "decision" in fields or "project" in fields):
+                sync_review(self)
+            return result
+
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=("campaign", "line"), name="campaign_review_line")
@@ -471,6 +487,8 @@ class CampaignGlobalControl(models.Model):
 
     `data` distingue le contrôle des Comptabilisé du contrôle consolidé après
     les confirmations applicatives. Aucune décision utilisateur n'est stockée ici.
+    current_state/has_pending sont des projections indexées de lecture ; les
+    colonnes nullable évitent une reconstruction complète de table SQLite à l'ajout.
     """
 
     campaign = models.ForeignKey(Campaign, on_delete=models.PROTECT, related_name="global_controls")
@@ -481,10 +499,48 @@ class CampaignGlobalControl(models.Model):
     current_data = models.JSONField(null=True, blank=True)
     current_updated_at = models.DateTimeField(null=True, blank=True)
     current_version = models.PositiveIntegerField(default=0)
+    current_state = models.CharField(max_length=16, null=True, editable=False)
+    has_pending = models.BooleanField(null=True, editable=False)
+
+    def save(self, *args, **kwargs):
+        """Actualise l'état indexé depuis le résultat déjà calculé, sans lancer le moteur.
+
+        Les colonnes techniques restent cohérentes lors des recalculs ciblés et des
+        sauvegardes directes. Les créations par lots fournissent explicitement ces
+        valeurs. Le JSON initial et sa signature restent inchangés.
+        """
+        self.current_state = (self.current_data or self.data).get("state", "INDETERMINE")
+        if self.has_pending is None:
+            self.has_pending = False
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"current_state", "has_pending"}
+        return super().save(*args, **kwargs)
 
     class Meta:
+        """Identité unique et index couvrants des filtres et de la pagination par projet."""
         constraints = [models.UniqueConstraint(fields=("campaign", "key"), name="campaign_global_key")]
-        indexes = [models.Index(fields=("campaign", "project_code", "state"), name="global_campaign_state_idx")]
+        indexes = [models.Index(fields=("campaign", "project_code", "state"), name="global_campaign_state_idx"),
+                   models.Index(fields=("campaign", "project_code", "current_state", "has_pending"), name="global_current_filter_idx"),
+                   models.Index(fields=("campaign", "project_code", "id"), name="global_current_page_idx")]
+
+
+class ReviewControlContext(models.Model):
+    """Projection technique des clés de contexte d'une décision photographiée.
+
+    Aucun registre d'affectation : une relation exprime seulement qu'une proposition
+    concerne un contrôle. Supprimable/reconstructible depuis CampaignReview.decision.
+    Permet d'actualiser les alertes sans rechercher chaque clé dans tous les JSON.
+    """
+    review = models.ForeignKey(CampaignReview, on_delete=models.CASCADE, related_name="control_contexts")
+    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="review_control_contexts")
+    project_code = models.CharField(max_length=100)
+    key = models.CharField(max_length=64)
+    pending = models.BooleanField()
+
+    class Meta:
+        """Un contexte unique par revue/clé ; recherche ciblée par campagne/projet/clé."""
+        constraints = [models.UniqueConstraint(fields=("review", "key"), name="review_control_context_key")]
+        indexes = [models.Index(fields=("campaign", "project_code", "key", "pending"), name="review_control_pending_idx")]
 
 
 class AtlasAdjustment(models.Model):

@@ -34,6 +34,7 @@ PROJECTED = (
     "reconciliation_linereview",
     "reconciliation_reviewevent",
     "reconciliation_campaignreview",
+    "reconciliation_reviewcontrolcontext",
     "reconciliation_controlcontribution",
 )
 CAMPAIGN = "reconciliation_campaign"

@@ -125,7 +125,8 @@ def initialize_controls(campaign, *, progress=None) -> None:
     batch, count = [], 0
     for data in campaign_controls(campaign):
         batch.append(CampaignGlobalControl(campaign=campaign, key=data["key"],
-                     project_code=data["identity"]["parts"][0], state=data["state"], data=data))
+                     project_code=data["identity"]["parts"][0], state=data["state"], data=data,
+                     current_state=data["state"], has_pending=False))
         count += 1
         if len(batch) == 500:
             CampaignGlobalControl.objects.bulk_create(batch, batch_size=500)

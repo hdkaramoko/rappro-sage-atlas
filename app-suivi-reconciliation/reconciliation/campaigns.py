@@ -26,6 +26,7 @@ from .models import (
     ReviewEvent,
 )
 from .review import effective, is_current, signature, source_snapshot
+from .control_index import suspend_indexing
 
 INVENTORY = {
     "Code projet": "project_code",
@@ -252,11 +253,21 @@ def decision_record(line):
 
 
 def save_decision_snapshot(line):
-    """Met à jour uniquement la photographie de la campagne de travail."""
+    """Met à jour le snapshot courant et son index de consultation dans la transaction métier.
+
+    Aucun état historique n'est rejoué. L'import suspend l'indexage unitaire et
+    extrait les contextes finaux en une passe avant publication.
+    """
     if line.campaign_id:
+        decision = decision_record(line)
         CampaignReview.objects.filter(campaign_id=line.campaign_id, line=line).update(
-            decision=decision_record(line)
+            decision=decision
         )
+        from .control_index import indexing_suspended, sync_review
+        if not indexing_suspended.get():
+            review = CampaignReview.objects.filter(campaign_id=line.campaign_id, line=line).select_related("project").first()
+            if review:
+                sync_review(review)
 
 
 def archive_legacy(scope):
@@ -341,6 +352,7 @@ def add_absences(campaign):
         CampaignInventory.objects.bulk_create(batch, batch_size=BATCH_SIZE)
 
 
+@suspend_indexing()
 def import_campaign(header, stream, *, job=None, progress=None):
     """Importe `header` et l'itérateur JSONL `stream` dans la transaction parente.
 
@@ -712,5 +724,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
         from .business_carry import carry_business_actions
         carry_business_actions(campaign, progress=progress)
         progress("Reprise des actions métier contrôlée", count)
+    from .control_index import rebuild_campaign
+    rebuild_campaign(campaign, progress=progress)
     progress("Publication terminée", count)
     return count

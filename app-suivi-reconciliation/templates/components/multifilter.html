@@ -1,5 +1,6 @@
 <details class="multi-filter" data-multi-filter>
   <summary>{{ filter.label }} <span data-filter-summary>{{ filter.summary }}</span></summary>
+  {% if filter.name == 'control_state' %}<small class="filter-hint">Plusieurs choix possibles</small>{% endif %}
   <fieldset><legend class="sr-only">{{ filter.label }}</legend>
     <label><input type="checkbox" name="{{ filter.name }}" value="" data-filter-all {% if not filter.selected %}checked{% endif %}> Toutes</label>
     {% for choice in filter.choices %}<label><input type="checkbox" name="{{ filter.name }}" value="{{ choice.value }}" {% if choice.checked %}checked{% endif %}> {{ choice.label }}</label>{% endfor %}

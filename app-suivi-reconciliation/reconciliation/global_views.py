@@ -2,7 +2,7 @@
 
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import Case, F, IntegerField, Q, Value, When
+from django.db.models import F, Q
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_GET
@@ -29,39 +29,37 @@ def global_controls_for(user):
 def control_workspace(request):
     """Affiche les anomalies courantes par défaut, avec filtres et pagination serveur.
 
-    Appelé depuis la vue authentifiée Mes rapprochements. EQUILIBRE n'est présenté
-    comme réconcilié qu'en l'absence de proposition concernant la pièce encore
-    non confirmée. ODS/ODG conserve la clé composite existante. Aucune écriture.
-    Pagination sur les seuls identifiants avant chargement des JSON. Le filtre
-    anomalies ne trie pas une priorité constante ; les autres vues utilisent les
-    colonnes légères indexées et non les résultats JSON complets.
+    Appelé depuis la vue authentifiée Mes rapprochements. Les choix GET multiples
+    filtrent current_state ; Toutes retire cette restriction. Les anciennes URL
+    ANOMALY/RECONCILED/EXCLUDED restent acceptées avec leur sens historique.
+    Une proposition non confirmée reste une alerte distincte de l'état courant.
+    ODS/ODG conserve la clé composite existante. Retour HTML, aucune écriture.
+    Pagination sur les seuls identifiants avant chargement des JSON et tri stable
+    sur projet/identifiant, sans calcul de priorité ni N+1.
     """
     campaign = Campaign.objects.filter(is_current=True).first()
     rows = global_controls_for(request.user).filter(campaign=campaign)
     projects = list(rows.order_by("project_code").values_list("project_code", flat=True).distinct())
     selected = selections(request.GET, "project", projects)
-    states = [("ANOMALY", "Anomalies à examiner"), ("RECONCILED", "Réconciliés"), ("EXCLUDED", "Exclus")]
-    chosen = selections(request.GET, "control_state", [key for key, _ in states], ("ANOMALY",))
-    reconciled = Q(current_state="EQUILIBRE", has_pending=False)
+    states = [("EQUILIBRE", "Équilibré"), ("ECART", "Écart"), ("INDETERMINE", "À revoir"), ("EXCLU", "Exclu")]
+    legacy = {"ANOMALY": ["ECART", "INDETERMINE"], "RECONCILED": ["EQUILIBRE"], "EXCLUDED": ["EXCLU"]}
+    chosen = selections(request.GET, "control_state", [key for key, _ in states] + list(legacy), ("ECART", "INDETERMINE"))
     if selected:
         rows = rows.filter(project_code__in=selected)
     if chosen:
-        condition = Q(pk__in=[])
+        condition = Q(current_state__in=[value for value in chosen if value not in legacy])
         if "ANOMALY" in chosen:
             condition |= Q(current_state__in=["ECART", "INDETERMINE"]) | Q(has_pending=True)
         if "RECONCILED" in chosen:
-            condition |= reconciled
+            condition |= Q(current_state="EQUILIBRE", has_pending=False)
         if "EXCLUDED" in chosen:
             condition |= Q(current_state="EXCLU", has_pending=False)
         rows = rows.filter(condition)
+    chosen = list(dict.fromkeys(state for value in chosen for state in legacy.get(value, [value])))
     search = request.GET.get("q", "").strip()
     if search:
         rows = rows.filter(Q(project_code__icontains=search) | Q(result__identity__parts__2__icontains=search))
-    if chosen == ["ANOMALY"] or chosen == ["RECONCILED"] or chosen == ["EXCLUDED"]:
-        rows = rows.order_by("project_code", "pk")
-    else:
-        rows = rows.annotate(priority=Case(When(reconciled, then=Value(1)), default=Value(0), output_field=IntegerField()))
-        rows = rows.order_by("priority", "project_code", "pk")
+    rows = rows.order_by("project_code", "pk")
     page = Paginator(rows.values_list("pk", flat=True), 50).get_page(request.GET.get("page"))
     identifiers = list(page.object_list)
     controls = {row.pk: row for row in global_controls_for(request.user).filter(pk__in=identifiers)}

@@ -14,6 +14,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, connections
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
+from django.utils import timezone
 from openpyxl import load_workbook
 from reconciliation_contract import control_identity, entry_from_sage, snapshot
 
@@ -55,7 +56,7 @@ class MultipleTests(TestCase):
         self.assertEqual(control.data, original)
 
     def test_prominent_validation_uses_existing_decision_state(self):
-        """Le badge renforcé reste fidèle aux décisions et à la fraîcheur des sources."""
+        """Le badge suit la décision et sa date locale affichée, même autour de minuit UTC."""
         self.validate()
         line = LineReview.objects.get(transaction__source_id="A")
         url = reverse("reconciliation:review-detail", args=[line.pk])
@@ -63,7 +64,7 @@ class MultipleTests(TestCase):
         self.assertContains(response, 'badge success decision-status')
         self.assertContains(response, "Validé</span>")
         self.assertContains(response, str(self.user))
-        self.assertContains(response, line.validated_at.strftime("%d/%m/%Y"))
+        self.assertContains(response, timezone.localtime(line.validated_at).strftime("%d/%m/%Y"))
         LineReview.objects.filter(pk=line.pk).update(state="REJECTED")
         response = self.client.get(url)
         self.assertContains(response, 'badge danger decision-status')

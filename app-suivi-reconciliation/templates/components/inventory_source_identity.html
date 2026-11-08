@@ -1,0 +1,8 @@
+<dl class="summary-grid source-identity">
+  <div><dt>Code projet</dt><dd>{{ inventory.project_code|default:"—" }}</dd></div>
+  <div><dt>Tiers SAGE dans Atlas</dt><dd>{{ inventory.data.sage_third_party_code|default:"—" }}</dd></div>
+  <div><dt>Identifiant Atlas</dt><dd>{{ inventory.source_id }}</dd></div>
+  <div><dt>N° pièce SAGE dans Atlas</dt><dd>{{ inventory.data.sage_document_number|default:"—" }}</dd></div>
+  <div><dt>Libellé ATLAS</dt><dd>{{ inventory.data.atlas_label|default:"Non renseigné" }}</dd></div>
+  <div><dt>Libellé SAGE du fichier Atlas</dt><dd>{% if 'sage_label' in inventory.data %}{{ inventory.data.sage_label|default:"Non renseigné" }}{% else %}Ancien format : non transmis{% endif %}</dd></div>
+</dl>

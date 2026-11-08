@@ -29,6 +29,8 @@ def inventory_detail(request, pk):
     services atomiques (versions, UUID, corrections, capacité et audit).
     Retourne HTML ou redirection après succès ; les erreurs métier sont affichées
     dans le formulaire, les accès hors périmètre répondent 404.
+    Le mode UX reste stable (recherche par défaut), ou suit le formulaire soumis
+    pour rendre ses erreurs visibles. Aucun champ d'un autre mode n'est traité.
     """
     inventory = get_object_or_404(inventory_for(request.user).select_related(
         "campaign", "adjustment", "inventory_match__actor", "adjustment__actor"), pk=pk)
@@ -123,7 +125,10 @@ def inventory_detail(request, pk):
         "previous_values": effective(line) if line and line.state == "VALIDATED" else None,
         "return_url": safe_return(request.GET.get("return", ""),
                                   reverse("reconciliation:campaign", args=[inventory.campaign_id]) + "?tab=inventory"),
-        "revision_open": not confirmed or bool(action) or request.GET.get("revise") == "1",
+        "revision_open": not confirmed or bool(action) or request.GET.get("revise") == "1" or
+                         request.GET.get("mode") in ("search", "correct"),
+        "business_mode": ("correct" if action in ("correct", "cancel_correction") else "search") if action else
+                         ("correct" if request.GET.get("mode") == "correct" else "search"),
         "carry_pending": pending, "carry_event": inventory.business_events.filter(kind="CARRY").first(),
         "allocations": link.allocations.filter(active=True).select_related("entry") if link else [],
         "requires_replace": bool(link and link.active or line and line.version and line.state in ("VALIDATED", "REJECTED")),

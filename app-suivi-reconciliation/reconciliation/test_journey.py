@@ -175,14 +175,14 @@ class JourneyTests(TestCase):
         self.assertEqual(row.data["state"], "ECART")
 
     def test_equal_totals_with_unconfirmed_context_are_not_resolved(self):
-        """Une proposition non confirmée maintient l'alerte même à totaux comptables égaux."""
+        """L'état courant équilibré conserve l'alerte distincte de proposition non confirmée."""
         row = self.inventory("C")
         correct_inventory(row.pk, self.user, reason="AMOUNT", amount="10000", expected_version=0)
         control = self.campaign.global_controls.get(key=self.entry().control_key)
         self.assertEqual(control.current_data["state"], "EQUILIBRE")
         current = global_controls_for(self.user).get(pk=control.pk)
         self.assertTrue(current.pending)
-        response = self.client.get(self.list_url, {"view": "controls"})
+        response = self.client.get(self.list_url, {"view": "controls", "control_state": "EQUILIBRE"})
         self.assertContains(response, "FAC123")
         self.assertContains(response, "proposition non confirmée")
         response = self.client.get(self.list_url, {"view": "controls", "control_state": "RECONCILED"})

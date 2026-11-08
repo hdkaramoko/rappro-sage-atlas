@@ -145,6 +145,10 @@ def decide(
     précédente pour rendre une contestation d'auto-validation explicable.
     Le Lot 2 capture les anciennes/nouvelles cibles et recalcule leur état courant
     dans cette même transaction, hors auto-validations de l'import initial.
+    La politique confirmed-exact-v2 permet une preuve Confirmé résolue côté serveur
+    en décision humaine : le seul écart BAP est audité sans commentaire obligatoire.
+    Les groupes Exact AUTO portent une autorisation collective mais réservent
+    exclusivement des montants et références individuels.
     """
     entry = LineReview.objects.get(pk=line_id)
     # Verrouiller une identité stable : après attente d'un import concurrent,
@@ -195,11 +199,19 @@ def decide(
             date.fromisoformat(str(resolved["date"]))
         except ValueError as exc:
             raise ValidationError("Date invalide.") from exc
+    confirmed_entry, confirmed_audit = None, None
+    if (state == "VALIDATED" and not _automatic and group.rule == "MATCH_CONFIRMED_ATLAS"
+            and line.campaign_id and line.campaign.metadata.get("schema_version") == 3
+            and line.campaign.metadata.get("validation_policy") == "confirmed-exact-v2"
+            and not manual_refs and not line.manual_assignment):
+        from .validation_evidence import confirmed_manual_evidence
+        confirmed_entry, confirmed_audit = confirmed_manual_evidence(line, resolved)
     warnings = []
     if state == "VALIDATED":
         if any(resolved[k] in (None, "") for k in FIELDS):
             raise ValidationError("Pour valider, renseignez statut, montant, pièce et date.")
-        siblings = list(group.lines.select_related("transaction", "group"))
+        grouped_exact = bool(_automatic and _automatic_assignment and _automatic_assignment.get("kind") == "EXACT_GROUP")
+        siblings = [] if grouped_exact else list(group.lines.select_related("transaction", "group"))
         allocations = [
             resolved
             if other.pk == line.pk
@@ -208,6 +220,10 @@ def decide(
             else effective(other)
             for other in siblings
         ]
+        if grouped_exact:
+            # Le total de groupe a déjà été vérifié par la bijection ; il ne
+            # remplace jamais le montant individuel réservé dans les contrôles.
+            allocations = [{"amount": group.sage_total}]
         if group.sage_total is None:
             warnings.append("Aucun total Sage de référence")
         elif any(v["amount"] is None for v in allocations):
@@ -254,6 +270,7 @@ def decide(
     diagnostic = apply_projection(
         line, resolved, selection, state=state, confirmed=multiple_confirm, comment=comment,
         automatic=_automatic,
+        verified_entry=confirmed_entry,
     )
     before = {"state": line.state, "values": line.values, "version": line.version,
               "validation_source": line.validation_source, "auto_validation_rule": line.auto_validation_rule,
@@ -294,7 +311,8 @@ def decide(
             "comment": line.comment,
             "version": line.version,
             "source": source_snapshot(line),
-            "warnings": warnings,
+            "warnings": warnings + (["Référence BAP différente entre Atlas et Sage"] if confirmed_audit and confirmed_audit["bap_difference"] else []),
+            "confirmed_evidence": confirmed_audit,
             "derogation": bool(warnings and acknowledge),
             "manual_assignment": selection,
             "automatic_assignment": line.automatic_assignment,

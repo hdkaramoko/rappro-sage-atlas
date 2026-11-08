@@ -119,6 +119,9 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     `manual_ods` autorise seulement la résolution explicitement confirmée par
     l'application de preuves ODS identifiées ; elle ne crée jamais d'auto-validation.
     Retourne un dictionnaire signé sans aucun effet de bord.
+    `individual_tolerance_verified` est une attestation serveur ciblée des nouvelles
+    affectations Confirmé/Exact : une seule écriture signée peut différer du montant
+    réservé de la tolérance, sans autoriser de fraction ni contourner l'unicité.
     """
     if money(tolerance) is None or money(tolerance) < 0:
         raise ValueError("Tolérance invalide")
@@ -179,7 +182,9 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
         evidence_total = sum((money(available[ref]["amount"]) for ref in refs), Decimal(0))
         partial = (allocation.get("partial_validated") is True and len(refs) == 1
                    and amount * evidence_total >= 0 and abs(amount) <= abs(evidence_total))
-        if evidence_total != amount and not partial:
+        tolerated = (allocation.get("individual_tolerance_verified") is True and len(refs) == 1
+                     and amount * evidence_total >= 0 and abs(evidence_total - amount) <= money(tolerance))
+        if evidence_total != amount and not partial and not tolerated:
             allocation_reasons.append("Répartition partielle ou plusieurs-vers-plusieurs non démontrée")
             continue
         confirmed.append({**allocation, "amount": str(amount)})

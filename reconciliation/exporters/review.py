@@ -30,6 +30,9 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     tous les enregistrements avant le marqueur final. Retourne le Path publié ;
     ValueError/OSError annulent le temporaire sans remplacer la sortie précédente.
     Les charges sont en EUR, `tolerance` est une chaîne décimale en euros.
+    Le marqueur validation_policy active les seules nouvelles campagnes v3.
+    Les autorisations Exact multilignes sont publiées après preuve bijective ;
+    un groupe ambigu conserve sa proposition mais aucune autorisation AUTO.
     """
     from reconciliation_contract.sage_inventory import CAPABILITY, exclusion_policy
     from reconciliation import config
@@ -79,6 +82,7 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
             now = datetime.now(timezone.utc).isoformat()
             version = 3 if controls is not None else 2
             emit({"type": "campaign", "schema_version": version,
+                  **({"validation_policy": "confirmed-exact-v2"} if version == 3 else {}),
                   **({"capabilities": [CAPABILITY], "sage_exclusions": policy} if include_sage_inventory else {}),
                   "piece_coherence_mode": "ACTIVE" if piece_active else "DIAGNOSTIC",
                   "controls_available": controls is not None,
@@ -135,6 +139,14 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                            "rule": record["match_rule"], "match_status": record["match_status"],
                            "sage_total": record["sage_amount"], "evidence": evidence, "atlas": rows}
                 metadata = proposal_metadata(record, options)
+                if metadata and record["match_rule"] == "MATCH_EXACT" and len(rows) > 1:
+                    from reconciliation_contract.exact_assignment import exact_bijection
+                    try:
+                        if version != 3:
+                            raise ValueError("Les groupes Exact automatiques exigent v3")
+                        exact_bijection(json_value(rows), json_value([r for candidate in evidence for r in candidate.get("rows", [])]))
+                    except ValueError:
+                        metadata = None
                 if metadata:
                     payload["auto_validation"] = metadata
                 if len(rows) == 1:

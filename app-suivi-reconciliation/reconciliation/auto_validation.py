@@ -54,7 +54,8 @@ def automatic_blockers(campaign):
             entry = exact_entry(line)
             candidates[line.pk] = entry
             key = digest(control_identity(entry, sage=True))
-            amounts.setdefault(key, []).append(str(line.group.sage_total))
+            amounts.setdefault(key, []).append(str(line.transaction.total_project_charges)
+                if line.automatic_assignment.get("kind") == "EXACT_GROUP" else str(line.group.sage_total))
             owners.setdefault(key, set()).add(line.pk)
         except ValidationError as exc:
             blocked[line.pk] = " ; ".join(exc.messages)
@@ -105,7 +106,9 @@ def apply_automatic_validations(campaign, *, progress=None):
     """
     from .collective_validation import apply_collective_validations
     from .business import LOCAL_BUSINESS_REVIEW_REASON
-    handled = apply_collective_validations(campaign, progress=progress)
+    from .exact_collective import apply_exact_groups
+    handled = apply_exact_groups(campaign, progress=progress)
+    handled |= apply_collective_validations(campaign, progress=progress)
     blockers = {key: value for key, value in automatic_blockers(campaign).items() if key not in handled}
     # Retirer toutes les anciennes AUTO refusées avant d'examiner les autres :
     # aucune priorité ne doit résulter de l'ordre des réservations reportées.

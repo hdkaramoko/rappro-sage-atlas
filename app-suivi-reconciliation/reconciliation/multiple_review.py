@@ -35,7 +35,12 @@ def exact_entry(line):
     individuels projet/Sage et leurs signes avec tolérance de 0,01 EUR. Les
     doublons ne sont pas dédupliqués pour autoriser une preuve ambiguë.
     Lève ValidationError si non démontrable. Aucun effet de bord SQL/fichier.
+    Une affectation EXACT_GROUP est revalidée par sa signature collective et sa
+    preuve individuelle ; le total agrégé n'est jamais réservé sur chaque ligne.
     """
+    if line.automatic_assignment.get("kind") == "EXACT_GROUP":
+        from .validation_evidence import verified_exact_group_entry
+        return verified_exact_group_entry(line)
     raw = [r for candidate in line.group.evidence for r in candidate.get("rows", [])]
     if (not line.campaign_id or line.campaign.metadata.get("schema_version") != 3
             or line.group.rule != "MATCH_EXACT" or line.group.match_status != "MATCHED"
@@ -74,7 +79,8 @@ def compatible_exact_peer(line, contribution):
         resolved = effective(other)
         return (left["ref"] != right["ref"] and contribution.entries == [right["ref"]]
                 and contribution.amount == resolved["amount"]
-                and money(resolved["amount"]) == money(other.group.sage_total)
+                and money(resolved["amount"]) == (money(other.transaction.total_project_charges)
+                    if other.automatic_assignment.get("kind") == "EXACT_GROUP" else money(other.group.sage_total))
                 and str(resolved["document"]).strip().upper() == right["document"]
                 and str(resolved["date"])[:10] == right["date"])
     except ValidationError:
@@ -119,7 +125,7 @@ def context_for(line):
         context[key] = "MISSING"
     # Une campagne v3 sans candidat ne doit pas hériter d'une validation v2.
     result = {"contract": 3, "controls": context}
-    if line.automatic_assignment:
+    if line.automatic_assignment and line.automatic_assignment.get("kind") != "EXACT_GROUP":
         from .piece_coherence import campaign_check
         data = campaign_check(line)
         result["piece"] = {"mode": line.campaign.metadata.get("piece_coherence_mode"),
@@ -137,12 +143,22 @@ def selected_entries(line, references):
     return [available[ref] for ref in references]
 
 
-def allocation_plan(line, resolved, selection):
+def allocation_plan(line, resolved, selection, *, verified_entry=None):
     """Décompose une réservation par pièce, sans sommer un total de groupe répété.
 
     Une sélection manuelle réserve les montants individuels exacts. Sans sélection,
     la correction individuelle réserve le montant saisi sur sa pièce résolue.
+    `verified_entry` est exclusivement une preuve Confirmé déjà résolue côté
+    serveur. EXACT_GROUP utilise son entrée signée ; les autres parcours restent
+    inchangés. Retourne les contrôles/montants/références, sans écriture.
     """
+    if verified_entry or line.automatic_assignment.get("kind") == "EXACT_GROUP" and not selection:
+        entry = verified_entry or exact_entry(line)
+        key = digest(control_identity(entry, sage=True))
+        control = line.campaign.controls.filter(key=key, strategy=STANDARD).first()
+        if not control or entry not in control.data["entries"]:
+            raise ValidationError("Écriture affectée absente des contrôles de campagne")
+        return [(control, resolved["amount"], [entry["ref"]])]
     if line.automatic_assignment and not selection:
         from .piece_coherence import verified_assignment
         control, entry = verified_assignment(line, resolved)
@@ -262,7 +278,7 @@ def diagnose_plan(line, plan, *, manual=False, automatic=False):
     return diagnostics
 
 
-def apply_projection(line, resolved, selection, *, state, confirmed, comment, automatic=False):
+def apply_projection(line, resolved, selection, *, state, confirmed, comment, automatic=False, verified_entry=None):
     """Contrôle puis remplace les réservations v3 de `line` sous verrou de campagne.
 
     `resolved` contient le montant individuel EUR et la pièce/date effectifs ;
@@ -273,6 +289,8 @@ def apply_projection(line, resolved, selection, *, state, confirmed, comment, au
     Les réservations actives du nouvel inventaire manuel sont exclusives et ne
     peuvent pas être contournées par une ancienne sélection de candidats moteur.
     Retourne le diagnostic ; ValidationError annule les écritures parentes.
+    `verified_entry` permet la preuve Confirmé résolue sans candidate écran ; elle
+    ne dispense jamais des contrôles de réservation, de partage ou de capacité.
     """
     if not line.campaign_id or line.campaign.metadata.get("schema_version") != 3:
         if selection:
@@ -284,9 +302,10 @@ def apply_projection(line, resolved, selection, *, state, confirmed, comment, au
             entry = exact_entry(line)
             if (str(resolved["document"]).strip().upper() != entry["document"]
                     or str(resolved["date"])[:10] != entry["date"]
-                    or money(resolved["amount"]) != money(line.group.sage_total)):
+                    or money(resolved["amount"]) != (money(line.transaction.total_project_charges)
+                        if line.automatic_assignment.get("kind") == "EXACT_GROUP" else money(line.group.sage_total))):
                 raise ValidationError("Affectation automatique différente de l'écriture SAGE exacte")
-        plan = allocation_plan(line, resolved, selection)
+        plan = allocation_plan(line, resolved, selection, verified_entry=verified_entry)
         from .models import ManualAllocation
         refs = {ref for _, _, references in plan for ref in references}
         if refs and ManualAllocation.objects.filter(active=True, entry__campaign=line.campaign, entry__entry_ref__in=refs).exists():

@@ -23,6 +23,8 @@ def campaign_controls(campaign, *, keys: list[str] | None = None) -> Iterator[di
     Le Lot 2 projette les corrections et liens de campagne puis appelle cette
     API sous verrou Campaign ; seules les clés demandées sont recalculées et
     les sources/diagnostics initiaux restent immuables.
+    La politique confirmed-exact-v2 transmet uniquement les tolérances individuelles
+    déjà vérifiées aux nouvelles affectations Confirmé manuelles et Exact collectives.
     """
     if CAPABILITY not in campaign.metadata.get("capabilities", []):
         raise ValidationError("Contrôle global indisponible pour cette campagne")
@@ -71,6 +73,10 @@ def campaign_controls(campaign, *, keys: list[str] | None = None) -> Iterator[di
                 "line_key": str(contribution.line_id), "amount": str(contribution.amount),
                 "refs": contribution.entries, "validated": decision.get("state") == "VALIDATED",
                 "partial_validated": decision.get("validation_source") == "MANUAL" and len(contribution.entries) == 1,
+                **({"individual_tolerance_verified": True} if (campaign.metadata.get("validation_policy") == "confirmed-exact-v2"
+                    and (decision.get("automatic_assignment", {}).get("kind") == "EXACT_GROUP"
+                         or contribution.line.group.rule == "MATCH_CONFIRMED_ATLAS" and decision.get("validation_source") == "MANUAL"
+                         and not decision.get("manual_assignment"))) else {}),
                 "current": current, "source_status": review.source.get("bap_status") if review else None})
         identities = {key: control_identity(sage[key][0]["entry"], sage=True) if sage[key] else control_identity(atlas[key][0])
                       for key in batch if sage[key] or atlas[key]}

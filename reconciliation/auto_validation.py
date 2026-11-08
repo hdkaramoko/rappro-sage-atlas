@@ -26,11 +26,14 @@ def proposal_metadata(record, options):
     l'écart aux charges projet n'est pas un veto. Les autres catégories gardent
     leur écart projet/Sage de 0,01 EUR et leurs règles d'unicité historiques.
     La preuve externe et les signes sont revérifiés par Django avant décision.
+    Exact autorise aussi les cardinalités égales multilignes ; l'exporteur v3
+    doit ensuite prouver une bijection individuelle avant de publier l'autorisation.
     Aucun montant source ni résultat moteur n'est modifié ; aucun effet de bord.
     """
     if not options["enabled"] or not ({record["match_status"], record["match_rule"]} & set(options["statuses"])):
         return None
-    if record["match_status"] != "MATCHED" or record["match_rule"] not in AUTO_VALIDATION_RULES or record["atlas_row_count"] != 1:
+    grouped_exact = record["match_rule"] == "MATCH_EXACT" and record["atlas_row_count"] > 1
+    if record["match_status"] != "MATCHED" or record["match_rule"] not in AUTO_VALIDATION_RULES or (record["atlas_row_count"] != 1 and not grouped_exact):
         return None
     if record["match_rule"] == "MATCH_CONFIRMED_ATLAS":
         if record["requires_review"] or record.get("reason") != "ATLAS_EVIDENCE_PRESENT":
@@ -41,7 +44,7 @@ def proposal_metadata(record, options):
     elif (record["candidate_count"] != 1 or record.get("reason") != "UNIQUE_CANDIDATE"
           or not record.get("sage_document_number") or not record.get("sage_accounting_date")):
         return None
-    if record["match_rule"] == "MATCH_EXACT" and (record["requires_review"] or record["sage_row_count"] != 1 or record["cardinality_match"] != True):
+    if record["match_rule"] == "MATCH_EXACT" and (record["requires_review"] or record["sage_row_count"] != record["atlas_row_count"] or record["cardinality_match"] != True):
         return None
     difference = (0 if money(record.get("sage_amount")) is not None else None) if record["match_rule"] == "MATCH_CONFIRMED_ATLAS" else record.get("amount_difference")
     if difference is None or not isfinite(difference) or abs(difference) > 0.01:

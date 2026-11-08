@@ -135,6 +135,13 @@ def validate_piece(campaign, rows, owners):
 
 
 def apply_collective_validations(campaign, *, progress=None):
+    """Applique les Confirmé collectifs existants, sans traiter les affectations Exact.
+
+    `campaign` est la nouvelle campagne en cours d'import ; `progress` suit les
+    pièces. Retourne les ids traités. Les savepoints et critères Confirmé restent
+    inchangés ; le discriminant EXACT_GROUP évite de retraiter ces réservations
+    comme des preuves Confirmé. Aucun accès aux campagnes closes.
+    """
     rows = campaign.reviews.select_related("group", "line").iterator(chunk_size=500)
     groups, owners = defaultdict(list), defaultdict(set)
     active = campaign.metadata.get("piece_coherence_mode") == "ACTIVE"
@@ -147,7 +154,7 @@ def apply_collective_validations(campaign, *, progress=None):
             for proof in candidate.get("rows", []):
                 owners[(key[0], identifier(proof.get("Numéro pièce")))].add(frozen.line_id)
         if ((active and frozen.group.data.get("rule") == "MATCH_CONFIRMED_ATLAS")
-                or frozen.line.automatic_assignment):
+                or (frozen.line.automatic_assignment and frozen.line.automatic_assignment.get("kind") != "EXACT_GROUP")):
             targets.add(key)
     handled = set()
     for number, key in enumerate(sorted(targets), 1):

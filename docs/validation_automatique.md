@@ -1,5 +1,11 @@
 # Validation automatique Atlas / Sage
 
+**7 novembre 2026 — nouvelles campagnes :** le [correctif Confirmé / Exact v2](validation_confirme_exact_v2.md)
+autorise les groupes Exact à bijection unique, sans élargir l'AUTO Confirmé.
+Le BAP divergent seul peut être accepté en décision humaine avec preuve réelle.
+Ces règles exigent un nouveau JSONL portant la politique v2 ; aucune campagne
+historique n'est recalculée.
+
 ## Activation
 
 La configuration du moteur est un module Python, `reconciliation/config.py`.

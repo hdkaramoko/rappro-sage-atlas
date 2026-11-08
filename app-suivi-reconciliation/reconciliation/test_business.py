@@ -402,7 +402,7 @@ class BusinessTests(TestCase):
         self.assertEqual(CampaignAction.objects.filter(inventory=row).count(), 2)
 
     def test_multiple_ods_candidates_can_be_resolved_by_explicit_whole_selection(self):
-        """Deux preuves ODS explicites remplacent l'ambiguïté sans rapprochement par numéro intersources."""
+        """Un groupe déjà équilibré accepte un lien explicite sans altérer son diagnostic initial."""
         records = copy.deepcopy(self.records)
         source = next(r["data"]["entry"] for r in records if r.get("type") == "sage_inventory" and r["data"]["entry"]["document"] == "ODG-SAGE")
         entry = {**source, "document": "ODS-SECOND"}
@@ -417,14 +417,14 @@ class BusinessTests(TestCase):
                 r["data"]["entries"].append(entry)
         self.campaign = self.load(records)
         control = self.campaign.global_controls.get(key=record["control_key"])
-        self.assertEqual(control.data["state"], "INDETERMINE")
+        self.assertEqual(control.data["state"], "EQUILIBRE")
         row = self.inventory("O")
         ids = list(self.campaign.sage_inventory.filter(control_key=record["control_key"]).values_list("pk", flat=True))
         confirm_inventory_link(row.pk, self.user, entry_ids=ids, comment="Les deux écritures justifient cette charge", expected_version=0)
         control.refresh_from_db()
         self.assertEqual(control.current_data["state"], "EQUILIBRE")
         self.assertFalse(control.current_data["auto_validated"])
-        self.assertEqual(control.data["state"], "INDETERMINE")
+        self.assertEqual(control.data["state"], "EQUILIBRE")
 
     def test_old_campaign_without_sage_inventory_displays_unavailable(self):
         """Un historique sans capacité Sage ne présente pas de faux zéro ni recherche hors preuve."""

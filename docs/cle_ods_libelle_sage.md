@@ -2,6 +2,10 @@
 
 Correctif du 8 novembre 2026.
 
+Évolution suivante : [contrôle collectif des sommes signées](controle_groupes_sommes_signees.md).
+Elle supprime les vetos de signes mixtes et cardinalité dans le contrôle des
+montants ; les indications ci-dessous sur ces restrictions décrivent l'étape initiale.
+
 Les clés ODS/ODG utilisaient le champ `Libellé ATLAS`, souvent vide pour les
 écritures comptabilisées, alors que le texte correspondant aux écritures Sage
 se trouve dans `Libellé SAGE`. Les groupes des deux sources restaient séparés.

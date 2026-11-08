@@ -126,6 +126,8 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     réservé de la tolérance, sans autoriser de fraction ni contourner l'unicité.
     Les charges comparées sont déjà en EUR : les devises d'origine Atlas et Sage
     ne provoquent ni conversion supplémentaire ni anomalie à elles seules.
+    Le contrôle collectif compare les sommes signées, sans veto de signe mixte
+    ni de cardinalité ODS. Les validations individuelles gardent leurs règles.
     """
     if money(tolerance) is None or money(tolerance) < 0:
         raise ValueError("Tolérance invalide")
@@ -144,9 +146,6 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     # Les deux sources exposent des colonnes de charges EUR ; leur devise
     # d'opération n'est pas l'unité de ces montants et ne justifie pas un veto.
     if identity["strategy"] == ODS:
-        # Une somme de plusieurs opérations ne démontre pas leur unicité.
-        if not manual_ods and (len(atlas) != 1 or len(entries) != 1):
-            reasons.append("Unicité économique ODS/ODG non démontrée")
         for e in entries:
             prefix, journal = e["document"][:3], e["journal"]
             if journal in ("ODS", "ODG") and prefix != journal:
@@ -163,7 +162,11 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     source = snapshot(checked_identity, atlas, entries, amount_field=amount_field,
                       tolerance=tolerance, reasons=reasons)
     # La clé publiée reste la véritable clé composite, sans libellé inventé.
-    base_reasons = source["reasons"]
+    # Le diagnostic collectif compare les sommes signées. Le snapshot partagé
+    # conserve ses garde-fous pour les parcours de validation individuelle.
+    base_reasons = [reason for reason in source["reasons"] if reason not in (
+        "Signes mixtes / compensation charge-avoir à examiner",
+        "Signes mixtes à examiner", "Unicité économique ODS/ODG non démontrée")]
     confirmed, consumed, line_ids = [], set(), set()
     allocation_reasons = []
     available = {e["ref"]: e for e in entries}
@@ -199,10 +202,6 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     initial_gap = source_total - sage_total if source_total is not None and sage_total is not None else None
     initial_state = "INDETERMINE" if base_reasons else "EQUILIBRE" if abs(initial_gap) <= money(tolerance) else "ECART"
     global_reasons = sorted(set(base_reasons + allocation_reasons))
-    # Les compensations charge/avoir ne peuvent pas masquer une ambiguïté.
-    amounts = [money(a.get(amount_field)) for a in atlas] + [money(e["amount"]) for e in entries] + [money(a["amount"]) for a in confirmed]
-    if any(a is not None and a < 0 for a in amounts) and any(a is not None and a > 0 for a in amounts):
-        global_reasons = sorted(set(global_reasons + ["Signes mixtes à examiner"]))
     state = "INDETERMINE" if global_reasons else "EQUILIBRE" if abs(global_gap) <= money(tolerance) else "ECART"
     if records and len(excluded) == len(records):
         initial_state = state = "EXCLU"

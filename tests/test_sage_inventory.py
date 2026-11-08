@@ -116,7 +116,8 @@ def test_ods_unique_group_with_or_without_label(atlas_label, sage_label, expecte
     assert result["state"] == expected
     assert result["auto_validated"] == (expected == "EQUILIBRE")
     second = record("0", **{"Numéro pièce": "ODG-SAGE2", "Libellé pièce": sage_label})
-    assert calculate(atlas=[a], records=[s, second])["state"] == "INDETERMINE"
+    expected_multiple = "EQUILIBRE" if atlas_label and expected == "EQUILIBRE" else "INDETERMINE"
+    assert calculate(atlas=[a], records=[s, second])["state"] == expected_multiple
 
 
 def test_ods_amount_mismatch_and_prefix_journal_disagreement():

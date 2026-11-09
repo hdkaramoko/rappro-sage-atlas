@@ -7,6 +7,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 from reconciliation_contract import STANDARD, compare, control_identity, digest, entry_from_sage, money
+from reconciliation_contract.fuzzy_safety import INDIVIDUAL_RULES
 
 from .models import Campaign, ControlContribution, MultipleControl, MultipleEvent
 
@@ -28,7 +29,7 @@ def candidates_for(line):
 
 
 def exact_entry(line):
-    """Retourne l'unique écriture complète d'une proposition Exact v3.
+    """Retourne l'unique écriture complète d'une proposition individuelle v3.
 
     `line` est une LineReview avec transaction, groupe et campagne chargés.
     Vérifie la référence v3, la cardinalité réelle, projet/exercice, montants
@@ -37,13 +38,15 @@ def exact_entry(line):
     Lève ValidationError si non démontrable. Aucun effet de bord SQL/fichier.
     Une affectation EXACT_GROUP est revalidée par sa signature collective et sa
     preuve individuelle ; le total agrégé n'est jamais réservé sur chaque ligne.
+    Les règles fuzzy utilisent ces mêmes contrôles individuels ; leur unicité
+    bilatérale sur l'inventaire est vérifiée avant toute AUTO par automatic_blockers.
     """
     if line.automatic_assignment.get("kind") == "EXACT_GROUP":
         from .validation_evidence import verified_exact_group_entry
         return verified_exact_group_entry(line)
     raw = [r for candidate in line.group.evidence for r in candidate.get("rows", [])]
     if (not line.campaign_id or line.campaign.metadata.get("schema_version") != 3
-            or line.group.rule != "MATCH_EXACT" or line.group.match_status != "MATCHED"
+            or line.group.rule not in INDIVIDUAL_RULES or line.group.match_status != "MATCHED"
             or len(line.group.evidence) != 1 or len(raw) != 1):
         raise ValidationError("Écriture SAGE exacte non unique ou identité insuffisante")
     candidates = candidates_for(line)
@@ -62,13 +65,13 @@ def exact_entry(line):
 
 
 def compatible_exact_peer(line, contribution):
-    """Autorise une pièce partagée entre deux contributions AUTO Exact distinctes.
+    """Autorise une pièce partagée entre deux contributions AUTO individuelles distinctes.
 
     `line` est la proposition automatique en cours ; `contribution` une
     réservation déjà validée. Recontrôle les preuves individuelles, la fraîcheur,
     le montant effectif et la référence réellement réservée. Retourne False
     sur ambiguïté, décision manuelle ou preuve réutilisée, sans modifier la base.
-    Cette exemption n'est appelée que par le parcours automatique Exact.
+    Cette exemption concerne Exact et fuzzy, jamais une référence réutilisée.
     """
     from .review import effective, is_current
     other = contribution.line
@@ -230,7 +233,7 @@ def diagnose_plan(line, plan, *, manual=False, automatic=False):
 
     Ajoute les contributions des autres lignes aux charges Sage Atlas sources.
     `manual` conserve les alertes des sélections manuelles ; `automatic` permet
-    uniquement aux AUTO Exact à écritures distinctes et actuelles de partager
+    uniquement aux AUTO Exact/fuzzy à écritures distinctes et actuelles de partager
     une pièce. Les références partagées et dépassements restent bloquants.
     Retourne une liste de diagnostics EUR ; aucune dérogation n'est accordée ici.
     """
@@ -283,7 +286,7 @@ def apply_projection(line, resolved, selection, *, state, confirmed, comment, au
 
     `resolved` contient le montant individuel EUR et la pièce/date effectifs ;
     `selection` conserve le parcours manuel existant. `automatic=True` revalide
-    la preuve unique Exact et autorise les seuls pairs AUTO Exact distincts.
+    la preuve unique Exact/fuzzy et autorise les seuls pairs AUTO individuels distincts.
     Les alertes manuelles, références partagées, dépassements et données inconnues
     restent soumis aux contrôles existants (`confirmed` et commentaire).
     Les réservations actives du nouvel inventaire manuel sont exclusives et ne
@@ -298,7 +301,7 @@ def apply_projection(line, resolved, selection, *, state, confirmed, comment, au
         return {}
     diagnostics, plan = [], []
     if state == "VALIDATED":
-        if automatic and line.group.rule == "MATCH_EXACT":
+        if automatic and line.group.rule in INDIVIDUAL_RULES:
             entry = exact_entry(line)
             if (str(resolved["document"]).strip().upper() != entry["document"]
                     or str(resolved["date"])[:10] != entry["date"]

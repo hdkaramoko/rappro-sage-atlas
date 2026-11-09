@@ -43,7 +43,7 @@ class AdjustmentForm(BusinessActionForm):
 
 
 class CancelLinkForm(BusinessActionForm):
-    """Exige une confirmation et un motif pour retirer une association existante.
+    """Exige un motif, soumis par bouton explicite, pour retirer une association.
 
     Le service Lot 2 revérifie les droits et versions avant libération et audit.
     Aucun effet de bord au nettoyage du formulaire.
@@ -51,7 +51,6 @@ class CancelLinkForm(BusinessActionForm):
     replace_existing = None
     comment = forms.CharField(label="Motif de l'annulation", max_length=2000,
                               widget=forms.Textarea(attrs={"rows": 2}))
-    confirm_cancel = forms.BooleanField(label="Je confirme l'annulation de cette association Sage.")
 
 
 class SageSearchForm(forms.Form):

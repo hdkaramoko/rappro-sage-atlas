@@ -7,6 +7,11 @@ from reconciliation_contract import money
 
 
 def validate_config():
+    """Retourne la configuration AUTO active ou lève ValueError si invalide.
+
+    Lit config.AUTO_VALIDATION sans mutation ; vérifie types et codes connus.
+    Aucun accès fichier/base ni effet de bord.
+    """
     options = config.AUTO_VALIDATION
     if not isinstance(options, dict) or type(options.get("enabled")) is not bool or not isinstance(options.get("statuses"), (list, tuple)):
         raise ValueError("AUTO_VALIDATION : enabled booléen et statuses liste requis")
@@ -28,6 +33,8 @@ def proposal_metadata(record, options):
     La preuve externe et les signes sont revérifiés par Django avant décision.
     Exact autorise aussi les cardinalités égales multilignes ; l'exporteur v3
     doit ensuite prouver une bijection individuelle avant de publier l'autorisation.
+    Pour les fuzzy, l'exporteur exige aussi une écriture v3 complète et l'unicité
+    bilatérale sur les sources entières avant publication.
     Aucun montant source ni résultat moteur n'est modifié ; aucun effet de bord.
     """
     if not options["enabled"] or not ({record["match_status"], record["match_rule"]} & set(options["statuses"])):

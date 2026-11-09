@@ -99,8 +99,7 @@ class JourneyTests(TestCase):
         self.assertNotContains(response, 'value="VALIDATED"')
         line = self.line()
         response = self.client.post(self.detail_url(), {"action": "REVISE", "version": line.version,
-            "group_version": line.group.version, "source": signature(line), "comment": "Mauvaise dépense",
-            "confirm_revision": "on"})
+            "group_version": line.group.version, "source": signature(line), "comment": "Mauvaise dépense"})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.line().state, "DRAFT")
         self.assertFalse(ManualAllocation.objects.filter(entry__campaign=self.campaign, active=True).exists())
@@ -108,8 +107,8 @@ class JourneyTests(TestCase):
         self.assertEqual(self.line().events.first().snapshot["before"]["state"], "VALIDATED")
         self.assertTrue(self.inventory().business_events.filter(kind="DECISION").exists())
 
-    def test_revision_requires_confirmation_reason_permissions_and_versions(self):
-        """Case/motif manquants, accès interdit ou page périmée ne libèrent aucune écriture."""
+    def test_revision_requires_reason_permissions_and_versions(self):
+        """Sans motif, sans accès ou avec version périmée, aucune écriture n'est libérée."""
         self.confirm()
         line = self.line()
         response = self.client.post(self.detail_url(), {"action": "REVISE", "version": line.version,
@@ -223,7 +222,7 @@ class JourneyTests(TestCase):
         self.assertEqual(response.context["return_url"], back)
         self.assertNotContains(response, "select multiple")
 
-    def test_cancel_link_form_demands_confirmation_and_preserves_return(self):
+    def test_cancel_link_form_demands_reason_and_preserves_return(self):
         """L'annulation depuis l'inventaire exige un motif et conserve le retour filtré."""
         self.confirm()
         row = self.inventory()
@@ -235,7 +234,7 @@ class JourneyTests(TestCase):
         self.assertTrue(self.inventory().inventory_match.active)
         self.assertEqual(response.context["return_url"], back)
         response = self.client.post(url, {"action": "cancel_link", "version": row.business_version,
-            "request_id": str(uuid4()), "comment": "Mauvaise écriture", "confirm_cancel": "on"})
+            "request_id": str(uuid4()), "comment": "Mauvaise écriture"})
         self.assertRedirects(response, url, fetch_redirect_response=False)
         self.assertFalse(self.inventory().inventory_match.active)
 
@@ -248,6 +247,83 @@ class JourneyTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertLess(len(queries), 15)
         self.assertTrue(any("LIMIT" in q["sql"] for q in queries))
+
+    def origin_rows(self, **params):
+        """Retourne la page Origine demandée, sans mutation ni calcul des groupes.
+
+        `params` surcharge les filtres GET ; Tous états est le défaut de recette.
+        Les requêtes passent par la vue et ses contrôles de portefeuille réels.
+        """
+        return self.client.get(self.list_url, {"view": "controls", "control_state": "", **params})
+
+    def test_origin_uses_presence_zero_and_confirmed_sent(self):
+        """Zéro et Envoyé confirmé comptent comme présents, jamais une simple proposition."""
+        row = self.campaign.global_controls.get(data__identity__parts__2="FAC999")
+        self.assertEqual({r.pk for r in self.origin_rows(origin="sage").context["page"]}, {row.pk})
+        row.current_data = {**row.data, "sage_total": "0", "gap": "0"}
+        row.save(update_fields=["current_data"])
+        self.assertIn(row.pk, {r.pk for r in self.origin_rows(origin="sage").context["page"]})
+        # Une confirmation acceptée porte une présence Atlas même sans Comptabilisé.
+        row.current_data.update(atlas_count=0, confirmed_allocations=[{"line_key": "test", "amount": "0"}])
+        row.save(update_fields=["current_data"])
+        self.assertNotIn(row.pk, {r.pk for r in self.origin_rows(origin="sage").context["page"]})
+        self.assertIn(row.pk, {r.pk for r in self.origin_rows(origin="both").context["page"]})
+        row.current_data.update(confirmed_allocations=[], atlas_count=1, sage_count=0, accounted_total="0")
+        row.save(update_fields=["current_data"])
+        self.assertIn(row.pk, {r.pk for r in self.origin_rows(origin="atlas").context["page"]})
+
+    def test_origin_multiselection_scope_exclusion_and_unknown(self):
+        """Origines en OU, autres filtres en ET ; exclus/incomplets ne sont pas classés."""
+        rows = self.origin_rows(origin=["sage", "both"]).context["page"]
+        self.assertEqual(rows.paginator.count, 3)
+        self.assertEqual(self.origin_rows(origin=["", "sage"]).context["page"].paginator.count, 3)
+        self.assertEqual(self.origin_rows(origin="both", q="002").context["page"].paginator.count, 1)
+        self.assertEqual(self.origin_rows(origin="sage", control_state="EQUILIBRE").context["page"].paginator.count, 0)
+        self.assertEqual(self.origin_rows(origin="sage", project="P", q="FAC999").context["page"].paginator.count, 1)
+        row = self.campaign.global_controls.get(data__identity__parts__2="FAC999")
+        row.current_data = {**row.data, "state": "EXCLU"}
+        row.save(update_fields=["current_data"])
+        self.assertEqual(self.origin_rows(origin="sage").context["page"].paginator.count, 0)
+        self.assertEqual(self.origin_rows(origin="").context["page"].paginator.count, 3)
+        row.current_data = {"state": "INDETERMINE"}
+        row.save(update_fields=["current_data"])
+        self.assertEqual(self.origin_rows(origin="sage").context["page"].paginator.count, 0)
+        self.assertEqual(self.origin_rows().context["page"].paginator.count, 3)
+        row.current_data.update(atlas_count=None, sage_count=None)
+        row.save(update_fields=["current_data"])
+        self.assertEqual(self.origin_rows(origin="both").context["page"].paginator.count, 2)
+        self.campaign.metadata["capabilities"] = []
+        self.campaign.save(update_fields=["metadata"])
+        self.assertEqual(self.origin_rows(origin="both").context["page"].paginator.count, 0)
+
+    def test_origin_pagination_is_sql_and_keeps_choices(self):
+        """Deux cents groupes sont filtrés avant LIMIT avec un nombre constant de requêtes."""
+        example = self.campaign.global_controls.get(data__identity__parts__2="FAC999")
+        CampaignGlobalControl.objects.bulk_create([
+            CampaignGlobalControl(campaign=self.campaign, key=f"origin-{i}", project_code="P",
+                state="ECART", current_state="ECART", has_pending=False, data=example.data) for i in range(200)])
+        with CaptureQueriesContext(connection) as queries:
+            response = self.origin_rows(origin=["atlas", "sage"], project="P", page=2)
+        self.assertEqual(response.context["page"].paginator.count, 201)
+        self.assertEqual(len(response.context["page"]), 50)
+        self.assertContains(response, "origin=atlas&amp;origin=sage")
+        self.assertContains(response, "Réinitialiser")
+        self.assertLess(len(queries), 15)
+        self.assertTrue(any('LIMIT 50' in q["sql"] and 'atlas_count' in q["sql"] for q in queries))
+
+    def test_redundant_confirmation_fields_absent_and_choices_preserved(self):
+        """Les formulaires perdent leurs cases redondantes, pas la sélection multiple Sage."""
+        from .business_forms import CancelLinkForm
+        from .revision import RevisionForm
+        self.assertNotIn("confirm_revision", RevisionForm().fields)
+        self.assertNotIn("confirm_cancel", CancelLinkForm().fields)
+        response = self.client.get(reverse("reconciliation:inventory-detail", args=[self.inventory().pk]))
+        self.assertContains(response, 'class="sage-choice"')
+        self.assertContains(response, 'type="checkbox" name="entries"')
+        self.confirm()
+        response = self.client.get(self.detail_url())
+        self.assertNotContains(response, 'name="confirm_revision"')
+        self.assertContains(response, "Confirmer l'annulation de la validation")
 
     def test_stale_validation_is_back_in_to_examine(self):
         """Une validation invalidée par correction revient dans la file À examiner."""

@@ -303,3 +303,8 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
 @media(max-width:700px){.accounting-reference-grid,.accounting-result-grid {grid-template-columns:minmax(0,1fr)}.accounting-table-filter .field {width:100%}.accounting-metric-card {padding:14px}}
 @media(max-width:400px){.accounting-financial-summary .accounting-breakdown {grid-template-columns:minmax(0,1fr)}}
 @media(max-width:850px){.accounting-secondary {display:none}.accounting-table {min-width:640px}.accounting-detail .page-heading {align-items:flex-start;flex-direction:column}}
+.work-table .sage-choice-cell{width:64px;text-align:center;vertical-align:middle;padding:6px}
+.sage-choice-target{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;cursor:pointer}
+.sage-choice-target input.sage-choice{width:18px;height:18px;min-width:18px;min-height:18px;margin:0;padding:0;accent-color:var(--color-primary);cursor:pointer}
+.sage-choice-target input.sage-choice:focus-visible{outline:3px solid #2553e8;outline-offset:3px}
+.sage-choice-target input.sage-choice:disabled{opacity:.5;cursor:not-allowed}

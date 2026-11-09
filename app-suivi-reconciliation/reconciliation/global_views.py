@@ -36,6 +36,9 @@ def control_workspace(request):
     ODS/ODG conserve la clé composite existante. Retour HTML, aucune écriture.
     Pagination sur les seuls identifiants avant chargement des JSON et tri stable
     sur projet/identifiant, sans calcul de priorité ni N+1.
+    Origine utilise en SQL les compteurs de sources et confirmations du résultat
+    courant, jamais les montants. Sans inventaire Sage complet, l'origine reste
+    inconnue ; Toutes conserve ces groupes ainsi que les sources exclues.
     """
     campaign = Campaign.objects.filter(is_current=True).first()
     rows = global_controls_for(request.user).filter(campaign=campaign)
@@ -56,6 +59,27 @@ def control_workspace(request):
             condition |= Q(current_state="EXCLU", has_pending=False)
         rows = rows.filter(condition)
     chosen = list(dict.fromkeys(state for value in chosen for state in legacy.get(value, [value])))
+    origins = [("atlas", "Atlas uniquement"), ("sage", "Sage uniquement"), ("both", "Présentes dans les deux")]
+    origin = selections(request.GET, "origin", [key for key, _ in origins])
+    if origin:
+        from reconciliation_contract.sage_inventory import CAPABILITY
+        if campaign is None or CAPABILITY not in campaign.metadata.get("capabilities", []):
+            rows = rows.none()
+        else:
+            atlas_present = Q(result__atlas_count__gt=0) | Q(result__confirmed_allocations__0__isnull=False)
+            sage_present = Q(result__sage_count__gt=0) & ~Q(current_state="EXCLU")
+            # Des compteurs absents ne prouvent jamais l'absence d'une source.
+            rows = rows.exclude(current_state="EXCLU").filter(
+                result__atlas_count__isnull=False, result__sage_count__isnull=False).exclude(
+                Q(result__atlas_count=None) | Q(result__sage_count=None))
+            condition = Q(pk__in=[])
+            if "atlas" in origin:
+                condition |= atlas_present & ~sage_present
+            if "sage" in origin:
+                condition |= sage_present & ~atlas_present
+            if "both" in origin:
+                condition |= atlas_present & sage_present
+            rows = rows.filter(condition)
     search = request.GET.get("q", "").strip()
     if search:
         rows = rows.filter(Q(project_code__icontains=search) | Q(result__identity__parts__2__icontains=search))
@@ -67,7 +91,8 @@ def control_workspace(request):
     return render(request, "reconciliation/global_controls.html", {"active_view": "controls", "campaign": campaign,
         "page": page, "search": search,
         "filter_menus": [filter_menu("project", "Projet", [(p, p) for p in projects], selected),
-                         filter_menu("control_state", "État du contrôle", states, chosen)],
+                         filter_menu("control_state", "État du contrôle", states, chosen),
+                         filter_menu("origin", "Origine", origins, origin)],
         "page_range": page.paginator.get_elided_page_range(page.number)})
 
 

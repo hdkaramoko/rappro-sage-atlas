@@ -12,14 +12,14 @@ class RevisionForm(forms.Form):
     """Confirmation de révision : motif requis, versions et signature cachées.
 
     La saisie seule ne modifie rien ; reopen_review revérifie droits, campagne,
-    état et fraîcheur. La case évite une annulation involontaire d'une validation.
+    état et fraîcheur. Le bouton explicite soumet le motif obligatoire ; aucune
+    case supplémentaire n'est exigée. Aucun effet de bord à la validation du formulaire.
     """
     version = forms.IntegerField(min_value=0, widget=forms.HiddenInput)
     group_version = forms.IntegerField(min_value=0, widget=forms.HiddenInput)
     source = forms.CharField(widget=forms.HiddenInput)
     comment = forms.CharField(label="Pourquoi réviser ce rapprochement ?", max_length=2000,
                               widget=forms.Textarea(attrs={"rows": 2}))
-    confirm_revision = forms.BooleanField(label="Je confirme l'annulation de cette validation et la libération de son affectation Sage.")
 
 
 @transaction.atomic

@@ -360,5 +360,46 @@ class Scenarios(unittest.TestCase):
         call_command("makemigrations", check=True, dry_run=True, stdout=StringIO())
 
 
+    def test_statistics_are_outside_import_and_before_private_preparation(self):
+        """Le staging analyse la copie après commit, prépare puis publie ses synthèses atomiquement."""
+        from reconciliation.accounting import prepare_campaign
+        from reconciliation.sqlite_statistics import maintain_statistics
+        from reconciliation.accounting_models import AccountingProject
+        events = []
+
+        def observe_statistics(**kwargs):
+            """Relève la séquence et le contexte transactionnel sans changer la maintenance réelle."""
+            self.assertFalse(connection.in_atomic_block)
+            events.append("statistics")
+            return maintain_statistics(**kwargs)
+
+        def observe_preparation(campaign, **kwargs):
+            """Vérifie le commit privé avant d'appeler le vrai calcul, sans modifier ses valeurs."""
+            self.assertFalse(connection.in_atomic_block)
+            self.assertEqual(events, ["statistics"])
+            events.append("preparation")
+            return prepare_campaign(campaign, **kwargs)
+
+        with patch("reconciliation.sqlite_statistics.maintain_statistics", side_effect=observe_statistics), patch(
+                "reconciliation.accounting.prepare_campaign", side_effect=observe_preparation):
+            self.load()
+        self.assertEqual(events, ["statistics", "preparation", "statistics"])
+        self.assertEqual(AccountingProject.objects.filter(campaign__is_current=True).count(), 1)
+
+    def test_statistics_failure_keeps_current_campaign_unmodified(self):
+        """Un échec sur la copie empêche toute publication et laisse les données existantes intactes."""
+        import_bundle(self.path)
+        previous = Campaign.objects.get(is_current=True)
+        records = [json.loads(row) for row in self.path.read_text(encoding="utf-8").splitlines()]
+        records[0]["name"] = "Nouveau fichier de recette"
+        self.path.write_text("\n".join(json.dumps(row) for row in records), encoding="utf-8")
+        with patch("reconciliation.sqlite_statistics.maintain_statistics", return_value={
+                "status": "failed", "seconds": 0}):
+            with self.assertRaises(ValidationError):
+                self.load()
+        self.assertEqual(Campaign.objects.get(is_current=True).pk, previous.pk)
+        self.assertEqual(Campaign.objects.count(), 1)
+
+
 if __name__ == "__main__":
     unittest.main(defaultTest="Scenarios", verbosity=2)

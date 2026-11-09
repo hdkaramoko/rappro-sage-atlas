@@ -13,6 +13,16 @@ load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "cle-locale-a-remplacer")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
+# Politique simple : chaque campagne SQLite complète justifie des statistiques fraîches.
+# Aucun seuil de volume arbitraire ; les actions métier ne déclenchent pas ce service.
+SQLITE_STATISTICS_AUTO = os.getenv("SQLITE_STATISTICS_AUTO", "true").lower() == "true"
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"statistics_console": {"class": "logging.StreamHandler"}},
+    "loggers": {"reconciliation.sqlite_statistics": {
+        "handlers": ["statistics_console"], "level": "INFO", "propagate": False}},
+}
 ALLOWED_HOSTS = [
     h.strip() for h in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 ]

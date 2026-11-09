@@ -1,0 +1,75 @@
+{
+  "projects": 1613,
+  "baseline_sample_s": [
+    32.32644459999938,
+    6.3125464000004285,
+    6.222637099999702,
+    6.308912600001349,
+    7.048961799999233,
+    7.072421200002282,
+    7.9087637000011455
+  ],
+  "after_sample_s": [
+    0.0065291000028082635,
+    0.005525099997612415,
+    0.014765399999305373,
+    0.03595280000081402,
+    0.2369734999992943,
+    0.4287257000032696,
+    0.7622582000003604
+  ],
+  "full_command_wall_s": 99.44585650000226,
+  "full_command_cpu_s": 89.203125,
+  "queries": 26273,
+  "analyze_execute_s": [
+    6.047069100000954
+  ],
+  "next_check": {
+    "status": "skipped",
+    "reason": "statistics_present",
+    "backend": "sqlite",
+    "seconds": 0.0003809000008914154
+  },
+  "ram_peak_mib": 81.82,
+  "same_results": true,
+  "digest": "6593f3116b1b8fbb52695d0985774cd964822c41f546dfd40efd392a1a467150",
+  "progress_lines": 1616,
+  "progress_start": [
+    "Statistiques : executed (statistics_missing), 6.049 s",
+    "Pr\u00e9paration : 0/1613 projets",
+    "1/1613 projets \u00b7 0.0 s"
+  ],
+  "progress_end": [
+    "1613/1613 projets \u00b7 93.0 s",
+    "1613 projets pr\u00e9par\u00e9s en 92.98 s"
+  ],
+  "plans_before": {
+    "collisions": [
+      "SEARCH reconciliation_campaignsageentry USING INDEX sage_campaign_ref_idx (campaign_id=?)"
+    ],
+    "controls": [
+      "SEARCH reconciliation_campaignglobalcontrol USING INDEX sqlite_autoindex_reconciliation_campaignglobalcontrol_1 (campaign_id=?)"
+    ],
+    "atlas": [
+      "SEARCH reconciliation_campaign USING INTEGER PRIMARY KEY (rowid=?)",
+      "SEARCH reconciliation_campaigninventory USING INDEX reconciliation_campaigninventory_campaign_id_ebbda5fe (campaign_id=?)",
+      "SEARCH reconciliation_atlasadjustment USING INDEX sqlite_autoindex_reconciliation_atlasadjustment_1 (inventory_id=?) LEFT-JOIN"
+    ]
+  },
+  "plans_after": {
+    "collisions": [
+      "SEARCH reconciliation_campaignsageentry USING INDEX sage_campaign_piece_idx (campaign_id=? AND project_code=?)",
+      "USE TEMP B-TREE FOR GROUP BY"
+    ],
+    "controls": [
+      "SEARCH reconciliation_campaignglobalcontrol USING INDEX global_current_page_idx (campaign_id=? AND project_code=?)",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "atlas": [
+      "SCAN reconciliation_campaign",
+      "SEARCH reconciliation_campaigninventory USING INDEX reconciliation_campaigninventory_project_code_6c22f502 (project_code=?)",
+      "SEARCH reconciliation_atlasadjustment USING INDEX sqlite_autoindex_reconciliation_atlasadjustment_1 (inventory_id=?) LEFT-JOIN"
+    ]
+  },
+  "debug": false
+}

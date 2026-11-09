@@ -380,8 +380,9 @@ def import_campaign(header, stream, *, job=None, progress=None):
     suspendus pendant les auto-validations initiales, avant le calcul initial.
     La politique ods_label_policy exige Libellé SAGE pour les nouveaux flux ;
     son absence conserve le contrat historique sans réécrire les campagnes.
-    Prépare également les agrégats consultatifs de cadrage de cette campagne,
-    après les décisions et reports, sans changer leurs règles.
+    Prépare les agrégats après les décisions et reports, sauf dans la copie
+    privée SQLite qui les prépare après commit et statistiques, avant publication.
+    La maintenance directe est enregistrée après commit et disparaît sur rollback.
     """
     from .multiple_import import import_control_batch
     from .review_import import upsert_group
@@ -746,6 +747,9 @@ def import_campaign(header, stream, *, job=None, progress=None):
     from .control_index import rebuild_campaign
     rebuild_campaign(campaign, progress=progress)
     from .accounting import prepare_campaign
-    prepare_campaign(campaign, progress=progress)
+    from .sqlite_statistics import private_accounting_deferred, after_campaign_commit
+    if not private_accounting_deferred.get():
+        prepare_campaign(campaign, progress=progress)
+    after_campaign_commit(using=campaign._state.db or "default")
     progress("Publication terminée", count)
     return count

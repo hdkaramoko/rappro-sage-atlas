@@ -278,4 +278,28 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
 .accounting-table .numeric {text-align:right;font-variant-numeric:tabular-nums}
 .accounting-table td:first-child {max-width:340px;overflow-wrap:anywhere;white-space:normal}
 .accounting-detail .badge {white-space:normal}
+.accounting-table-filter {display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:16px 0}
+.accounting-table-filter .field {min-width:190px}
+.accounting-detail dl {margin:0;min-width:0}
+.accounting-detail dt {font-size:12px;color:var(--muted)}
+/* Le dl global de l'application est en colonnes : ici chaque valeur reste sous son libellé. */
+.accounting-financial-summary {display:grid;gap:14px;margin:16px 0}
+.accounting-financial-summary dl {display:block;margin:0;min-width:0}
+.accounting-financial-summary dt,.accounting-financial-summary dd {padding:0;margin:0;text-align:left;overflow-wrap:anywhere}
+.accounting-reference-grid,.accounting-result-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.accounting-metric-card {padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--surface);min-width:0}
+.accounting-reference-grid .accounting-metric-card {background:var(--bg)}
+.accounting-financial-summary .accounting-main-amount {margin-top:4px;font-size:clamp(22px,2.4vw,30px);font-weight:750;line-height:1.25;font-variant-numeric:tabular-nums;white-space:normal}
+.accounting-financial-summary .accounting-breakdown {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.accounting-breakdown>div,.accounting-complementary>div {min-width:0}
+.accounting-breakdown dd {margin-top:3px;font-weight:650;font-variant-numeric:tabular-nums}
+.accounting-gap-card {border-color:#c8d3e8}
+.accounting-gap-card .badge {margin-top:10px}
+.accounting-financial-summary .accounting-complementary {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;padding:14px 0 0;border-top:1px solid var(--line)}
+.accounting-complementary dd {margin-top:4px;font-weight:650;font-variant-numeric:tabular-nums}
+.accounting-detail .accounting-summary-note {font-size:12px;color:var(--muted);margin:12px 0}
+#accounting-groups,#accounting-types {scroll-margin-top:24px}
+@media(max-width:1100px){.accounting-financial-summary .accounting-complementary {grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.accounting-reference-grid,.accounting-result-grid {grid-template-columns:minmax(0,1fr)}.accounting-table-filter .field {width:100%}.accounting-metric-card {padding:14px}}
+@media(max-width:400px){.accounting-financial-summary .accounting-breakdown {grid-template-columns:minmax(0,1fr)}}
 @media(max-width:850px){.accounting-secondary {display:none}.accounting-table {min-width:640px}.accounting-detail .page-heading {align-items:flex-start;flex-direction:column}}

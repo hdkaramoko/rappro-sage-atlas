@@ -1,0 +1,6 @@
+<form method="get" action="{{ request.path }}#{{ anchor }}" class="accounting-table-filter">
+  {% for key,value in parameters %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+  {% if reset_page %}<input type="hidden" name="page" value="1">{% endif %}
+  <div class="field"><label for="{{ name }}">{{ label }}</label><select id="{{ name }}" name="{{ name }}">{% for value,title in table_filter_choices %}<option value="{{ value }}" {% if value == selected %}selected{% endif %}>{{ title }}</option>{% endfor %}</select></div>
+  <button class="button ghost" type="submit">Appliquer</button>
+</form>

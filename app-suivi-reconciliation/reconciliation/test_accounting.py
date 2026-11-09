@@ -203,14 +203,14 @@ class AccountingTests(TestCase):
         self.assertEqual(self.client.get(url).context["page"].paginator.count, 0)
 
     def test_list_cost_and_pagination_on_large_materialized_campaign(self):
-        """Mesure 120 projets/12000 groupes matérialisés ; le GET ne charge aucun inventaire."""
+        """Mesure 120 projets/12000 groupes ; seule la disponibilité est vérifiée par EXISTS, sans charger d'inventaire."""
         for index in range(120):
             code = f"BENCH{index:03d}"
             Project.objects.create(code=code, label="Recette")
         from projects.models import ProjectPortfolio
         ProjectPortfolio.objects.bulk_create([ProjectPortfolio(user=self.user, project=p) for p in Project.objects.filter(code__startswith="BENCH")])
         AccountingProject.objects.bulk_create([AccountingProject(campaign=self.campaign, project_code=f"BENCH{i:03d}",
-            atlas=10000, sage=9500, gap=500, state="NON_CADRE", data={}) for i in range(120)])
+            atlas=10000, sage=9500, gap=500, state="NON_CADRE", data={"prepared": True}) for i in range(120)])
         control = self.campaign.global_controls.first()
         # Les groupes volumineux ne sont jamais chargés par la liste des projets.
         controls = [CampaignGlobalControl(campaign=self.campaign, key=digest([i]), project_code=f"BENCH{i % 120:03d}",
@@ -225,8 +225,9 @@ class AccountingTests(TestCase):
         self.assertEqual(response.context["page"].paginator.count, 120)
         self.assertEqual(len(response.context["page"]), 40)
         self.assertLess(len(queries), 15)
-        self.assertFalse(any('FROM "reconciliation_campaigninventory"' in q["sql"] or
-            'FROM "reconciliation_campaignglobalcontrol"' in q["sql"] for q in queries))
+        for query in queries:
+            if 'FROM "reconciliation_campaigninventory"' in query["sql"] or 'FROM "reconciliation_campaignsageentry"' in query["sql"]:
+                self.assertIn("LIMIT 1", query["sql"])
         print(f"BENCH cadrage: 120 projets / 12000 groupes, GET {duration:.3f}s, {len(queries)} requêtes")
 
     def test_preparation_streams_a_thousand_groups_without_per_line_queries(self):

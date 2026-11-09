@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
+from .accounting_models import AccountingGroup, AccountingProject
 from django.db.models import Q, QuerySet
 
 from projects.models import Project

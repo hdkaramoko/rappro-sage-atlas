@@ -111,13 +111,17 @@ def recalculate(campaign: Campaign, keys: set[str]) -> dict:
     pas sa version. Retourne {clé: signature courante}. Les anciens fichiers sans
     inventaire Sage n'ont pas de faux zéro : retourne {} (UI indisponible).
     Le circuit d'import suspend ce hook pendant ses auto-validations initiales.
+    Les synthèses de cadrage déjà préparées sont ensuite actualisées pour les
+    seuls projets touchés ; aucune ancienne campagne n'est reconstruite.
     """
     if IMPORTING.get() or CAPABILITY not in campaign.metadata.get("capabilities", []) or not keys:
         return {}
     from .global_control import campaign_controls
     rows = {c.key: c for c in campaign.global_controls.select_for_update().filter(key__in=keys).order_by("key")}
     result = {}
+    projects = {row.project_code for row in rows.values()}
     for data in campaign_controls(campaign, keys=sorted(keys)):
+        projects.add(data["identity"]["parts"][0])
         row = rows.get(data["key"])
         if row is None:
             row = CampaignGlobalControl.objects.create(campaign=campaign, key=data["key"],
@@ -128,6 +132,10 @@ def recalculate(campaign: Campaign, keys: set[str]) -> dict:
             row.current_version += 1
             row.save(update_fields=["current_data", "current_updated_at", "current_version"])
         result[row.key] = data["signature"]
+    from .accounting import refresh_project
+    from .accounting_models import AccountingProject
+    for project in AccountingProject.objects.filter(campaign=campaign, project_code__in=projects).values_list("project_code", flat=True):
+        refresh_project(campaign, project)
     return result
 
 

@@ -84,4 +84,5 @@ class CurrencyMigrationTests(TransactionTestCase):
                 migration.correct_active_diagnostics(apps, connection.schema_editor())
             self.assertEqual(Control.objects.filter(campaign=active, current_version=1).count(), 261)
         finally:
-            MigrationExecutor(connection).migrate([("reconciliation", "0022_global_control_eur_charges")])
+            latest = MigrationExecutor(connection)
+            latest.migrate(latest.loader.graph.leaf_nodes())

@@ -67,4 +67,5 @@ class SignedMigrationTests(TransactionTestCase):
                 migration.correct_active_diagnostics(apps, connection.schema_editor())
             self.assertEqual(Control.objects.filter(campaign=active, current_version=1).count(), 251)
         finally:
-            MigrationExecutor(connection).migrate([("reconciliation", "0023_group_signed_amounts")])
+            latest = MigrationExecutor(connection)
+            latest.migrate(latest.loader.graph.leaf_nodes())

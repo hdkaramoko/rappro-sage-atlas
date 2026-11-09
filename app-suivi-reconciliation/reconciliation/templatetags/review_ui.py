@@ -10,6 +10,19 @@ register.filter("euros", money)
 
 
 @register.filter
+def accounting_label(value):
+    """Traduit un état de cadrage stocké ; retourne un libellé explicite si non calculable."""
+    return {"CADRE": "Cadré", "NON_CADRE": "Non cadré", "INSUFFISANT": "Données insuffisantes"}.get(value, "Données insuffisantes")
+
+
+@register.filter
+def signed_euros(value):
+    """Formate un écart EUR en français avec signe positif visible, sans changer son montant."""
+    from decimal import Decimal
+    return ("+" if value is not None and Decimal(str(value)) > 0 else "") + money(value)
+
+
+@register.filter
 def global_state_label(value):
     """Traduit l'état courant de contrôle en libellé métier ; aucune mutation."""
     return {"EQUILIBRE": "Équilibré", "ECART": "Écart", "INDETERMINE": "À revoir", "EXCLU": "Exclu"}.get(value, "À revoir")

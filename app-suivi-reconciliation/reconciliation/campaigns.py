@@ -380,6 +380,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
     suspendus pendant les auto-validations initiales, avant le calcul initial.
     La politique ods_label_policy exige Libellé SAGE pour les nouveaux flux ;
     son absence conserve le contrat historique sans réécrire les campagnes.
+    Prépare également les agrégats consultatifs de cadrage de cette campagne,
+    après les décisions et reports, sans changer leurs règles.
     """
     from .multiple_import import import_control_batch
     from .review_import import upsert_group
@@ -743,5 +745,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
         progress("Reprise des actions métier contrôlée", count)
     from .control_index import rebuild_campaign
     rebuild_campaign(campaign, progress=progress)
+    from .accounting import prepare_campaign
+    prepare_campaign(campaign, progress=progress)
     progress("Publication terminée", count)
     return count

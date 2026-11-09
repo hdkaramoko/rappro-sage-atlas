@@ -267,3 +267,15 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
   .inventory-page>.revision-panel {padding:14px}
 }
 @media(prefers-reduced-motion:reduce) {.consultation-panel>summary::before,.inventory-page>.revision-panel>summary::before {transition:none}}
+
+/* Cadrage autonome : chiffres essentiels et details accessibles. */
+.accounting-kpis {display:flex;flex-wrap:wrap;gap:16px;margin:18px 0}
+.accounting-kpis .card {display:flex;gap:12px;align-items:center;flex:1;min-width:180px}
+.accounting-kpis strong {font-size:24px}
+.accounting-filters {flex-wrap:wrap}
+.accounting-filters .field {flex:1;min-width:180px}
+.accounting-table {width:100%}
+.accounting-table .numeric {text-align:right;font-variant-numeric:tabular-nums}
+.accounting-table td:first-child {max-width:340px;overflow-wrap:anywhere;white-space:normal}
+.accounting-detail .badge {white-space:normal}
+@media(max-width:850px){.accounting-secondary {display:none}.accounting-table {min-width:640px}.accounting-detail .page-heading {align-items:flex-start;flex-direction:column}}

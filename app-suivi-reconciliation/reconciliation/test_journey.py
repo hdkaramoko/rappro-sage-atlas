@@ -288,7 +288,7 @@ class JourneyTests(TestCase):
         row.current_data = {"state": "INDETERMINE"}
         row.save(update_fields=["current_data"])
         self.assertEqual(self.origin_rows(origin="sage").context["page"].paginator.count, 0)
-        self.assertEqual(self.origin_rows().context["page"].paginator.count, 3)
+        self.assertEqual(self.origin_rows(origin="").context["page"].paginator.count, 3)
         row.current_data.update(atlas_count=None, sage_count=None)
         row.save(update_fields=["current_data"])
         self.assertEqual(self.origin_rows(origin="both").context["page"].paginator.count, 2)
@@ -371,14 +371,23 @@ class JourneyTests(TestCase):
                           source=signature(line), comment="Campagne close")
 
     def test_zero_gap_ambiguous_control_is_not_reconciled(self):
-        """Un état INDETERMINE à écart nul demeure une anomalie, sans nouveau calcul métier."""
+        """Toutes origines : un INDETERMINE à écart nul reste une anomalie sans recalcul."""
         row = self.campaign.global_controls.get(data__identity__parts__2="FAC999")
         row.current_data = {**row.data, "state": "INDETERMINE", "gap": "0", "reasons": ["Correspondance ambiguë"]}
         row.save(update_fields=["current_data"])
         response = self.client.get(self.list_url, {"view": "controls", "control_state": "RECONCILED"})
         self.assertNotContains(response, "FAC999")
-        response = self.client.get(self.list_url, {"view": "controls"})
+        response = self.client.get(self.list_url, {"view": "controls", "origin": ""})
         self.assertContains(response, "FAC999")
+
+    def test_origin_defaults_to_both_and_all_is_explicit(self):
+        """Le défaut et Réinitialiser ciblent les deux sources ; Toutes reste sélectionnable."""
+        response = self.origin_rows()
+        menu = next(m for m in response.context["filter_menus"] if m["name"] == "origin")
+        self.assertEqual(menu["selected"], ["both"])
+        self.assertEqual(response.context["page"].paginator.count, 2)
+        self.assertEqual(self.origin_rows(origin="").context["page"].paginator.count, 3)
+        self.assertNotContains(response, "Pièce FAC999")
 
     def test_replacement_preview_shows_old_and_new_and_keeps_history(self):
         """Un remplacement exige confirmation explicite et conserve les cibles avant/après."""

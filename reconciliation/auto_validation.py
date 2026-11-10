@@ -1,7 +1,7 @@
 """Décision conservatrice sur le résultat final, sans modifier le matching."""
 from reconciliation import config
 from reconciliation.matching.models import RULES
-from math import isfinite
+from decimal import Decimal
 from reconciliation_contract.auto_validation import AUTO_VALIDATION_RULES
 from reconciliation_contract import money
 
@@ -36,6 +36,8 @@ def proposal_metadata(record, options):
     Pour les fuzzy, l'exporteur exige aussi une écriture v3 complète et l'unicité
     bilatérale sur les sources entières avant publication.
     Aucun montant source ni résultat moteur n'est modifié ; aucun effet de bord.
+    L'écart est recalculé en Decimal depuis les deux montants, sans soustraire
+    leurs représentations flottantes ; la tolérance reste exactement 0,01 EUR.
     """
     if not options["enabled"] or not ({record["match_status"], record["match_rule"]} & set(options["statuses"])):
         return None
@@ -53,7 +55,13 @@ def proposal_metadata(record, options):
         return None
     if record["match_rule"] == "MATCH_EXACT" and (record["requires_review"] or record["sage_row_count"] != record["atlas_row_count"] or record["cardinality_match"] != True):
         return None
-    difference = (0 if money(record.get("sage_amount")) is not None else None) if record["match_rule"] == "MATCH_CONFIRMED_ATLAS" else record.get("amount_difference")
-    if difference is None or not isfinite(difference) or abs(difference) > 0.01:
+    atlas_amount, sage_amount = money(record.get("atlas_amount")), money(record.get("sage_amount"))
+    if record["match_rule"] == "MATCH_CONFIRMED_ATLAS":
+        difference = Decimal(0) if sage_amount is not None else None
+    elif "atlas_amount" in record or "sage_amount" in record:
+        difference = atlas_amount - sage_amount if atlas_amount is not None and sage_amount is not None else None
+    else:
+        difference = money(record.get("amount_difference"))
+    if difference is None or abs(difference) > Decimal("0.01"):
         return None
     return {"source": "AUTO", "rule": record["match_rule"], "state": "VALIDATED"}

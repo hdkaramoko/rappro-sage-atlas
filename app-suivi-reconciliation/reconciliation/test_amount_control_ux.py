@@ -40,8 +40,12 @@ class AmountControlUXTests(TestCase):
         super().tearDownClass()
 
     def workspace(self, **parameters):
-        """Retourne la liste filtrée par les paramètres GET, sans mutation des sources."""
-        return self.client.get(reverse("reconciliation:reviews"), {"view": "controls", **parameters})
+        """Teste les filtres d'état sur Toutes origines explicite, sans mutation des sources.
+
+        Le défaut Présentes dans les deux est couvert par test_journey ; ce
+        helper conserve le périmètre complet des régressions d'état/pagination.
+        """
+        return self.client.get(reverse("reconciliation:reviews"), {"view": "controls", "origin": "", **parameters})
 
     def create_control(self, index, state):
         """Crée un contrôle fictif dont l'état courant diffère de l'initial pour tester le filtre."""

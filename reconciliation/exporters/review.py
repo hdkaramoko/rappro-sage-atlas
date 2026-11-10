@@ -37,6 +37,10 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     propositions, avec une politique ODS explicite ; le matching reste sur ATLAS.
     Les AUTO fuzzy exigent v3 et une unicité bilatérale sur les inventaires entiers,
     indépendamment des candidats retenus par la similarité du libellé.
+    Les références BAP enrichissent uniquement les index privés ; les preuves
+    signées restent inchangées et leurs charges sont déjà exprimées en EUR.
+    Les montants d'autorisation sont sommés en Decimal depuis les sources,
+    afin de ne pas transporter les résidus des agrégats flottants du matching.
     """
     from reconciliation_contract.sage_inventory import CAPABILITY, exclusion_policy
     from reconciliation_contract import ODS_LABEL_POLICY
@@ -74,10 +78,13 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     candidates = {g["group_id"]: g for g in result.attrs["sage_candidates"]}
     from reconciliation_contract.fuzzy_safety import FUZZY_RULES, FuzzySafety
     from reconciliation.multiples import inventory_rows
-    from reconciliation_contract import entry_from_sage
+    from reconciliation_contract import entry_from_sage, money
     fuzzy_atlas = list(inventory_rows(atlas)) if result["match_rule"].isin(FUZZY_RULES).any() else []
-    fuzzy_safety = FuzzySafety(fuzzy_atlas, (entry_from_sage(json_value(dict(zip(sage.columns, values))))
-        for values in sage.itertuples(index=False, name=None))) if fuzzy_atlas else None
+    for row, bap in zip(fuzzy_atlas, canonical["N° BAP (SAGE)"] if fuzzy_atlas else []):
+        row["sage_bap_number"] = json_value(bap)
+    fuzzy_rows = (json_value(dict(zip(sage.columns, values))) for values in sage.itertuples(index=False, name=None))
+    fuzzy_safety = FuzzySafety(fuzzy_atlas, ({**entry_from_sage(raw), "matching_reference": raw.get("Référence")}
+        for raw in fuzzy_rows)) if fuzzy_atlas else None
     handle = NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, delete=False)
     temporary = Path(handle.name)
     count = 0
@@ -150,14 +157,20 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                 payload = {"type": "proposal", "schema_version": version, "key": key, "project": project,
                            "rule": record["match_rule"], "match_status": record["match_status"],
                            "sage_total": record["sage_amount"], "evidence": evidence, "atlas": rows}
-                metadata = proposal_metadata(record, options)
+                authorization = record.copy()
+                if record["match_rule"] != "MATCH_CONFIRMED_ATLAS":
+                    atlas_amounts = [money(row.get("Total charges projet (€)")) for row in rows]
+                    sage_amounts = [money(row.get("Charges (Dépenses)")) for candidate in evidence for row in candidate["rows"]]
+                    authorization["atlas_amount"] = sum(atlas_amounts, money(0)) if atlas_amounts and all(v is not None for v in atlas_amounts) else None
+                    authorization["sage_amount"] = sum(sage_amounts, money(0)) if sage_amounts and all(v is not None for v in sage_amounts) else None
+                metadata = proposal_metadata(authorization, options)
                 if metadata and record["match_rule"] in FUZZY_RULES:
                     try:
                         proofs = [r for candidate in evidence for r in candidate["rows"]]
                         if version != 3 or not include_sage_inventory or len(rows) != 1 or len(proofs) != 1:
                             raise ValueError("Une preuve individuelle v3 est requise pour AUTO fuzzy")
                         fuzzy_safety.verify(fuzzy_atlas[record["atlas_source_positions"][0]],
-                                            entry_from_sage(json_value(proofs[0])))
+                                            {**entry_from_sage(json_value(proofs[0])), "matching_reference": proofs[0].get("Référence")})
                     except ValueError:
                         metadata = None
                 if metadata and record["match_rule"] == "MATCH_EXACT" and len(rows) > 1:

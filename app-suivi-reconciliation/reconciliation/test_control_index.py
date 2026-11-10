@@ -52,9 +52,13 @@ class ControlIndexTests(TestCase):
         super().tearDownClass()
 
     def test_count_and_pagination_do_not_read_json_or_correlated_subqueries(self):
-        """Le comptage et les identifiants paginés utilisent les colonnes indexées seules."""
+        """Toutes origines : comptage et identifiants paginés restent sur les colonnes indexées.
+
+        Le filtre Origine ciblé utilise ses présences JSON matérialisées ; ce test
+        isole les filtres d'état sans cette restriction, comme avant son ajout.
+        """
         with CaptureQueriesContext(connection) as queries:
-            response = self.client.get(reverse("reconciliation:reviews"), {"view": "controls"})
+            response = self.client.get(reverse("reconciliation:reviews"), {"view": "controls", "origin": ""})
         self.assertEqual(response.status_code, 200)
         control_queries = [query["sql"] for query in queries if 'FROM "reconciliation_campaignglobalcontrol"' in query["sql"]]
         self.assertTrue(any("COUNT(" in sql for sql in control_queries))

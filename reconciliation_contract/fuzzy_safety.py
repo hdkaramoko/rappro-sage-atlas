@@ -15,7 +15,7 @@ class FuzzySafety:
 
     Les itérables canoniques Atlas/Sage sont consommés une seule fois. Les
     doublons sont conservés : ils interdisent une preuve individuelle certaine.
-    La recherche par projet/tiers/exercice puis montant évite un produit croisé.
+    La recherche par projet/tiers/exercice/BAP puis montant évite un produit croisé.
     Aucun effet de bord externe, aucune conversion de devise ni comparaison fuzzy.
     """
 
@@ -43,8 +43,8 @@ class FuzzySafety:
                 "total_sage_charges" if row.get("bap_status") == "Comptabilisé" else "total_project_charges"))
             key = (text(row.get("project_code")).upper(),
                    text(row.get("third_party") if sage else row.get("sage_third_party_code")).upper(),
-                   row.get("fiscal_year"))
-            if amount is not None and all(v not in (None, "") for v in key):
+                   row.get("fiscal_year"), text(row.get("matching_reference") if sage else row.get("sage_bap_number")).upper())
+            if amount is not None and all(v not in (None, "") for v in key[:3]):
                 blocks[key].append((amount, row))
         result = {}
         for key, values in blocks.items():
@@ -74,22 +74,24 @@ class FuzzySafety:
         """Vérifie une paire canonique ; retourne None ou lève ValueError motivée.
 
         Exige projet/tiers/exercice identiques, montant signé au centime,
-        référence Sage complète et unicité bilatérale dans les sources entières.
-        Une devise explicite différente reste bloquante. Les charges sont en EUR.
+        référence Sage complète, même BAP et unicité bilatérale sur ce périmètre.
+        Les devises d'origine n'interviennent pas : les charges sont déjà en EUR.
+        Un concurrent sans BAP reste potentiellement concurrent et bloque l'AUTO.
         Ni le score ni le libellé ne départagent les concurrents. Lecture pure.
         """
-        key = (text(atlas.get("project_code")).upper(), text(atlas.get("sage_third_party_code")).upper(), atlas.get("fiscal_year"))
-        other = (entry.get("project_code"), entry.get("third_party"), entry.get("fiscal_year"))
+        key = (text(atlas.get("project_code")).upper(), text(atlas.get("sage_third_party_code")).upper(),
+               atlas.get("fiscal_year"), text(atlas.get("sage_bap_number")).upper())
+        other = (entry.get("project_code"), entry.get("third_party"), entry.get("fiscal_year"),
+                 text(entry.get("matching_reference")).upper())
         amount, total = money(atlas.get("total_project_charges")), money(entry.get("amount"))
         if (not all(v not in (None, "") for v in key) or key != other
                 or not entry.get("identity_complete") or not entry.get("ref")
                 or atlas.get("bap_status") != "Envoyé SAGE"
                 or amount is None or total is None or amount * total < 0 or abs(amount - total) > Decimal("0.01")):
-            raise ValueError("Preuve fuzzy incomplète ou projet/tiers/exercice/montant incompatible")
-        left_currency, right_currency = text(atlas.get("currency")).upper(), text(entry.get("currency")).upper()
-        if left_currency and right_currency and left_currency != right_currency:
-            raise ValueError("Devises incompatibles avec une validation automatique fuzzy")
-        left, right = self._near(self.atlas, key, total), self._near(self.sage, key, amount)
+            raise ValueError("Preuve fuzzy incomplète ou projet/tiers/exercice/BAP/montant incompatible")
+        unknown = (*key[:3], "")
+        left = self._near(self.atlas, key, total) + self._near(self.atlas, unknown, total)
+        right = self._near(self.sage, key, amount) + self._near(self.sage, unknown, amount)
         if (len(left) != 1 or len(right) != 1 or left[0].get("source_id") != atlas.get("source_id")
                 or right[0].get("ref") != entry["ref"]):
             raise ValueError("Correspondance fuzzy non unique dans les deux sens")

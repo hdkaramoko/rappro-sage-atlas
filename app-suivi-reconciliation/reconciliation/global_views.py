@@ -39,6 +39,8 @@ def control_workspace(request):
     Origine utilise en SQL les compteurs de sources et confirmations du résultat
     courant, jamais les montants. Sans inventaire Sage complet, l'origine reste
     inconnue ; Toutes conserve ces groupes ainsi que les sources exclues.
+    Sans paramètre origin, Présentes dans les deux est le défaut ; une valeur
+    vide explicite conserve Toutes, y compris après pagination.
     """
     campaign = Campaign.objects.filter(is_current=True).first()
     rows = global_controls_for(request.user).filter(campaign=campaign)
@@ -60,7 +62,7 @@ def control_workspace(request):
         rows = rows.filter(condition)
     chosen = list(dict.fromkeys(state for value in chosen for state in legacy.get(value, [value])))
     origins = [("atlas", "Atlas uniquement"), ("sage", "Sage uniquement"), ("both", "Présentes dans les deux")]
-    origin = selections(request.GET, "origin", [key for key, _ in origins])
+    origin = selections(request.GET, "origin", [key for key, _ in origins], ("both",))
     if origin:
         from reconciliation_contract.sage_inventory import CAPABILITY
         if campaign is None or CAPABILITY not in campaign.metadata.get("capabilities", []):

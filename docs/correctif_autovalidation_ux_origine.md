@@ -1,5 +1,9 @@
 # Auto-validation fuzzy, révision et filtre Origine
 
+Le [correctif arrondis, BAP et devise](correctif_arrondis_bap_devise.md) décrit
+les ajustements du 10 novembre 2026 et remplace les restrictions de devise,
+le périmètre d'unicité sans BAP et le défaut Origine décrits dans cette version initiale.
+
 ## Analyse d'impact et choix retenus
 
 La configuration effective `reconciliation/config.py` autorisait Confirmé,

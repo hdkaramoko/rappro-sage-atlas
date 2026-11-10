@@ -307,6 +307,7 @@ def search_sage(inventory: CampaignInventory, user, filters: dict | None = None)
     libellé. Toutes les charges comparées sont en EUR (politique Lot 1), même
     lorsque la devise d'opération Sage diffère. Lève PermissionDenied hors droits,
     ValidationError pour un ancien fichier/source incompatible ; aucune écriture.
+    La devise d'origine Atlas ne restreint pas cette recherche en charges EUR.
     """
     from .campaign_views import projects_for
     if not user.is_authenticated or not user.is_active or not projects_for(user).filter(code=inventory.project_code).exists():
@@ -315,9 +316,8 @@ def search_sage(inventory: CampaignInventory, user, filters: dict | None = None)
         raise ValidationError("Cette photographie n'est pas disponible pour la recherche.")
     if CAPABILITY not in inventory.campaign.metadata.get("capabilities", []):
         raise ValidationError("Contrôle global indisponible : cette campagne n'a pas d'inventaire Sage.")
-    currency = text(inventory.data.get("currency")).upper().split(" - ", 1)[0]
-    if currency not in ("", "EUR") or inventory.data.get("bap_status") not in ("Comptabilisé", "Envoyé SAGE"):
-        raise ValidationError("Le statut ou la devise Atlas nécessite une revue avant rapprochement.")
+    if inventory.data.get("bap_status") not in ("Comptabilisé", "Envoyé SAGE"):
+        raise ValidationError("Le statut Atlas nécessite une revue avant rapprochement.")
     rows = inventory.campaign.sage_inventory.filter(project_code=inventory.project_code,
             fiscal_year=inventory.fiscal_year, eligible=True, data__entry__identity_complete=True)
     filters = filters or {}

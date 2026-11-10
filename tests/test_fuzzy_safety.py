@@ -14,9 +14,9 @@ from reconciliation_contract.fuzzy_safety import FuzzySafety
 def pair():
     """Retourne une paire canonique certaine ; aucune entrée ni effet de bord externe."""
     atlas = dict(project_code="P", fiscal_year=2026, source_id="A", bap_status="Envoyé SAGE",
-                 sage_third_party_code="T", total_project_charges="100", currency="EUR")
+                 sage_third_party_code="T", total_project_charges="100", currency="EUR", sage_bap_number="B")
     sage = dict(project_code="P", fiscal_year=2026, third_party="T", amount="100", ref="R",
-                identity_complete=True, currency="EUR")
+                identity_complete=True, currency="EUR", matching_reference="B")
     return atlas, sage
 
 
@@ -34,9 +34,10 @@ def test_competitor_even_without_similar_label_blocks(side):
 
 
 @pytest.mark.parametrize("change", [{"project_code": "Q"}, {"third_party": "OTHER"},
-    {"amount": "101"}, {"amount": "-100"}, {"identity_complete": False}, {"currency": "USD"}, {"fiscal_year": 2025}])
+    {"amount": "101"}, {"amount": "-100"}, {"identity_complete": False}, {"matching_reference": "OTHER"},
+    {"matching_reference": ""}, {"fiscal_year": 2025}])
 def test_incompatible_proof_is_refused(change):
-    """Projet, tiers, montant signé, devise, période et identité restent obligatoires."""
+    """Projet, tiers, montant signé, BAP, période et identité restent obligatoires."""
     a, s = pair()
     changed = {**s, **change}
     with pytest.raises(ValueError):
@@ -46,26 +47,45 @@ def test_incompatible_proof_is_refused(change):
 @pytest.mark.parametrize("label,rule", [
     ("JANVIER DUPONT FACTURE CONSULTANT", "MATCH_FUZZY_HIGH"),
     ("FACTURE CONSULTANT DUPONT FEVRIER", "MATCH_FUZZY_REVIEW")])
-@pytest.mark.parametrize("competitor", [None, "sage", "atlas"])
+@pytest.mark.parametrize("competitor", [None, "sage", "atlas", "same_bap_sage", "same_bap_atlas"])
 def test_real_export_checks_complete_sources(tmp_path, label, rule, competitor):
     """Le JSONL garde la règle fuzzy et n'autorise que les paires individuellement certaines.
 
-    Les concurrents ont un autre BAP/libellé : candidate_count reste un, mais
-    l'inventaire complet interdit AUTO. Seul tmp_path reçoit les fichiers.
+    Un autre BAP ne bloque plus AUTO ; un même BAP concurrent reste bloquant.
+    Le repli sans libellé est désactivé pour isoler les concurrents que le fuzzy
+    n'a pas retenus. Seul tmp_path reçoit les fichiers.
     """
     left = [atlas_row(**{"Année": 2026, "Devise": "EUR"})]
     right = [sage_row(**{"Libellé pièce": label, "Journal": "ACH", "N° de ligne comptable": "1",
                         "N° de ligne Analytique": "1", "Devise": "EUR"})]
-    if competitor == "sage":
-        right.append(sage_row(**{"Libellé pièce": "AUTRE", "Référence": "AUTRE", "Journal": "ACH",
+    if competitor in ("sage", "same_bap_sage"):
+        right.append(sage_row(**{"Libellé pièce": "AUTRE", "Référence": "B" if competitor == "same_bap_sage" else "AUTRE", "Journal": "ACH",
                                 "N° de ligne comptable": "2", "N° de ligne Analytique": "1"}))
-    elif competitor == "atlas":
-        left.append(atlas_row(Id="OTHER", **{"Année": 2026, "N° BAP (SAGE)": "AUTRE", "Libellé ATLAS": "AUTRE"}))
+    elif competitor in ("atlas", "same_bap_atlas"):
+        left.append(atlas_row(Id="OTHER", **{"Année": 2026, "N° BAP (SAGE)": "B" if competitor == "same_bap_atlas" else "AUTRE", "Libellé ATLAS": "AUTRE"}))
     a, s = frames(left, right)
-    result = match_reconciliations(a, s)
+    from reconciliation.matching import MatchingConfig
+    result = match_reconciliations(a, s, MatchingConfig(enable_without_label=False))
     path = export_review_bundle(a, s, result, tmp_path / "fuzzy.jsonl",
         controls=build_controls(a, s, result), include_sage_inventory=True)
     proposal = next(row for row in map(json.loads, path.read_text(encoding="utf-8").splitlines())
                     if row.get("type") == "proposal" and row["atlas"][0]["Id"] == "001")
     assert proposal["rule"] == rule
-    assert ("auto_validation" in proposal) == (competitor is None)
+    assert ("auto_validation" in proposal) == (competitor not in ("same_bap_sage", "same_bap_atlas"))
+
+
+def test_original_currency_does_not_block_euro_charges():
+    """Les devises d'origine différentes ne changent pas les charges déjà en euros."""
+    a, s = pair()
+    a["currency"], s["currency"] = "EUR - Euro", "XOF"
+    FuzzySafety([a], [s]).verify(a, s)
+
+
+@pytest.mark.parametrize("side", ["atlas", "sage"])
+def test_unknown_bap_competitor_stays_blocking(side):
+    """L'absence de BAP chez un concurrent ne prouve jamais qu'il est hors périmètre."""
+    a, s = pair()
+    left = [a, {**a, "source_id": "OTHER", "sage_bap_number": ""}] if side == "atlas" else [a]
+    right = [s, {**s, "ref": "OTHER", "matching_reference": ""}] if side == "sage" else [s]
+    with pytest.raises(ValueError, match="non unique"):
+        FuzzySafety(left, right).verify(a, s)

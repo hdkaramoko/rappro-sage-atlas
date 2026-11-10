@@ -45,33 +45,35 @@ class AutomaticTests(CampaignTests):
         """Importe une paire v3 et son inventaire complet signé dans la base jetable.
 
         `rule` sélectionne la catégorie, `unknown` une preuve collective non fiable,
-        `variant` ajoute un concurrent ou une seconde paire individuellement unique.
+        `variant` ajoute un concurrent, un autre BAP ou une seconde paire unique.
         Retourne la nouvelle campagne ; aucune source réelle n'est utilisée.
         """
         import json
         from .review_import import import_bundle
         from .models import Campaign
         from reconciliation_contract import control_identity, entry_from_sage, snapshot
-        row = atlas(**{"Code tiers SAGE": "T", "Devise": "EUR"})
+        row = atlas(**{"Code tiers SAGE": "T", "Devise": "EUR - Euro", "N° BAP (SAGE)": "B"})
         proofs = []
         for number, amount in enumerate(("40", "60") if rule == "MATCH_AMOUNT" else ("100",), 1):
             raw = {"Projet": "P", "Numéro pièce": "D", "Date comptable": "2026-01-01",
                    "Journal": "ACH", "N° de ligne comptable": str(number),
                    "N° de ligne Analytique": "1", "Charges (Dépenses)": amount,
-                   "Libellé pièce": "Mission", "Code Tiers - Tiers doc Orig": "T", "Devise": "EUR"}
+                   "Libellé pièce": "Mission", "Code Tiers - Tiers doc Orig": "T", "Devise": "EUR", "Référence": "B"}
             raw["entry_ref"] = entry_from_sage(raw)["ref"]
             proofs.append(raw)
         inventories = [row]
         payloads = [proposal([row], rule=rule, schema_version=3, evidence=[{"rows": proofs}],
             auto_validation={"source": "AUTO", "rule": rule, "state": "VALIDATED"})]
-        if variant in ("sage", "distinct", "atlas", "shared"):
-            if variant in ("sage", "distinct"):
+        if variant in ("sage", "distinct", "atlas", "shared", "bap"):
+            if variant in ("sage", "distinct", "bap"):
                 raw = {**proofs[0], "N° de ligne comptable": "2",
                        "Charges (Dépenses)": "200" if variant == "distinct" else "100", "Libellé pièce": "Autre"}
                 raw["entry_ref"] = entry_from_sage(raw)["ref"]
+                if variant == "bap":
+                    raw["Référence"] = "OTHER"
                 proofs = [*proofs, raw]
             if variant in ("atlas", "distinct", "shared"):
-                other = atlas("B", **{"Code tiers SAGE": "T", "Devise": "EUR",
+                other = atlas("B", **{"Code tiers SAGE": "T", "Devise": "EUR", "N° BAP (SAGE)": "B",
                     "Libellé ATLAS": "Autre", "Total charges projet (€)": "200" if variant == "distinct" else "100"})
                 inventories.append(other)
                 if variant == "atlas":
@@ -93,9 +95,9 @@ class AutomaticTests(CampaignTests):
         from .test_sage_inventory import sign_records
         policy = exclusion_policy()
         records[0].update(capabilities=[CAPABILITY], sage_exclusions=policy)
-        for entry in entries:
+        for entry, raw in zip(entries, proofs, strict=True):
             position = next(i for i, record in enumerate(records) if record.get("type") == "proposal")
-            records.insert(position, {"type": "sage_inventory", "data": inventory_record(entry, policy)})
+            records.insert(position, {"type": "sage_inventory", "data": inventory_record(entry, policy, attributes={"Référence": raw["Référence"]})})
         records.insert(-1, {"type": "control", "data": control})
         records[-1].update(control_count=1, control_statuses={control["status"]: 1})
         sign_records(records)
@@ -123,6 +125,11 @@ class AutomaticTests(CampaignTests):
         contributions = list(ControlContribution.objects.filter(control__campaign=campaign))
         self.assertEqual(len(contributions), 2)
         self.assertNotEqual(contributions[0].entries, contributions[1].entries)
+
+    def test_fuzzy_other_bap_no_longer_blocks_unique_pair(self):
+        """Deux Sage de même montant mais BAP distincts n'empêchent pas la bonne paire AUTO."""
+        campaign = self.v3_automatic("MATCH_FUZZY_REVIEW", variant="bap")
+        self.assertEqual(campaign.reviews.get().decision["state"], "VALIDATED")
 
     def test_legacy_fuzzy_without_full_inventory_stays_manual(self):
         """Un ancien contrat sans identité traçable ne reçoit aucune nouvelle AUTO fuzzy."""

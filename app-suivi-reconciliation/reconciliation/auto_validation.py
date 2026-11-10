@@ -23,6 +23,8 @@ def automatic_blockers(campaign):
     même si le moteur réémet une autorisation AUTO. Lecture seule.
     Fuzzy requiert en plus les inventaires complets Atlas/Sage et leur unicité
     bilatérale, même si un concurrent n'a pas été retenu par le matching.
+    Le BAP des Envoyé vient des sources de revue ; les Comptabilisé sans BAP
+    restent des concurrents possibles. La référence Sage vient de l'inventaire.
     """
     from .multiple_review import exact_entry
     from .business import LOCAL_BUSINESS_REVIEW_REASON
@@ -33,8 +35,12 @@ def automatic_blockers(campaign):
     if campaign.reviews.filter(group__data__rule__in=list(FUZZY_RULES)).exists():
         from reconciliation_contract.sage_inventory import CAPABILITY
         if CAPABILITY in campaign.metadata.get("capabilities", []):
-            fuzzy_safety = FuzzySafety(campaign.inventory.filter(present=True).values_list("data", flat=True).iterator(chunk_size=500),
-                (data["entry"] for data in campaign.sage_inventory.values_list("data", flat=True).iterator(chunk_size=500)))
+            from itertools import chain
+            fuzzy_safety = FuzzySafety(chain(
+                campaign.inventory.filter(present=True, data__bap_status="Comptabilisé").values_list("data", flat=True).iterator(chunk_size=500),
+                campaign.reviews.values_list("source", flat=True).iterator(chunk_size=500)),
+                ({**data["entry"], "matching_reference": data.get("attributes", {}).get("Référence")}
+                 for data in campaign.sage_inventory.values_list("data", flat=True).iterator(chunk_size=500)))
     rows = campaign.reviews.select_related("group", "line__group", "line__campaign", "line__transaction__project")
     for frozen in rows.iterator(chunk_size=500):
         line, data = frozen.line, frozen.group.data
@@ -61,7 +67,7 @@ def automatic_blockers(campaign):
             try:
                 if fuzzy_safety is None or not exact or len(proofs) != 1:
                     raise ValueError("AUTO fuzzy exige une preuve individuelle et les inventaires complets v3")
-                fuzzy_safety.verify(frozen.source, exact_entry(line))
+                fuzzy_safety.verify(frozen.source, {**exact_entry(line), "matching_reference": proofs[0].get("Référence")})
             except (ValueError, ValidationError) as exc:
                 blocked[line.pk] = str(exc)
         if (not exact or not data.get("auto_validation") or LOCAL_BUSINESS_REVIEW_REASON in frozen.reasons

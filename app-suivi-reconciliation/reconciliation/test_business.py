@@ -164,6 +164,16 @@ class BusinessTests(TestCase):
         self.assertEqual((line.state, line.validation_source), ("VALIDATED", "MANUAL"))
         self.assertEqual(self.result()["state"], "EQUILIBRE")
 
+    def test_original_atlas_currency_does_not_block_search(self):
+        """Une origine USD n'empêche pas la recherche de charges EUR ; le statut reste vérifié."""
+        row = self.inventory()
+        row.data = {**row.data, "currency": "USD - Dollar Usa"}
+        row.save(update_fields=["data"])
+        self.assertTrue(search_sage(row, self.user).filter(pk=self.entry().pk).exists())
+        row.data["bap_status"] = "Autre statut"
+        with self.assertRaisesMessage(ValidationError, "Le statut Atlas"):
+            search_sage(row, self.user)
+
     def test_correction_is_not_a_confirmation_and_requires_new_link_basis(self):
         """Une correction de la ligne liée impose une nouvelle confirmation explicite."""
         self.confirm()

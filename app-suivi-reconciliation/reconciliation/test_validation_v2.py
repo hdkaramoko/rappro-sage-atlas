@@ -40,9 +40,18 @@ class ValidationV2Tests(TestCase):
         super().tearDownClass()
 
     def load(self, records=None):
-        """Importe une nouvelle photographie signée dans la base jetable de TestCase."""
+        """Importe une variante synthétique cohérente, en réémettant ses bases exactes.
+
+        Les tests changent parfois identifiants et montants des membres ; leurs
+        preuves de matching suivent ces sources avant signature. Aucun accès réel.
+        """
         records = copy.deepcopy(self.records if records is None else records)
         records[0]["name"] = f"Recette validation v2 {Campaign.objects.count()}"
+        from reconciliation_contract import money
+        for record in records:
+            if record.get("type") == "proposal" and "matching_source_amounts" in record:
+                record["matching_source_amounts"] = {str(row["Id"]): str(money(row.get("Total charges projet (€)")))
+                    if money(row.get("Total charges projet (€)")) is not None else None for row in record["atlas"]}
         sign_records(records)
         path = Path(self.folder.name) / "validation-v2.jsonl"
         path.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in records), encoding="utf-8")

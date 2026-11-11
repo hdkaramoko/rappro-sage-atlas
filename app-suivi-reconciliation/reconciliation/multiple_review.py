@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 from reconciliation_contract import STANDARD, compare, control_identity, digest, entry_from_sage, money
 from reconciliation_contract.fuzzy_safety import INDIVIDUAL_RULES
+from reconciliation_contract.matching_policy import rule_tolerance
 
 from .models import Campaign, ControlContribution, MultipleControl, MultipleEvent
 
@@ -40,6 +41,8 @@ def exact_entry(line):
     preuve individuelle ; le total agrégé n'est jamais réservé sur chaque ligne.
     Les règles fuzzy utilisent ces mêmes contrôles individuels ; leur unicité
     bilatérale sur l'inventaire est vérifiée avant toute AUTO par automatic_blockers.
+    Seul l'écart Atlas/Sage des recours à politique déclarée admet 0,05 EUR,
+    sur la base source exacte ; les preuves Sage et capacités restent inchangées.
     """
     if line.automatic_assignment.get("kind") == "EXACT_GROUP":
         from .validation_evidence import verified_exact_group_entry
@@ -53,12 +56,14 @@ def exact_entry(line):
     if len(candidates) != 1:
         raise ValidationError("Écriture SAGE exacte non unique")
     entry = next(iter(candidates.values()))
-    amount, total, project = money(entry["amount"]), money(line.group.sage_total), money(line.transaction.total_project_charges)
+    from .matching_evidence import source_project_amount
+    amount, total, project = money(entry["amount"]), money(line.group.sage_total), money(source_project_amount(line))
+    tolerance = rule_tolerance(line.group.rule, line.campaign.metadata.get("matching_tolerances"))
     if (not entry["identity_complete"] or entry["project_code"] != line.transaction.project.code
             or entry["fiscal_year"] != line.transaction.fiscal_year):
         raise ValidationError("Identité d'écriture SAGE absente ou hors projet/exercice")
     if (amount is None or total is None or project is None
-            or abs(total - amount) > Decimal("0.01") or abs(project - amount) > Decimal("0.01")
+            or abs(total - amount) > Decimal("0.01") or abs(project - amount) > tolerance
             or total * amount < 0 or project * amount < 0):
         raise ValidationError("Montants signés incompatibles avec l'écriture SAGE exacte")
     return entry

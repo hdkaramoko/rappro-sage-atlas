@@ -129,3 +129,15 @@ def query_replace(context, **changes):
     for key, value in changes.items():
         query[key] = value
     return "?" + query.urlencode()
+
+
+@register.simple_tag(takes_context=True)
+def page_link(context, parameter, number):
+    """Construit un lien de pagination en préservant les autres filtres et pages.
+
+    `parameter` est fourni par le template (page ou sage_page), `number` par
+    Paginator. Copie le GET, retourne l'URL relative encodée, sans effet de bord.
+    """
+    query = context["request"].GET.copy()
+    query[parameter] = number
+    return "?" + query.urlencode()

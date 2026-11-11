@@ -27,13 +27,14 @@ def sage_identity(entry):
 def duplicate_witnesses(inventory):
     """Retourne les témoins strictement identiques d'un doublon dans sa campagne.
 
-    Seul source_id est écarté ; identité projet/exercice, contenu et présence
+    source_id et le BAP de présentation sont écartés ; identité projet/exercice, contenu et présence
     doivent coïncider. Sans témoin conservé, l'exclusion exige confirmation.
+    L'ajout du champ d'affichage ne modifie pas la définition historique du doublon.
     """
-    content = {k: v for k, v in inventory.data.items() if k != "source_id"}
+    content = {k: v for k, v in inventory.data.items() if k not in ("source_id", "display_bap")}
     return sorted(row.business_key for row in inventory.campaign.inventory.filter(
         project_code=inventory.project_code, fiscal_year=inventory.fiscal_year, present=True
-    ).exclude(pk=inventory.pk) if {k: v for k, v in row.data.items() if k != "source_id"} == content)
+    ).exclude(pk=inventory.pk) if {k: v for k, v in row.data.items() if k not in ("source_id", "display_bap")} == content)
 
 
 def carry_business_actions(campaign, *, progress=None):
@@ -44,6 +45,8 @@ def carry_business_actions(campaign, *, progress=None):
     intactes. Les annulations ne sont pas reprises. Aucune preuve moteur n'est créée.
     Les propositions non résolues restent visibles à la campagne suivante.
     `progress`, optionnel, signale l'avancement par lots au worker d'import.
+    Le BAP d'affichage, absent des anciens inventaires, ne déclenche pas à lui
+    seul une rupture de reprise ; tous les anciens champs restent contrôlés.
     """
     previous = campaign.previous
     if not previous:
@@ -83,7 +86,9 @@ def carry_business_actions(campaign, *, progress=None):
                                    "comment": correction.comment} if correction else None,
                     "link": manual_link_snapshot(link)}
         reasons, entries = [], []
-        if old.data != target.data or (old.project_code, old.fiscal_year, old.source_id) != (target.project_code, target.fiscal_year, target.source_id):
+        old_source = {k: v for k, v in old.data.items() if k != "display_bap"}
+        target_source = {k: v for k, v in target.data.items() if k != "display_bap"}
+        if old_source != target_source or (old.project_code, old.fiscal_year, old.source_id) != (target.project_code, target.fiscal_year, target.source_id):
             reasons.append("Les données Atlas ont changé.")
         if not policy_same:
             reasons.append("La politique de calcul a changé.")

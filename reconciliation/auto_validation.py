@@ -4,6 +4,7 @@ from reconciliation.matching.models import RULES
 from decimal import Decimal
 from reconciliation_contract.auto_validation import AUTO_VALIDATION_RULES
 from reconciliation_contract import money
+from reconciliation_contract.matching_policy import MATCHING_TOLERANCES, rule_tolerance
 
 
 def validate_config():
@@ -37,7 +38,8 @@ def proposal_metadata(record, options):
     bilatérale sur les sources entières avant publication.
     Aucun montant source ni résultat moteur n'est modifié ; aucun effet de bord.
     L'écart est recalculé en Decimal depuis les deux montants, sans soustraire
-    leurs représentations flottantes ; la tolérance reste exactement 0,01 EUR.
+    leurs représentations flottantes ; seuls BAP/Individuel admettent 0,05 EUR.
+    Les autres règles restent à 0,01 EUR, sans effet sur le cadrage.
     """
     if not options["enabled"] or not ({record["match_status"], record["match_rule"]} & set(options["statuses"])):
         return None
@@ -62,6 +64,6 @@ def proposal_metadata(record, options):
         difference = atlas_amount - sage_amount if atlas_amount is not None and sage_amount is not None else None
     else:
         difference = money(record.get("amount_difference"))
-    if difference is None or abs(difference) > Decimal("0.01"):
+    if difference is None or abs(difference) > rule_tolerance(record["match_rule"], MATCHING_TOLERANCES):
         return None
     return {"source": "AUTO", "rule": record["match_rule"], "state": "VALIDATED"}

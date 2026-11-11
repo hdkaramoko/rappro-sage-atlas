@@ -1,5 +1,10 @@
 # Sélection Sage, AUTO sans libellé et recours BAP / individuel
 
+Le [volet A](volet_a_bap_tolerance.md) complète ce lot : nouveau libellé
+« N° BAP uniquement », références visibles et tolérance de 0,05 € pour les
+deux seuls recours, dans les nouveaux contrats déclarés. Les seuils historiques
+décrits ci-dessous restent ceux des anciennes campagnes.
+
 ## État des lieux avant / après
 
 Avant ce lot, le moteur agrégeait par projet, tiers, BAP et libellé puis exécutait

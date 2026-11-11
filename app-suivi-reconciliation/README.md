@@ -1,5 +1,8 @@
 # Validation des rapprochements Atlas / Sage
 
+Voir le [volet A](../docs/volet_a_bap_tolerance.md) pour les colonnes BAP,
+les tableaux Atlas/Sage du contrôle et la tolérance ciblée des nouveaux JSONL.
+
 La sélection Sage préremplit les champs de décision, recontrôlés en Decimal au
 POST. Voir le [lot BAP/individuel et décision](../docs/matching_bap_individuel_decision.md)
 pour les nouvelles règles, leurs garde-fous et la procédure moteur → nouvelle campagne.

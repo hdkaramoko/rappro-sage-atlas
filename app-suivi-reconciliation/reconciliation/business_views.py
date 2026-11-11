@@ -31,6 +31,8 @@ def inventory_detail(request, pk):
     dans le formulaire, les accès hors périmètre répondent 404.
     Le mode UX reste stable (recherche par défaut), ou suit le formulaire soumis
     pour rendre ses erreurs visibles. Aucun champ d'un autre mode n'est traité.
+    Le BAP affiché vient uniquement de l'inventaire ou de la photographie Atlas
+    de cette campagne ; la recherche montre la référence native de Sage.
     """
     inventory = get_object_or_404(inventory_for(request.user).select_related(
         "campaign", "adjustment", "inventory_match__actor", "adjustment__actor"), pk=pk)
@@ -112,6 +114,8 @@ def inventory_detail(request, pk):
             entry.available = (money(data["sage_total"]) - money(data["accounted_total"]) - money(data["confirmed_sent_total"])) if data and data["state"] not in ("INDETERMINE", "EXCLU") and all(money(data[k]) is not None for k in ("sage_total", "accounted_total", "confirmed_sent_total")) else None
         page.object_list = entries
     line = line_for(inventory)
+    from .presentation import inventory_baps
+    inventory.atlas_bap = inventory_baps([inventory], inventory.campaign)[inventory.pk]
     from .review import effective, is_current
     confirmed = bool(line and line.state == "VALIDATED" and is_current(line) or
                      not line and link and link.active and link.adjustment_version == (adjustment.version if adjustment else 0))

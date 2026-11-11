@@ -131,6 +131,29 @@ class AutomaticTests(CampaignTests):
         campaign = self.v3_automatic("MATCH_FUZZY_REVIEW", variant="bap")
         self.assertEqual(campaign.reviews.get().decision["state"], "VALIDATED")
 
+    def test_high_accounted_distinct_proof_only(self):
+        """Le garde serveur exige une identité distincte pour ignorer la comptabilisée."""
+        from .auto_validation import automatic_blockers
+        from .models import CampaignInventory, CampaignSageEntry
+        from reconciliation_contract.sage_inventory import inventory_record, exclusion_policy
+        campaign = self.v3_automatic("MATCH_FUZZY_HIGH")
+        frozen = campaign.reviews.get()
+        existing = campaign.sage_inventory.get()
+        entry = {**existing.data["entry"], "document": "OTHER", "ref": "other-reference"}
+        data = inventory_record(entry, exclusion_policy(), attributes={"Référence": "OTHER"})
+        other = CampaignSageEntry.objects.create(campaign=campaign, record_id=data["record_id"],
+            entry_ref=entry["ref"], project_code="P", fiscal_year=2026, document="OTHER",
+            control_key=data["control_key"], amount="100", data=data)
+        source = {**frozen.source, "source_id": "C", "bap_status": "Comptabilisé",
+                  "sage_bap_number": "", "total_sage_charges": "100", "sage_document_number": "OTHER",
+                  "accounting_date": entry["date"]}
+        CampaignInventory.objects.create(campaign=campaign, business_key="P::2026::C", project_code="P",
+            fiscal_year=2026, source_id="C", data=source)
+        self.assertNotIn(frozen.line_id, automatic_blockers(campaign))
+        other.data["entry"]["identity_complete"] = False
+        other.save(update_fields=["data"])
+        self.assertIn(frozen.line_id, automatic_blockers(campaign))
+
     def test_without_label_competitors_are_not_auto(self):
         """Sans libellé refuse les concurrents Atlas/Sage et références partagées à l'import."""
         for variant in ("sage", "atlas", "shared"):

@@ -308,3 +308,7 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
 .sage-choice-target input.sage-choice{width:18px;height:18px;min-width:18px;min-height:18px;margin:0;padding:0;accent-color:var(--color-primary);cursor:pointer}
 .sage-choice-target input.sage-choice:focus-visible{outline:3px solid #2553e8;outline-offset:3px}
 .sage-choice-target input.sage-choice:disabled{opacity:.5;cursor:not-allowed}
+.bap-reference{overflow-wrap:anywhere;white-space:normal;max-width:240px}
+.atlas-lines-table,.sage-control-table{min-width:720px}
+.atlas-lines-table td,.sage-control-table td{overflow-wrap:anywhere;max-width:360px}
+#atlas-lines,#sage-lines{scroll-margin-top:24px}

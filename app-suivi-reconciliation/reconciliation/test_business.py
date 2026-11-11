@@ -25,7 +25,7 @@ from .business import (affected_keys, cancel_inventory_link, confirm_inventory_l
                        recalculate, retained_amount, search_sage)
 from .campaigns import normalize_inventory
 from .global_control import campaign_controls
-from .models import Campaign, CampaignAction, CampaignInventory, CampaignSageEntry, ControlContribution, LineReview, ManualAllocation
+from .models import Campaign, CampaignAction, CampaignSageEntry, LineReview, ManualAllocation
 from .review import decide, signature
 from .review_import import import_bundle
 from .test_sage_inventory import sign_records
@@ -65,12 +65,19 @@ class BusinessTests(TestCase):
 
         Recalcule les preuves Comptabilisé et compteurs des variantes, sans
         toucher aux décisions des campagnes antérieures.
+        Les variantes intentionnellement cohérentes réémettent leurs bases exactes
+        après modification des lignes ; les tests de corruption restent séparés.
         """
         records = copy.deepcopy(self.records if records is None else records)
         records[0]["name"] = f"Campagne Lot 2 {Campaign.objects.count()}"
         accounted = [normalize_inventory(r["atlas"], extended=True) for r in records if r.get("type") == "inventory" and r["atlas"]["Statut BAP"] == "Comptabilisé"]
         accounted = [{k: v for k, v in row.items() if k not in ATLAS_CONTEXT.values()} for row in accounted]
         from collections import Counter
+        from reconciliation_contract import money
+        for record in records:
+            if record.get("type") == "proposal" and "matching_source_amounts" in record:
+                record["matching_source_amounts"] = {str(row["Id"]): str(money(row.get("Total charges projet (€)")))
+                    if money(row.get("Total charges projet (€)")) is not None else None for row in record["atlas"]}
         for row in records:
             if row.get("type") == "control":
                 data = row["data"]

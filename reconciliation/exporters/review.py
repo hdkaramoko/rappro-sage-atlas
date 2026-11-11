@@ -37,10 +37,13 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     propositions, avec une politique ODS explicite ; le matching reste sur ATLAS.
     Les AUTO structurées (fuzzy, sans libellé, BAP, individuel) exigent v3 et une unicité sur les inventaires entiers,
     indépendamment des candidats retenus par la similarité du libellé.
+    Libellé proche écarte une comptabilisée seulement sur identité Sage distincte prouvée.
     Les références BAP enrichissent uniquement les index privés ; les preuves
     signées restent inchangées et leurs charges sont déjà exprimées en EUR.
     Les montants d'autorisation sont sommés en Decimal depuis les sources,
     afin de ne pas transporter les résidus des agrégats flottants du matching.
+    Le volet A déclare les seuils résiduels et conserve leurs bases monétaires
+    exactes à côté des projections arrondies, sans changer les contrôles.
     """
     from reconciliation_contract.sage_inventory import CAPABILITY, exclusion_policy
     from reconciliation_contract import ODS_LABEL_POLICY
@@ -79,12 +82,15 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     from reconciliation_contract.fuzzy_safety import STRUCTURED_RULES, FuzzySafety
     from reconciliation.multiples import inventory_rows
     from reconciliation_contract import entry_from_sage, money
+    from reconciliation_contract.matching_policy import MATCHING_TOLERANCES, RESIDUAL_RULES, rule_tolerance
     fuzzy_atlas = list(inventory_rows(atlas)) if result["match_rule"].isin(STRUCTURED_RULES).any() else []
     for row, bap in zip(fuzzy_atlas, canonical["N° BAP (SAGE)"] if fuzzy_atlas else []):
         row["sage_bap_number"] = json_value(bap)
+    precise_atlas = [{**row, "total_project_charges": json_value(amount)} for row, amount in
+        zip(fuzzy_atlas, canonical["Total charges projet (€)"] if fuzzy_atlas else [])]
     fuzzy_rows = (json_value(dict(zip(sage.columns, values))) for values in sage.itertuples(index=False, name=None))
     fuzzy_safety = FuzzySafety(fuzzy_atlas, ({**entry_from_sage(raw), "matching_reference": raw.get("Référence")}
-        for raw in fuzzy_rows)) if fuzzy_atlas else None
+        for raw in fuzzy_rows), precise_atlas=precise_atlas) if fuzzy_atlas else None
     handle = NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, delete=False)
     temporary = Path(handle.name)
     count = 0
@@ -101,7 +107,8 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
             now = datetime.now(timezone.utc).isoformat()
             version = 3 if controls is not None else 2
             emit({"type": "campaign", "schema_version": version,
-                  **({"validation_policy": "confirmed-exact-v2", "ods_label_policy": ODS_LABEL_POLICY} if version == 3 else {}),
+                  **({"validation_policy": "confirmed-exact-v2", "ods_label_policy": ODS_LABEL_POLICY,
+                      "matching_tolerances": MATCHING_TOLERANCES} if version == 3 else {}),
                   **({"capabilities": [CAPABILITY], "sage_exclusions": policy} if include_sage_inventory else {}),
                   "piece_coherence_mode": "ACTIVE" if piece_active else "DIAGNOSTIC",
                   "controls_available": controls is not None,
@@ -115,9 +122,10 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
             if version == 3:
                 from reconciliation.multiples import INVENTORY, inventory_rows
                 context_rows = canonical[list(ATLAS_CONTEXT)].itertuples(index=False, name=None)
-                for row, values in zip(inventory_rows(atlas), context_rows, strict=True):
+                for row, values, bap in zip(inventory_rows(atlas), context_rows, canonical["N° BAP (SAGE)"], strict=True):
                     context = dict(zip(ATLAS_CONTEXT, values))
-                    emit({"type": "inventory", "atlas": {**{column: row[field] for column, field in INVENTORY.items()}, **context}})
+                    emit({"type": "inventory", "atlas": {**{column: row[field] for column, field in INVENTORY.items()},
+                        "N° BAP (SAGE)": json_value(bap), **context}})
             else:
                 columns = (*INVENTORY_COLUMNS, *ATLAS_CONTEXT)
                 for values in canonical[list(columns)].itertuples(index=False, name=None):
@@ -157,6 +165,9 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                 payload = {"type": "proposal", "schema_version": version, "key": key, "project": project,
                            "rule": record["match_rule"], "match_status": record["match_status"],
                            "sage_total": record["sage_amount"], "evidence": evidence, "atlas": rows}
+                if version == 3:
+                    payload["matching_source_amounts"] = {str(row["Id"]): str(money(row.get("Total charges projet (€)")))
+                        if money(row.get("Total charges projet (€)")) is not None else None for row in rows}
                 authorization = record.copy()
                 if record["match_rule"] != "MATCH_CONFIRMED_ATLAS":
                     atlas_amounts = [money(row.get("Total charges projet (€)")) for row in rows]
@@ -169,9 +180,13 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                         proofs = [r for candidate in evidence for r in candidate["rows"]]
                         if version != 3 or not include_sage_inventory or len(rows) != 1 or len(proofs) != 1:
                             raise ValueError("Une preuve individuelle v3 est requise pour cette AUTO structurée")
-                        check = fuzzy_safety.verify_bap_balance if record["match_rule"] == "MATCH_BAP" else fuzzy_safety.verify
-                        check(fuzzy_atlas[record["atlas_source_positions"][0]],
-                              {**entry_from_sage(json_value(proofs[0])), "matching_reference": proofs[0].get("Référence")})
+                        check = (fuzzy_safety.verify_bap_balance if record["match_rule"] == "MATCH_BAP" else
+                                 fuzzy_safety.verify_individual if record["match_rule"] == "MATCH_INDIVIDUAL" else fuzzy_safety.verify)
+                        residual = record["match_rule"] in RESIDUAL_RULES
+                        check((precise_atlas if residual else fuzzy_atlas)[record["atlas_source_positions"][0]],
+                              {**entry_from_sage(json_value(proofs[0])), "matching_reference": proofs[0].get("Référence")},
+                              tolerance=rule_tolerance(record["match_rule"], MATCHING_TOLERANCES), precise=residual,
+                              **({"distinct_accounted": True} if record["match_rule"] == "MATCH_FUZZY_HIGH" else {}))
                     except ValueError:
                         metadata = None
                 if metadata and record["match_rule"] == "MATCH_EXACT" and len(rows) > 1:

@@ -10,6 +10,7 @@ from reconciliation.matching.trace import json_value
 from reconciliation.matching.models import UNMATCHED, MATCH_BAP, MATCH_INDIVIDUAL
 from reconciliation.matching.results import base_result, apply_candidates
 from reconciliation_contract import entry_from_sage, money, text
+from reconciliation_contract.matching_policy import MATCHING_TOLERANCES, rule_tolerance
 
 
 def block(row, *, sage=False):
@@ -50,6 +51,8 @@ def final_matches(atlas_frame, sage_frame, results, catalogue, options, trace):
     exiger le total du groupe. Aucun choix arbitraire ni mutation des DataFrames.
     Retourne (résultats complets, candidats ajoutés), sans écriture fichier/SQL.
     L'export et Django recontrôlent l'unicité sur les populations complètes.
+    Les seules recherches résiduelles utilisent 0,05 EUR sur les montants exacts ;
+    les réservations historiques et les contrôles comptables gardent leurs seuils.
     """
     pending = {p for result in results if result.match_status == UNMATCHED for p in result.atlas_source_positions}
     if not pending:
@@ -60,6 +63,10 @@ def final_matches(atlas_frame, sage_frame, results, catalogue, options, trace):
     atlas = list(inventory_rows(atlas_frame))
     for row, bap in zip(atlas, atlas_frame.get("N° BAP (SAGE)", [None] * len(atlas))):
         row["sage_bap_number"] = json_value(bap)
+    amounts = atlas_frame.get("_total_project_decimal", atlas_frame.get("Total charges projet (€)", [None] * len(atlas)))
+    for row, amount in zip(atlas, amounts):
+        if row["bap_status"] == "Envoyé SAGE":
+            row["total_project_charges"] = json_value(amount)
     used = {p for result in results if result.match_status != UNMATCHED for cid in result.candidate_ids
             for p in catalogue[cid]["source_positions"]}
     # Une preuve source sans identité analytique protège ses écritures plausibles.
@@ -105,7 +112,7 @@ def final_matches(atlas_frame, sage_frame, results, catalogue, options, trace):
         if all(v not in (None, "") for v in key[:3]) and money(atlas[position]["total_project_charges"]) is not None:
             left[key].append(position)
     additions, output, handled = [], [], set()
-    tolerance = min(Decimal(str(options.amount_tolerance)), Decimal("0.01"))
+    tolerance = rule_tolerance(MATCH_BAP, MATCHING_TOLERANCES)
 
     def propose(positions, entries, rule, *, unique):
         """Ajoute une proposition traçable, jamais une réservation ou une décision métier.
@@ -134,8 +141,7 @@ def final_matches(atlas_frame, sage_frame, results, catalogue, options, trace):
             continue
         left_amounts = [money(atlas[p]["total_project_charges"]) for p in positions]
         right_amounts = [money(e["amount"]) for _, e in entries]
-        if abs(sum(left_amounts, Decimal(0)) - sum(right_amounts, Decimal(0))) > tolerance:
-            continue
+        total_compatible = abs(sum(left_amounts, Decimal(0)) - sum(right_amounts, Decimal(0))) <= tolerance
         # Chercher au plus deux candidats suffit à constater une ambiguïté.
         ordered = sorted(entries, key=lambda item: money(item[1]["amount"]))
         amounts = [money(e["amount"]) for _, e in ordered]
@@ -146,6 +152,11 @@ def final_matches(atlas_frame, sage_frame, results, catalogue, options, trace):
             pairs.append(matches)
         claims = Counter(items[0][0] for items in pairs if len(items) == 1)
         bijective = len(positions) == len(entries) and all(len(items) == 1 and claims[items[0][0]] == 1 for items in pairs)
+        if not total_compatible:
+            if bijective:
+                propose(positions, entries, MATCH_BAP, unique=False)
+                output[-1].reason = "BAP_TOTAL_EXCEEDS_TOLERANCE"
+            continue
         if bijective:
             for position, matches in zip(positions, pairs):
                 propose([position], matches, MATCH_BAP, unique=True)

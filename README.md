@@ -1,5 +1,8 @@
 # Rapprochement Atlas / Sage X3
 
+Le [volet A BAP / tolérance](docs/volet_a_bap_tolerance.md) décrit l'affichage des
+références, l'ordre des règles et les seuls seuils résiduels portés à 0,05 €.
+
 Moteur Python de lecture, normalisation et rapprochement des extractions Atlas
 et Sage X3. Il traite les lignes Atlas « Envoyé SAGE » par une cascade explicable :
 preuve déjà présente, clé exacte, montant, fuzzy RapidFuzz, clé sans libellé,

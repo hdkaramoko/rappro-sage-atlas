@@ -1,5 +1,8 @@
 # Correctif arrondis, BAP et devise — 10 novembre 2026
 
+Le [volet A ultérieur](volet_a_bap_tolerance.md) ajoute une tolérance spécifique
+de 0,05 € aux seuls recours BAP/Individuel, sans élargir Exact ni le cadrage.
+
 Le [lot sélection Sage et recours BAP/individuel](matching_bap_individuel_decision.md)
 ajoute la recherche individuelle et le préremplissage qui étaient hors périmètre ici.
 

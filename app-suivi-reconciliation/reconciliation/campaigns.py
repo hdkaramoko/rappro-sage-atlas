@@ -73,6 +73,8 @@ def normalize_inventory(raw, *, extended=False, ods_label_policy=None):
     pour la nouvelle politique ODS (une valeur vide reste autorisée et signalée
     dans le diagnostic). Les deux libellés sont séparés ; aucune source réécrite.
     Retourne le dictionnaire canonique ; ValidationError si schéma incomplet.
+    Le BAP optionnel est conservé comme donnée de présentation, sans modifier
+    les clés de contrôle ni les montants comptables historiques.
     """
     if not isinstance(raw, dict) or not set(INVENTORY).issubset(raw):
         raise ValidationError(
@@ -95,6 +97,8 @@ def normalize_inventory(raw, *, extended=False, ods_label_policy=None):
             raise ValidationError("Inventaire ODS incomplet : colonne Libellé SAGE requise")
         if "Libellé SAGE" in raw:
             data["sage_label"] = str(raw["Libellé SAGE"] or "")
+        if "N° BAP (SAGE)" in raw:
+            data["display_bap"] = str(raw["N° BAP (SAGE)"] or "").strip()
     for field in ("project_code", "source_id", "bap_status", "sage_document_number"):
         data[field] = str(data[field] or "").strip()
     data["project_code"] = data["project_code"].upper()
@@ -380,6 +384,9 @@ def import_campaign(header, stream, *, job=None, progress=None):
     suspendus pendant les auto-validations initiales, avant le calcul initial.
     La politique ods_label_policy exige Libellé SAGE pour les nouveaux flux ;
     son absence conserve le contrat historique sans réécrire les campagnes.
+    La politique de seuil résiduel conserve les bases monétaires exactes en
+    preuves JSON séparées des projections comptables et les intègre au contexte
+    de fraîcheur des seuls recours. Une preuve incohérente annule l'import.
     Prépare les agrégats après les décisions et reports, sauf dans la copie
     privée SQLite qui les prépare après commit et statistiques, avant publication.
     La maintenance directe est enregistrée après commit et disparaît sur rollback.
@@ -552,6 +559,13 @@ def import_campaign(header, stream, *, job=None, progress=None):
             if payload.get("key") in group_keys:
                 raise ValidationError("Groupe répété dans la campagne")
             group_keys.add(payload.get("key"))
+            from reconciliation_contract.matching_policy import source_amounts, RESIDUAL_RULES
+            try:
+                precise_amounts = source_amounts(payload)
+                if header.get("matching_tolerances") and precise_amounts is None:
+                    raise ValueError("La politique de tolérance spécifique exige les montants Atlas exacts")
+            except ValueError as exc:
+                raise ValidationError(str(exc)) from exc
             # Concordance inventaire / proposition, avant mutation de la projection de travail.
             parsed = [normalize_inventory(raw, extended=v3, ods_label_policy=ods_label_policy) for raw in payload.get("atlas", [])]
             existing = {
@@ -561,7 +575,12 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 )
             }
             for data in parsed:
-                if existing.get(inventory_key(data)) != data or data["bap_status"] != "Envoyé SAGE":
+                stored = existing.get(inventory_key(data))
+                comparable = data
+                if stored is not None and ("display_bap" not in stored or "display_bap" not in data):
+                    stored = {k: v for k, v in stored.items() if k != "display_bap"}
+                    comparable = {k: v for k, v in data.items() if k != "display_bap"}
+                if stored != comparable or data["bap_status"] != "Envoyé SAGE":
                     raise ValidationError(
                         "Proposition absente de l'inventaire ou contradictoire avec celui-ci"
                     )
@@ -572,6 +591,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
             group.context_signature = digest(
                 sorted(members, key=lambda item: json.dumps(item, sort_keys=True))
             )
+            if payload["rule"] in RESIDUAL_RULES and header.get("matching_tolerances"):
+                group.context_signature = digest([group.context_signature, precise_amounts, header["matching_tolerances"]])
             group.version += (
                 1  # Une page ouverte avant l'import ne décide pas dans la nouvelle campagne.
             )
@@ -582,6 +603,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
             frozen_group = CampaignGroup.objects.create(
                 campaign=campaign, key=group.key,
                 data={**group_snapshot(group), "auto_validation": payload.get("auto_validation"),
+                      **({"matching_source_amounts": precise_amounts} if precise_amounts is not None else {}),
                       **({"piece_coherence": diagnostic} if diagnostic is not None else {})},
             )
             previous_reviews = (

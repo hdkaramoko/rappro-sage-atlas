@@ -15,7 +15,7 @@ from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 
 from .models import Campaign, CampaignInventory, CampaignReview, LineReview, ReconciliationTransaction
-from .presentation import RULE_LABELS, decorate, history_rows
+from .presentation import decorate, history_rows, rule_choices
 from .review import decide, effective, is_current, signature
 from .review_forms import LineReviewForm
 from .journey import filter_menu, line_actions, no_match_query, safe_return, selections
@@ -52,6 +52,7 @@ def review_list(request):
     entre dimensions. Le défaut est À examiner, propositions avant cas manuels.
     Les anciennes URLs match_status restent acceptées, sans widget dédié.
     Les preuves sont chargées pour la seule page autorisée du portefeuille.
+    Le filtre suit l'ordre partagé de la cascade, sans trier ses libellés.
     """
     if request.GET.get("view") == "controls":
         from .global_views import control_workspace
@@ -60,10 +61,7 @@ def review_list(request):
     items = items.filter(transaction__bap_status="Envoyé SAGE")
     scope = items
     projects = list(scope.order_by("transaction__project__code").values_list("transaction__project__code", flat=True).distinct())
-    rules = sorted([(value, RULE_LABELS.get(value, value)) for value in scope.order_by("group__rule")
-                    .values_list("group__rule", flat=True).distinct() if value != "UNMATCHED"], key=lambda item: item[1].casefold())
-    rules.append(("__NO_MATCH__", "Sans correspondance"))
-    rules.sort(key=lambda item: item[1].casefold())
+    rules = rule_choices(list(scope.order_by("group__rule").values_list("group__rule", flat=True).distinct()))
     selected_projects = selections(request.GET, "project", projects)
     states = [("DRAFT", "À examiner"), ("VALIDATED", "Validé"), ("REJECTED", "Refusé")]
     state = selections(request.GET, "state", [key for key, _ in states], ("DRAFT",))
@@ -264,6 +262,7 @@ def review_detail(request, pk):
             "rows": [
                 {
                     "document": row.get("Numéro pièce"),
+                    "bap": row.get("Référence"),
                     "date": row.get("Date comptable"),
                     "label": row.get("Libellé pièce"),
                     "amount": row.get("Charges (Dépenses)"),

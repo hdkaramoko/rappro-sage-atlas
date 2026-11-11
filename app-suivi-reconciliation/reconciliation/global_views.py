@@ -107,6 +107,9 @@ def global_control_detail(request, pk):
     Les actions restent déléguées aux fiches existantes et services Lot 2. Une
     campagne historique est consultable sans toucher ses décisions. Retour HTML,
     404 hors portefeuille ; aucun calcul ou mutation lors de la consultation.
+    Les deux tableaux sont paginés indépendamment. Les écritures Sage viennent
+    de la clé du contrôle (ou de ses preuves historiques), jamais d'un montant.
+    BAP et libellés sont des données de présentation ; aucun état n'est recalculé.
     """
     control = get_object_or_404(global_controls_for(request.user), pk=pk)
     assigned = ManualAllocation.objects.filter(entry__campaign=control.campaign, entry__control_key=control.key,
@@ -118,7 +121,24 @@ def global_control_detail(request, pk):
     rows = inventory_for(request.user).filter(campaign=control.campaign, present=True).filter(
         Q(control_key=control.key) | Q(pk__in=assigned) | Q(business_key__in=related) | Q(business_key__in=contributions)).order_by("source_id", "pk")
     page = Paginator(rows, 25).get_page(request.GET.get("page"))
+    from .presentation import inventory_baps
+    atlas_rows = list(page.object_list)
+    baps = inventory_baps(atlas_rows, control.campaign)
+    for row in atlas_rows:
+        row.atlas_bap = baps[row.pk]
+    page.object_list = atlas_rows
+    legacy = control.campaign.controls.filter(key=control.key).first()
+    from reconciliation_contract.sage_inventory import CAPABILITY
+    if CAPABILITY in control.campaign.metadata.get("capabilities", []):
+        sources = control.campaign.sage_inventory.filter(control_key=control.key,
+            project_code=control.project_code).order_by("pk")
+        sage_page = Paginator(sources, 25).get_page(request.GET.get("sage_page"))
+        sage_page.object_list = [{**row.data["entry"], "bap": row.data.get("attributes", {}).get("Référence", "")}
+                                for row in sage_page.object_list]
+    else:
+        sage_page = Paginator(legacy.data.get("entries", []) if legacy else [], 25).get_page(request.GET.get("sage_page"))
     return render(request, "reconciliation/global_control_detail.html", {"control": control, "page": page,
-        "legacy": control.campaign.controls.filter(key=control.key).first(),
+        "legacy": legacy, "sage_page": sage_page,
+        "sage_page_range": sage_page.paginator.get_elided_page_range(sage_page.number),
         "return_url": safe_return(request.GET.get("return", "")),
         "page_range": page.paginator.get_elided_page_range(page.number)})

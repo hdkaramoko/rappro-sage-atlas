@@ -1,10 +1,10 @@
 """Applique une proposition automatique via les contraintes de la décision manuelle."""
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from decimal import Decimal
 from reconciliation_contract.auto_validation import AUTO_VALIDATION_RULES
 from reconciliation_contract import compare, control_identity, digest, entry_from_sage
 from reconciliation_contract.fuzzy_safety import STRUCTURED_RULES, INDIVIDUAL_RULES, FuzzySafety
+from reconciliation_contract.matching_policy import RESIDUAL_RULES, precise_source, rule_tolerance
 from .models import ControlContribution, LineReview, ReviewEvent
 from .review import FIELDS, decide, is_current, signature
 from .campaigns import decision_record
@@ -24,7 +24,10 @@ def automatic_blockers(campaign):
     Fuzzy, Sans libellé, BAP et Individuel exigent les inventaires complets Atlas/Sage et leur unicité
     bilatérale, même si un concurrent n'a pas été retenu par le matching.
     Le BAP des Envoyé vient des sources de revue ; les Comptabilisé sans BAP
-    restent des concurrents possibles. La référence Sage vient de l'inventaire.
+    restent des concurrents possibles, sauf preuve Sage distincte et unique pour
+    Libellé proche. La référence Sage vient de l'inventaire.
+    Les seuils résiduels sont exclusivement ceux déclarés dans le nouveau
+    contrat ; leur index utilise les montants sources exacts photographiés.
     """
     from .multiple_review import exact_entry
     from .business import LOCAL_BUSINESS_REVIEW_REASON
@@ -36,11 +39,16 @@ def automatic_blockers(campaign):
         from reconciliation_contract.sage_inventory import CAPABILITY
         if CAPABILITY in campaign.metadata.get("capabilities", []):
             from itertools import chain
+            precise = None
+            if campaign.metadata.get("matching_tolerances"):
+                precise = chain(campaign.inventory.filter(present=True, data__bap_status="Comptabilisé").values_list("data", flat=True).iterator(chunk_size=500),
+                    (precise_source(source, amounts) for source, amounts in campaign.reviews.values_list(
+                        "source", "group__data__matching_source_amounts").iterator(chunk_size=500)))
             fuzzy_safety = FuzzySafety(chain(
                 campaign.inventory.filter(present=True, data__bap_status="Comptabilisé").values_list("data", flat=True).iterator(chunk_size=500),
                 campaign.reviews.values_list("source", flat=True).iterator(chunk_size=500)),
                 ({**data["entry"], "matching_reference": data.get("attributes", {}).get("Référence")}
-                 for data in campaign.sage_inventory.values_list("data", flat=True).iterator(chunk_size=500)))
+                 for data in campaign.sage_inventory.values_list("data", flat=True).iterator(chunk_size=500)), precise_atlas=precise)
     rows = campaign.reviews.select_related("group", "line__group", "line__campaign", "line__transaction__project")
     for frozen in rows.iterator(chunk_size=500):
         line, data = frozen.line, frozen.group.data
@@ -67,8 +75,13 @@ def automatic_blockers(campaign):
             try:
                 if fuzzy_safety is None or not exact or len(proofs) != 1:
                     raise ValueError("Cette AUTO exige une preuve individuelle et les inventaires complets v3")
-                check = fuzzy_safety.verify_bap_balance if data.get("rule") == "MATCH_BAP" else fuzzy_safety.verify
-                check(frozen.source, {**exact_entry(line), "matching_reference": proofs[0].get("Référence")})
+                check = (fuzzy_safety.verify_bap_balance if data.get("rule") == "MATCH_BAP" else
+                         fuzzy_safety.verify_individual if data.get("rule") == "MATCH_INDIVIDUAL" else fuzzy_safety.verify)
+                residual = data.get("rule") in RESIDUAL_RULES and bool(campaign.metadata.get("matching_tolerances"))
+                source = precise_source(frozen.source, data.get("matching_source_amounts")) if residual else frozen.source
+                check(source, {**exact_entry(line), "matching_reference": proofs[0].get("Référence")},
+                      tolerance=rule_tolerance(data.get("rule"), campaign.metadata.get("matching_tolerances")), precise=residual,
+                      **({"distinct_accounted": True} if data.get("rule") == "MATCH_FUZZY_HIGH" else {}))
             except (ValueError, ValidationError) as exc:
                 blocked[line.pk] = str(exc)
         if (not exact or not data.get("auto_validation") or LOCAL_BUSINESS_REVIEW_REASON in frozen.reasons
@@ -129,6 +142,8 @@ def apply_automatic_validations(campaign, *, progress=None):
     optionnel. Retourne None ; un refus métier est photographié avec son motif.
     Les fuzzy v3 suivent les contrôles individuels Exact et l'unicité bilatérale
     complète ; un ancien contrat sans inventaire complet ne reçoit aucune nouvelle AUTO fuzzy.
+    Seuls BAP/Individuel à politique déclarée utilisent 0,05 EUR sur les bases
+    exactes ; les réservations portent toujours le montant réel de Sage.
     """
     from .collective_validation import apply_collective_validations
     from .business import LOCAL_BUSINESS_REVIEW_REASON
@@ -181,7 +196,10 @@ def apply_automatic_validations(campaign, *, progress=None):
                 raise ValidationError("Proposition automatique non unique ou non fiable")
             amount = (line.transaction.total_sage_charges if line.group.rule == "MATCH_CONFIRMED_ATLAS"
                       else line.transaction.total_project_charges)
-            if (amount is None or line.group.sage_total is None or abs(amount-line.group.sage_total) > Decimal("0.01")
+            from .matching_evidence import source_project_amount
+            if line.group.rule in RESIDUAL_RULES:
+                amount = source_project_amount(line)
+            if (amount is None or line.group.sage_total is None or abs(amount-line.group.sage_total) > rule_tolerance(line.group.rule, campaign.metadata.get("matching_tolerances"))
                     or line.group.rule == "MATCH_CONFIRMED_ATLAS" and amount * line.group.sage_total < 0):
                 raise ValidationError("Montants incompatibles avec une validation automatique")
             values = {name: {"mode": "KEEP"} for name in FIELDS}

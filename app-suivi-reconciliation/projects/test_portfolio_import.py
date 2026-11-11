@@ -111,9 +111,9 @@ class PortfolioImportTests(TestCase):
         with self.assertRaises(PermissionDenied):
             import_portfolios(self.workbook([("marie", "P2")]), self.reader)
 
-    def test_self_service_also_checks_inventory_not_just_project_table(self):
+    def test_admin_addition_checks_inventory_not_just_project_table(self):
+        """L'ajout réservé à l'administrateur exige toujours un projet attesté par l'inventaire."""
         Project.objects.create(code="OLD", label="Ancien")
-        self.client.force_login(self.reader)
         response = self.client.post(reverse("projects:portfolio"), {"project_code": "OLD"})
         self.assertContains(response, "introuvable")
         self.client.post(reverse("projects:portfolio"), {"project_code": "p1"})

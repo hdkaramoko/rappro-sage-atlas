@@ -130,3 +130,7 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 MATCHING_JOB_ROOT = BASE_DIR / "var" / "matching"
 MATCHING_MAX_FILE_BYTES = 5 * 1024**3
 FILE_UPLOAD_HANDLERS = ["imports_app.upload_handlers.HashedTemporaryFileUploadHandler"]
+
+# L'import de comptes utilise exclusivement un tampon RAM borné par requête.
+USER_IMPORT_MAX_BYTES = int(os.getenv("USER_IMPORT_MAX_BYTES", str(5 * 1024**2)))
+USER_IMPORT_MAX_ROWS = int(os.getenv("USER_IMPORT_MAX_ROWS", "500"))

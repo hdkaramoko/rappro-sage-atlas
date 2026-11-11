@@ -1,5 +1,9 @@
 # Validation des rapprochements Atlas / Sage
 
+L’[import Excel des utilisateurs](../docs/import_utilisateurs_excel.md) est
+accessible dans Administration → Utilisateurs. Les comptes sont créés sans
+portefeuille ; leurs projets sont attribués ensuite par l’import existant.
+
 Le [mode maintenance administrable](../docs/mode_maintenance_django.md) permet
 d’avertir les utilisateurs ou de suspendre les nouveaux accès, sans supprimer
 leurs sessions. Appliquer les migrations avant le déploiement.
@@ -79,9 +83,10 @@ Les campagnes sont comparées à la précédente du même exercice ; la dernièr
 reste la campagne courante de travail.
 
 Le menu administrateur **Importer des portefeuilles** accepte un Excel avec les colonnes
-`username` et `codes projets`. Un modèle est téléchargeable. Les utilisateurs doivent
+`username` et `code projet`. Un modèle est téléchargeable. Les utilisateurs doivent
 exister ; les projets sont contrôlés dans les inventaires Atlas, également lors des
-ajouts depuis **Mon portefeuille**. L'import ajoute des accès sans en supprimer.
+ajouts administratifs depuis **Mon portefeuille**. Un compte classique ne peut
+pas s’attribuer lui-même un projet. L'import ajoute des accès sans en supprimer.
 
 Le statut BAP de correction propose exclusivement **Envoyé SAGE** et **Comptabilisé**.
 Voir le [guide complet](../docs/filtre_annuel_et_portefeuilles.md).

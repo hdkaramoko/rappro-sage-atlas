@@ -125,6 +125,7 @@ def decide(
     acknowledge=False,
     manual_refs=None,
     manual_confirm=False,
+    selection_autofill=(),
     multiple_confirm=False,
     _automatic=False,
     _automatic_assignment=None,
@@ -149,6 +150,8 @@ def decide(
     en décision humaine : le seul écart BAP est audité sans commentaire obligatoire.
     Les groupes Exact AUTO portent une autorisation collective mais réservent
     exclusivement des montants et références individuels.
+    `selection_autofill` identifie les champs préremplis depuis une sélection ;
+    les preuves sont rechargées et leur somme recalculée avant les contrôles.
     """
     entry = LineReview.objects.get(pk=line_id)
     # Verrouiller une identité stable : après attente d'un import concurrent,
@@ -181,6 +184,9 @@ def decide(
         raise ValidationError("La ligne, le groupe ou les sources ont changé. Rechargez la page.")
     if state not in ("DRAFT", "VALIDATED", "REJECTED"):
         raise ValidationError("Décision inconnue.")
+    from .multiple_review import apply_projection, selected_entries, selection_values
+    selection = line.manual_assignment if manual_refs is None else selected_entries(line, manual_refs)
+    values = selection_values(line, values, selection, selection_autofill)
     for field in FIELDS:
         entry = values.get(field, {})
         if entry.get("mode") not in ("KEEP", "SET", "CLEAR"):
@@ -209,7 +215,9 @@ def decide(
     warnings = []
     if state == "VALIDATED":
         if any(resolved[k] in (None, "") for k in FIELDS):
-            raise ValidationError("Pour valider, renseignez statut, montant, pièce et date.")
+            missing = [label for name, label in (("status", "statut"), ("amount", "montant Sage affecté"),
+                       ("document", "pièce Sage"), ("date", "date comptable")) if resolved[name] in (None, "")]
+            raise ValidationError("Pour valider, renseignez : " + ", ".join(missing) + ".")
         grouped_exact = bool(_automatic and _automatic_assignment and _automatic_assignment.get("kind") == "EXACT_GROUP")
         siblings = [] if grouped_exact else list(group.lines.select_related("transaction", "group"))
         allocations = [
@@ -253,11 +261,6 @@ def decide(
             )
     if state == "REJECTED" and not comment.strip():
         raise ValidationError("Un commentaire est obligatoire pour refuser.")
-    from .multiple_review import apply_projection, selected_entries
-
-    selection = (
-        line.manual_assignment if manual_refs is None else selected_entries(line, manual_refs)
-    )
     if selection and (not manual_confirm or not comment.strip()):
         raise ValidationError(
             "Expliquez votre affectation manuelle dans le commentaire avant validation"

@@ -1,5 +1,9 @@
 # Validation des rapprochements Atlas / Sage
 
+La sélection Sage préremplit les champs de décision, recontrôlés en Decimal au
+POST. Voir le [lot BAP/individuel et décision](../docs/matching_bap_individuel_decision.md)
+pour les nouvelles règles, leurs garde-fous et la procédure moteur → nouvelle campagne.
+
 Les champs Atlas **Montant refacturables**, **Prix unitaire prévu** et **Nombre
 d'unités** sont affichés et comparés entre campagnes. Voir le
 [guide des champs complémentaires](../docs/champs_atlas_validation.md) pour la

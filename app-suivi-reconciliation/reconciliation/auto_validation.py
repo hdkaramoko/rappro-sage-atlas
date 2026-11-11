@@ -4,7 +4,7 @@ from django.db import transaction
 from decimal import Decimal
 from reconciliation_contract.auto_validation import AUTO_VALIDATION_RULES
 from reconciliation_contract import compare, control_identity, digest, entry_from_sage
-from reconciliation_contract.fuzzy_safety import FUZZY_RULES, INDIVIDUAL_RULES, FuzzySafety
+from reconciliation_contract.fuzzy_safety import STRUCTURED_RULES, INDIVIDUAL_RULES, FuzzySafety
 from .models import ControlContribution, LineReview, ReviewEvent
 from .review import FIELDS, decide, is_current, signature
 from .campaigns import decision_record
@@ -21,7 +21,7 @@ def automatic_blockers(campaign):
     aux revendications pour ne pas masquer un concurrent ambigu. Les décisions
     locales du Lot 2 exigent une nouvelle revue après changement de campagne,
     même si le moteur réémet une autorisation AUTO. Lecture seule.
-    Fuzzy requiert en plus les inventaires complets Atlas/Sage et leur unicité
+    Fuzzy, Sans libellé, BAP et Individuel exigent les inventaires complets Atlas/Sage et leur unicité
     bilatérale, même si un concurrent n'a pas été retenu par le matching.
     Le BAP des Envoyé vient des sources de revue ; les Comptabilisé sans BAP
     restent des concurrents possibles. La référence Sage vient de l'inventaire.
@@ -32,7 +32,7 @@ def automatic_blockers(campaign):
     candidates, amounts, owners = {}, {}, {}
     blocked = {}
     fuzzy_safety = None
-    if campaign.reviews.filter(group__data__rule__in=list(FUZZY_RULES)).exists():
+    if campaign.reviews.filter(group__data__rule__in=list(STRUCTURED_RULES)).exists():
         from reconciliation_contract.sage_inventory import CAPABILITY
         if CAPABILITY in campaign.metadata.get("capabilities", []):
             from itertools import chain
@@ -60,14 +60,15 @@ def automatic_blockers(campaign):
                       str(frozen.source.get("accounting_date", ""))[:10]))
         for key in keys:
             claims.setdefault(key, set()).add(line.pk)
-        fuzzy = data.get("rule") in FUZZY_RULES
+        fuzzy = data.get("rule") in STRUCTURED_RULES
         exact = campaign.metadata.get("schema_version") == 3 and data.get("rule") in INDIVIDUAL_RULES
         identities[line.pk] = (exact, keys)
         if fuzzy and data.get("auto_validation"):
             try:
                 if fuzzy_safety is None or not exact or len(proofs) != 1:
-                    raise ValueError("AUTO fuzzy exige une preuve individuelle et les inventaires complets v3")
-                fuzzy_safety.verify(frozen.source, {**exact_entry(line), "matching_reference": proofs[0].get("Référence")})
+                    raise ValueError("Cette AUTO exige une preuve individuelle et les inventaires complets v3")
+                check = fuzzy_safety.verify_bap_balance if data.get("rule") == "MATCH_BAP" else fuzzy_safety.verify
+                check(frozen.source, {**exact_entry(line), "matching_reference": proofs[0].get("Référence")})
             except (ValueError, ValidationError) as exc:
                 blocked[line.pk] = str(exc)
         if (not exact or not data.get("auto_validation") or LOCAL_BUSINESS_REVIEW_REASON in frozen.reasons

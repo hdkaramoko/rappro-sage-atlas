@@ -161,6 +161,8 @@ def review_detail(request, pk):
     parcours existant ; les actions Lot 2 pointent vers la ligne exacte de
     campagne, où les sources et montants retenus restent distincts. Retourne
     HTML/redirection, affiche les ValidationError et masque les lignes hors droits.
+    Les champs calculés depuis la sélection sont signalés au service, qui recharge
+    les preuves et recalcule leurs charges Decimal avant toute écriture.
     """
     line = get_object_or_404(visible(request.user), pk=pk)
     return_url = safe_return(request.GET.get("return", ""))
@@ -233,6 +235,7 @@ def review_detail(request, pk):
                 expected_source=form.cleaned_data["source"],
                 acknowledge=request.POST.get("action") == "VALIDATED",
                 manual_refs=form.cleaned_data["manual_refs"],
+                selection_autofill=form.cleaned_data["selection_auto"],
                 # La soumission enregistre le choix manuel ; Valider accepte
                 # les risques recalculés. Les commentaires restent contrôlés.
                 manual_confirm=True,
@@ -286,6 +289,9 @@ def review_detail(request, pk):
             "actions": actions, "revision": revision,
             "resolved": effective(line),
             "manual_candidates": manual_candidates,
+            "selection_restore": {name: {"mode": initial.get(name + "_mode", "KEEP"),
+                "value": "" if initial.get(name) is None else str(initial[name])}
+                for name in ("amount", "document", "date")},
             "form": form,
             "return_url": return_url,
             "edit_fields": [

@@ -1,5 +1,8 @@
 # Auto-validation fuzzy, révision et filtre Origine
 
+Le [lot sélection Sage, Sans libellé et recours BAP/individuel](matching_bap_individuel_decision.md)
+étend désormais les autorisations et le préremplissage décrits dans cette note.
+
 Le [correctif arrondis, BAP et devise](correctif_arrondis_bap_devise.md) décrit
 les ajustements du 10 novembre 2026 et remplace les restrictions de devise,
 le périmètre d'unicité sans BAP et le défaut Origine décrits dans cette version initiale.

@@ -12,16 +12,22 @@ MATCH_AMOUNT = "MATCH_AMOUNT"
 MATCH_FUZZY_HIGH = "MATCH_FUZZY_HIGH"
 MATCH_FUZZY_REVIEW = "MATCH_FUZZY_REVIEW"
 MATCH_WITHOUT_LABEL = "MATCH_WITHOUT_LABEL"
+MATCH_BAP = "MATCH_BAP"
+MATCH_INDIVIDUAL = "MATCH_INDIVIDUAL"
 AMBIGUOUS = "AMBIGUOUS"
 UNMATCHED = "UNMATCHED"
 RULES = (MATCH_CONFIRMED_ATLAS, MATCH_EXACT, MATCH_AMOUNT, MATCH_FUZZY_HIGH,
-         MATCH_FUZZY_REVIEW, MATCH_WITHOUT_LABEL, AMBIGUOUS, UNMATCHED)
+         MATCH_FUZZY_REVIEW, MATCH_WITHOUT_LABEL, MATCH_BAP, MATCH_INDIVIDUAL, AMBIGUOUS, UNMATCHED)
 EXPERIMENTAL_RULES = frozenset((MATCH_AMOUNT, MATCH_FUZZY_HIGH, MATCH_FUZZY_REVIEW, MATCH_WITHOUT_LABEL))
 
 
 @dataclass(frozen=True)
 class MatchingConfig:
-    """Options d'un appel ; validation expérimentale désactivée par défaut."""
+    """Options d'un appel, sans mutation ; les recours résiduels sont activés.
+
+    enable_residual=False permet une comparaison témoin de la cascade historique.
+    Les options de statut cible restent distinctes des autorisations JSONL AUTO.
+    """
 
     amount_tolerance: float = config.AMOUNT_TOLERANCE
     fuzzy_high_threshold: float = config.FUZZY_HIGH_THRESHOLD
@@ -32,6 +38,7 @@ class MatchingConfig:
     enable_fuzzy: bool = True
     enable_without_label: bool = True
     prefilter_sage: bool = True
+    enable_residual: bool = True
     auto_account_rules: frozenset[str] = frozenset()
 
     def __post_init__(self):

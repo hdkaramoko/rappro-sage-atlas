@@ -6,18 +6,25 @@ MODES = [("KEEP", "Conserver"), ("SET", "Modifier"), ("CLEAR", "Effacer")]
 
 
 class LineReviewForm(forms.Form):
-    """Saisie des corrections et confirmations, recontrôlées dans le service métier."""
+    """Saisie des décisions et marqueurs de préremplissage, sans écriture au nettoyage.
+
+    Les montants signés acceptent les formats français et neuf décimales sources.
+    Les marqueurs selection_auto n'autorisent aucun montant : le service recharge
+    les preuves, contrôle la somme, les versions et les références avant réservation.
+    """
 
     manual_refs = forms.MultipleChoiceField(
         label="Option retenue", required=False, widget=forms.CheckboxSelectMultiple
     )
+    selection_auto = forms.MultipleChoiceField(required=False,
+        choices=[(name, name) for name in ("amount", "document", "date")], widget=forms.MultipleHiddenInput)
     status_mode = forms.ChoiceField(label="Action sur le statut", choices=MODES)
     status = forms.ChoiceField(
         label="Statut BAP", required=False, choices=[("", "Choisir un statut"), *BAP_CHOICES]
     )
     amount_mode = forms.ChoiceField(label="Action sur le montant", choices=MODES)
     amount = forms.DecimalField(
-        label="Montant Sage affecté à cette ligne", required=False, max_digits=18, decimal_places=2
+        label="Montant Sage affecté à cette ligne", required=False, max_digits=25, decimal_places=9, localize=True
     )
     document_mode = forms.ChoiceField(label="Action sur la pièce", choices=MODES)
     document = forms.CharField(label="N° pièce Sage", required=False, max_length=100)

@@ -146,6 +146,59 @@ def selected_entries(line, references):
     return [available[ref] for ref in references]
 
 
+def selection_values(line, values, selection, automatic_fields=()):
+    """Retourne une copie des décisions enrichie par les écritures choisies.
+
+    `selection` contient des preuves rechargées par selected_entries, `values`
+    les modes saisis, et `automatic_fields` les champs calculés dans l'interface.
+    Recalcule la somme signée Decimal et rejette les montants falsifiés, les
+    identités hors campagne/projet/exercice et les choix pièce/date ambigus.
+    L'affichage au centime des champs automatiques n'arrondit pas la réservation.
+    Aucun écrit ; ValidationError empêche la transaction de décision.
+    """
+    result = {name: dict(value) for name, value in values.items()}
+    if not selection:
+        if automatic_fields:
+            raise ValidationError("Aucune écriture Sage sélectionnée : restaurez les champs calculés.")
+        return result
+    if any(not e["identity_complete"] or e["project_code"] != line.transaction.project.code
+           or e["fiscal_year"] != line.transaction.fiscal_year for e in selection):
+        raise ValidationError("Écriture Sage sans identité complète ou hors projet/exercice.")
+    amounts = [money(e["amount"]) for e in selection]
+    if any(v is None for v in amounts):
+        raise ValidationError("Montant Sage absent : somme sélectionnée impossible.")
+    total = sum(amounts, Decimal(0))
+    entered = result["amount"]
+    if entered["mode"] == "CLEAR":
+        raise ValidationError("Le montant affecté ne peut pas être effacé avec une sélection Sage.")
+    if entered["mode"] == "SET":
+        value = money(entered.get("value"))
+        valid = value == total
+        if "amount" in automatic_fields:
+            valid = value is not None and value.quantize(Decimal("0.01")) == total.quantize(Decimal("0.01"))
+        if not valid:
+            raise ValidationError("La somme Sage est différente du montant saisi : vérifiez la sélection.")
+    source_amount = money(line.transaction.total_sage_charges)
+    if entered["mode"] == "KEEP" and source_amount is not None and source_amount != total:
+        raise ValidationError("La somme Sage est différente du montant conservé : choisissez Modifier.")
+    if entered["mode"] != "KEEP" or source_amount is None:
+        result["amount"] = {"mode": "SET", "value": str(total)}
+    for name in ("document", "date"):
+        distinct = {e[name] for e in selection}
+        if result[name]["mode"] == "KEEP" or name in automatic_fields:
+            source = getattr(line.transaction, "sage_document_number" if name == "document" else "accounting_date")
+            source = (str(source).strip().upper() if name == "document" else str(source)[:10]) if source else ""
+            if result[name]["mode"] == "KEEP" and source:
+                if source not in distinct:
+                    raise ValidationError("La pièce ou date conservée est différente de la sélection Sage : choisissez Modifier.")
+                continue
+            if len(distinct) != 1 or not all(distinct):
+                raise ValidationError("Plusieurs pièces Sage : choisissez une pièce principale." if name == "document"
+                                      else "Plusieurs dates Sage : choisissez une date comptable.")
+            result[name] = {"mode": "SET", "value": next(iter(distinct))}
+    return result
+
+
 def allocation_plan(line, resolved, selection, *, verified_entry=None):
     """Décompose une réservation par pièce, sans sommer un total de groupe répété.
 
@@ -235,6 +288,8 @@ def diagnose_plan(line, plan, *, manual=False, automatic=False):
     `manual` conserve les alertes des sélections manuelles ; `automatic` permet
     uniquement aux AUTO Exact/fuzzy à écritures distinctes et actuelles de partager
     une pièce. Les références partagées et dépassements restent bloquants.
+    Une référence réellement déjà réservée est toujours refusée en sélection
+    manuelle, même avec commentaire ; partager une pièce distincte reste possible.
     Retourne une liste de diagnostics EUR ; aucune dérogation n'est accordée ici.
     """
     diagnostics = []
@@ -259,6 +314,8 @@ def diagnose_plan(line, plan, *, manual=False, automatic=False):
                 if manual or c.line.manual_assignment or c.line.group_id != line.group_id
             }
         )
+        if manual and shared:
+            raise ValidationError("Écriture Sage déjà affectée à une autre ligne : choisissez une écriture disponible.")
         # Atlas Comptabilisé ne porte pas l'identité analytique ; signaler le
         # partage de pièce sans prétendre identifier l'écriture déjà consommée.
         if manual and refs and data["atlas"]:
@@ -291,6 +348,8 @@ def apply_projection(line, resolved, selection, *, state, confirmed, comment, au
     restent soumis aux contrôles existants (`confirmed` et commentaire).
     Les réservations actives du nouvel inventaire manuel sont exclusives et ne
     peuvent pas être contournées par une ancienne sélection de candidats moteur.
+    Une sélection d'écritures entières ne peut pas dépasser la capacité Sage,
+    même avec confirmation ; les anciennes corrections sans sélection restent inchangées.
     Retourne le diagnostic ; ValidationError annule les écritures parentes.
     `verified_entry` permet la preuve Confirmé résolue sans candidate écran ; elle
     ne dispense jamais des contrôles de réservation, de partage ou de capacité.
@@ -314,6 +373,8 @@ def apply_projection(line, resolved, selection, *, state, confirmed, comment, au
         if refs and ManualAllocation.objects.filter(active=True, entry__campaign=line.campaign, entry__entry_ref__in=refs).exists():
             raise ValidationError("Cette écriture Sage est déjà affectée à un rapprochement manuel d'inventaire.")
         diagnostics = diagnose_plan(line, plan, manual=bool(selection), automatic=automatic)
+        if selection and any(d["status"] == "EXCESS" for d in diagnostics):
+            raise ValidationError("La capacité Sage disponible est dépassée : affectation impossible.")
         unknown = [d for d in diagnostics if d["status"] == "UNKNOWN"]
         if unknown:
             raise ValidationError(

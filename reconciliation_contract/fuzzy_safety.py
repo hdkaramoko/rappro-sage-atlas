@@ -1,4 +1,4 @@
-"""Preuve bilatérale des AUTO fuzzy, indépendante du score et du classement."""
+"""Preuve bilatérale des AUTO structurées, indépendante du score et du classement."""
 
 from bisect import bisect_left, bisect_right
 from collections import defaultdict
@@ -7,7 +7,8 @@ from decimal import Decimal
 from . import money, text
 
 FUZZY_RULES = frozenset({"MATCH_FUZZY_HIGH", "MATCH_FUZZY_REVIEW"})
-INDIVIDUAL_RULES = FUZZY_RULES | {"MATCH_EXACT"}
+STRUCTURED_RULES = FUZZY_RULES | {"MATCH_WITHOUT_LABEL", "MATCH_BAP", "MATCH_INDIVIDUAL"}
+INDIVIDUAL_RULES = STRUCTURED_RULES | {"MATCH_EXACT"}
 
 
 class FuzzySafety:
@@ -27,6 +28,7 @@ class FuzzySafety:
         """
         self.atlas = self._index(atlas, sage=False)
         self.sage = self._index(sage, sage=True)
+        self._bap_balances = {}
 
     @staticmethod
     def _index(rows, *, sage):
@@ -88,10 +90,27 @@ class FuzzySafety:
                 or not entry.get("identity_complete") or not entry.get("ref")
                 or atlas.get("bap_status") != "Envoyé SAGE"
                 or amount is None or total is None or amount * total < 0 or abs(amount - total) > Decimal("0.01")):
-            raise ValueError("Preuve fuzzy incomplète ou projet/tiers/exercice/BAP/montant incompatible")
+            raise ValueError("Preuve structurée incomplète ou projet/tiers/exercice/BAP/montant incompatible")
         unknown = (*key[:3], "")
         left = self._near(self.atlas, key, total) + self._near(self.atlas, unknown, total)
         right = self._near(self.sage, key, amount) + self._near(self.sage, unknown, amount)
         if (len(left) != 1 or len(right) != 1 or left[0].get("source_id") != atlas.get("source_id")
                 or right[0].get("ref") != entry["ref"]):
-            raise ValueError("Correspondance fuzzy non unique dans les deux sens")
+            raise ValueError("Correspondance non unique dans les deux sens")
+
+    def verify_bap_balance(self, atlas, entry):
+        """Vérifie la paire et l'équilibre complet de son BAP avant AUTO BAP.
+
+        Les index proviennent des populations complètes, pas des seuls candidats
+        retenus. Exige même nombre de lignes et sommes signées à 0,01 EUR près.
+        Retourne None ; ValueError si l'ensemble ne prouve pas une bijection.
+        Aucun effet de bord ; les réservations restent contrôlées par Django.
+        """
+        self.verify(atlas, entry)
+        key = (text(atlas.get("project_code")).upper(), text(atlas.get("sage_third_party_code")).upper(),
+               atlas.get("fiscal_year"), text(atlas.get("sage_bap_number")).upper())
+        if key not in self._bap_balances:
+            left, right = self.atlas.get(key, ([], []))[0], self.sage.get(key, ([], []))[0]
+            self._bap_balances[key] = len(left) == len(right) and abs(sum(left, Decimal(0)) - sum(right, Decimal(0))) <= Decimal("0.01")
+        if not self._bap_balances[key]:
+            raise ValueError("BAP non équilibré ou bijection complète non démontrée")

@@ -13,7 +13,7 @@ class AutomaticTests(CampaignTests):
 
     def test_configured_experimental_rules(self):
         """Les règles historiques gardent leur activation explicite hors fuzzy sans preuve v3."""
-        for rule in ("MATCH_AMOUNT", "MATCH_WITHOUT_LABEL"):
+        for rule in ("MATCH_AMOUNT",):
             with self.subTest(rule=rule):
                 campaign = self.automatic(rule=rule)
                 line = LineReview.objects.get()
@@ -131,6 +131,13 @@ class AutomaticTests(CampaignTests):
         campaign = self.v3_automatic("MATCH_FUZZY_REVIEW", variant="bap")
         self.assertEqual(campaign.reviews.get().decision["state"], "VALIDATED")
 
+    def test_without_label_competitors_are_not_auto(self):
+        """Sans libellé refuse les concurrents Atlas/Sage et références partagées à l'import."""
+        for variant in ("sage", "atlas", "shared"):
+            with self.subTest(variant=variant):
+                campaign = self.v3_automatic("MATCH_WITHOUT_LABEL", variant=variant)
+                self.assertFalse(campaign.reviews.filter(decision__current=True, decision__state="VALIDATED").exists())
+
     def test_legacy_fuzzy_without_full_inventory_stays_manual(self):
         """Un ancien contrat sans identité traçable ne reçoit aucune nouvelle AUTO fuzzy."""
         campaign = self.automatic(rule="MATCH_FUZZY_REVIEW")
@@ -162,7 +169,7 @@ class AutomaticTests(CampaignTests):
     def test_v3_fuzzy_and_amount_project_and_carry(self):
         """Les deux fuzzy et Montant réservent Sage puis se reportent sans événement doublé."""
         from .models import ControlContribution
-        for rule in ("MATCH_FUZZY_HIGH", "MATCH_FUZZY_REVIEW", "MATCH_AMOUNT"):
+        for rule in ("MATCH_FUZZY_HIGH", "MATCH_FUZZY_REVIEW", "MATCH_WITHOUT_LABEL", "MATCH_AMOUNT", "MATCH_BAP", "MATCH_INDIVIDUAL"):
             self.v3_automatic(rule)
             line = LineReview.objects.get()
             self.assertTrue(is_current(line))

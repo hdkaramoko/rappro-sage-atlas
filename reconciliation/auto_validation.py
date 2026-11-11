@@ -33,7 +33,7 @@ def proposal_metadata(record, options):
     La preuve externe et les signes sont revérifiés par Django avant décision.
     Exact autorise aussi les cardinalités égales multilignes ; l'exporteur v3
     doit ensuite prouver une bijection individuelle avant de publier l'autorisation.
-    Pour les fuzzy, l'exporteur exige aussi une écriture v3 complète et l'unicité
+    Pour Fuzzy, Sans libellé, BAP et Individuel, l'exporteur exige une écriture v3 complète et l'unicité
     bilatérale sur les sources entières avant publication.
     Aucun montant source ni résultat moteur n'est modifié ; aucun effet de bord.
     L'écart est recalculé en Decimal depuis les deux montants, sans soustraire

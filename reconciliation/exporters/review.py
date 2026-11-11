@@ -35,7 +35,7 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     un groupe ambigu conserve sa proposition mais aucune autorisation AUTO.
     En v3, Libellé SAGE Atlas est transmis séparément dans l'inventaire et les
     propositions, avec une politique ODS explicite ; le matching reste sur ATLAS.
-    Les AUTO fuzzy exigent v3 et une unicité bilatérale sur les inventaires entiers,
+    Les AUTO structurées (fuzzy, sans libellé, BAP, individuel) exigent v3 et une unicité sur les inventaires entiers,
     indépendamment des candidats retenus par la similarité du libellé.
     Les références BAP enrichissent uniquement les index privés ; les preuves
     signées restent inchangées et leurs charges sont déjà exprimées en EUR.
@@ -76,10 +76,10 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
             if origin in atlas:
                 canonical[column] = atlas[origin]
     candidates = {g["group_id"]: g for g in result.attrs["sage_candidates"]}
-    from reconciliation_contract.fuzzy_safety import FUZZY_RULES, FuzzySafety
+    from reconciliation_contract.fuzzy_safety import STRUCTURED_RULES, FuzzySafety
     from reconciliation.multiples import inventory_rows
     from reconciliation_contract import entry_from_sage, money
-    fuzzy_atlas = list(inventory_rows(atlas)) if result["match_rule"].isin(FUZZY_RULES).any() else []
+    fuzzy_atlas = list(inventory_rows(atlas)) if result["match_rule"].isin(STRUCTURED_RULES).any() else []
     for row, bap in zip(fuzzy_atlas, canonical["N° BAP (SAGE)"] if fuzzy_atlas else []):
         row["sage_bap_number"] = json_value(bap)
     fuzzy_rows = (json_value(dict(zip(sage.columns, values))) for values in sage.itertuples(index=False, name=None))
@@ -164,13 +164,14 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                     authorization["atlas_amount"] = sum(atlas_amounts, money(0)) if atlas_amounts and all(v is not None for v in atlas_amounts) else None
                     authorization["sage_amount"] = sum(sage_amounts, money(0)) if sage_amounts and all(v is not None for v in sage_amounts) else None
                 metadata = proposal_metadata(authorization, options)
-                if metadata and record["match_rule"] in FUZZY_RULES:
+                if metadata and record["match_rule"] in STRUCTURED_RULES:
                     try:
                         proofs = [r for candidate in evidence for r in candidate["rows"]]
                         if version != 3 or not include_sage_inventory or len(rows) != 1 or len(proofs) != 1:
-                            raise ValueError("Une preuve individuelle v3 est requise pour AUTO fuzzy")
-                        fuzzy_safety.verify(fuzzy_atlas[record["atlas_source_positions"][0]],
-                                            {**entry_from_sage(json_value(proofs[0])), "matching_reference": proofs[0].get("Référence")})
+                            raise ValueError("Une preuve individuelle v3 est requise pour cette AUTO structurée")
+                        check = fuzzy_safety.verify_bap_balance if record["match_rule"] == "MATCH_BAP" else fuzzy_safety.verify
+                        check(fuzzy_atlas[record["atlas_source_positions"][0]],
+                              {**entry_from_sage(json_value(proofs[0])), "matching_reference": proofs[0].get("Référence")})
                     except ValueError:
                         metadata = None
                 if metadata and record["match_rule"] == "MATCH_EXACT" and len(rows) > 1:

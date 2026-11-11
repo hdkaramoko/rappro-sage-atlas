@@ -1,5 +1,8 @@
 # Correctif arrondis, BAP et devise — 10 novembre 2026
 
+Le [lot sélection Sage et recours BAP/individuel](matching_bap_individuel_decision.md)
+ajoute la recherche individuelle et le préremplissage qui étaient hors périmètre ici.
+
 ## Comportement livré
 
 La tolérance reste **0,01 €**. Le moteur ne compare plus l'écart flottant pour

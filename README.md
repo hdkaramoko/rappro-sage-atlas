@@ -2,9 +2,13 @@
 
 Moteur Python de lecture, normalisation et rapprochement des extractions Atlas
 et Sage X3. Il traite les lignes Atlas « Envoyé SAGE » par une cascade explicable :
-preuve déjà présente, clé exacte, montant, fuzzy RapidFuzz puis clé sans libellé.
+preuve déjà présente, clé exacte, montant, fuzzy RapidFuzz, clé sans libellé,
+puis recours par BAP et écritures individuelles pour les lignes restantes.
 Les sources restent intactes ; les règles expérimentales nécessitent une revue
 par défaut. Les ambiguïtés et les provenances sont conservées dans le résultat.
+
+Voir le [lot sélection Sage, AUTO sans libellé et recours BAP/individuel](docs/matching_bap_individuel_decision.md)
+pour les conditions d'AUTO, les tests et la recette d'une nouvelle campagne.
 
 Pour comprendre l'ordre des contrôles et interpréter les résultats, consulter
 [le guide des contrôles et statuts](docs/controles_et_statuts.md).

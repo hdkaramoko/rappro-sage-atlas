@@ -9,6 +9,8 @@ RULE_LABELS = {
     "MATCH_AMOUNT": "Concordance des montants",
     "MATCH_CONFIRMED_ATLAS": "Confirmé dans Atlas",
     "MATCH_WITHOUT_LABEL": "Sans contrôle du libellé",
+    "MATCH_BAP": "Correspondance par BAP",
+    "MATCH_INDIVIDUAL": "Correspondance individuelle",
     "MATCH_FUZZY_HIGH": "Libellé proche",
     "MATCH_FUZZY_REVIEW": "Libellé à vérifier",
     "AMBIGUOUS": "Plusieurs candidats",

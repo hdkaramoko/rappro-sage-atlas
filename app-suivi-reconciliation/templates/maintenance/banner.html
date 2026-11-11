@@ -1,0 +1,5 @@
+{% if request.user.is_authenticated and request.maintenance_state.state == 'SCHEDULED' %}
+<div role="status" style="padding:12px 16px;margin-bottom:16px;border:1px solid #cbd8fa;border-radius:8px;background:#eef3ff;color:#17304d;overflow-wrap:anywhere">
+<strong>Maintenance programmée.</strong> {% if request.maintenance_state.message %}{{ request.maintenance_state.message }}{% else %}Vous pouvez terminer votre travail avant l’activation du blocage.{% endif %}
+{% if request.maintenance_state.planned_at %} Début prévu : {{ request.maintenance_state.planned_at|date:"d/m/Y H:i" }}.{% endif %}
+</div>{% endif %}

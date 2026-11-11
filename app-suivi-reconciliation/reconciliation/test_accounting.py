@@ -203,7 +203,7 @@ class AccountingTests(TestCase):
         self.assertEqual(self.client.get(url).context["page"].paginator.count, 0)
 
     def test_list_cost_and_pagination_on_large_materialized_campaign(self):
-        """Mesure 120 projets/12000 groupes ; seule la disponibilité est vérifiée par EXISTS, sans charger d'inventaire."""
+        """Mesure 120 projets/12000 groupes, sans inventaire chargé, plus une lecture de maintenance explicite."""
         for index in range(120):
             code = f"BENCH{index:03d}"
             Project.objects.create(code=code, label="Recette")
@@ -224,7 +224,9 @@ class AccountingTests(TestCase):
         duration = perf_counter() - start
         self.assertEqual(response.context["page"].paginator.count, 120)
         self.assertEqual(len(response.context["page"]), 40)
-        self.assertLess(len(queries), 15)
+        maintenance_queries = [query for query in queries if 'FROM "maintenance_maintenancestate"' in query["sql"]]
+        self.assertEqual(len(maintenance_queries), 1)
+        self.assertLess(len(queries) - len(maintenance_queries), 15)
         for query in queries:
             if 'FROM "reconciliation_campaigninventory"' in query["sql"] or 'FROM "reconciliation_campaignsageentry"' in query["sql"]:
                 self.assertIn("LIMIT 1", query["sql"])

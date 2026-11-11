@@ -335,7 +335,7 @@ class JourneyTests(TestCase):
         self.assertEqual(self.client.get(self.list_url, {"state": "VALIDATED"}).context["page"].paginator.count, 0)
 
     def test_multi_selection_pagination_preserves_every_value(self):
-        """La deuxième page conserve projets, règles et origines sans requêtes par preuve."""
+        """Conserve les filtres et le budget métier ; compte séparément la lecture fraîche de maintenance."""
         line = self.line()
         other = Project.objects.create(code="Q", label="Autre projet")
         ProjectPortfolio.objects.create(project=other, user=self.user)
@@ -355,7 +355,9 @@ class JourneyTests(TestCase):
         self.assertEqual(len(response.context["page"]), 4)
         self.assertContains(response, "project=P&amp;project=Q")
         self.assertContains(response, "validation_source=AUTO&amp;validation_source=MANUAL")
-        self.assertLessEqual(len(queries), 12)
+        maintenance_queries = [query for query in queries if 'FROM "maintenance_maintenancestate"' in query["sql"]]
+        self.assertEqual(len(maintenance_queries), 1)
+        self.assertLessEqual(len(queries) - len(maintenance_queries), 12)
 
     def test_closed_campaign_cannot_be_revised_and_return_url_is_local(self):
         """Campagne close : lecture seule ; les URL de retour externes sont neutralisées."""

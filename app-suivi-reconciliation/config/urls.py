@@ -4,9 +4,13 @@ from django.contrib.auth import views as auth_views
 from django.contrib.staticfiles.views import serve
 from django.urls import include, path, re_path
 from . import settings
+from maintenance.views import access as maintenance_access
+from maintenance.views import liveness
 
 
 urlpatterns = [
+    path("health/live/", liveness, name="maintenance-liveness"),
+    path("maintenance/access/", maintenance_access, name="maintenance-access"),
     path("imports/", include("imports_app.urls")),
     path("admin/", admin.site.urls),
     path(

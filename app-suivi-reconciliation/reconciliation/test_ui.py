@@ -67,6 +67,7 @@ class ReviewUITests(TestCase):
         self.assertEqual(response.context["page"].paginator.count, 3)
 
     def test_filters_pagination_permissions_and_query_count(self):
+        """Vérifie filtres et droits avec le budget métier historique et une lecture de maintenance."""
         for index in range(30):
             self.make_line(str(index))
         other = Project.objects.create(code="SECRET", label="Invisible")
@@ -90,7 +91,9 @@ class ReviewUITests(TestCase):
         self.assertEqual(response.context["page"].paginator.count, 31)
         self.assertNotContains(response, "SECRET")
         self.assertContains(response, "q=BAP-01")
-        self.assertLessEqual(len(queries), 12)
+        maintenance_queries = [query for query in queries if 'FROM "maintenance_maintenancestate"' in query["sql"]]
+        self.assertEqual(len(maintenance_queries), 1)
+        self.assertLessEqual(len(queries) - len(maintenance_queries), 12)
         self.assertEqual(
             self.client.get(reverse("reconciliation:review-detail", args=[hidden.pk])).status_code,
             404,

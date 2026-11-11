@@ -1,5 +1,9 @@
 # Validation des rapprochements Atlas / Sage
 
+Le [mode maintenance administrable](../docs/mode_maintenance_django.md) permet
+d’avertir les utilisateurs ou de suspendre les nouveaux accès, sans supprimer
+leurs sessions. Appliquer les migrations avant le déploiement.
+
 Voir le [volet A](../docs/volet_a_bap_tolerance.md) pour les colonnes BAP,
 les tableaux Atlas/Sage du contrôle et la tolérance ciblée des nouveaux JSONL.
 

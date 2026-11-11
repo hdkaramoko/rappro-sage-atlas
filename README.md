@@ -54,3 +54,8 @@ les volumes observés, les tests représentatifs et les optimisations mesurées.
 ## Multiples Atlas et affectations métier
 
 La CLI produit maintenant un JSONL v3 avec les contrôles des multiples et les preuves nécessaires à la validation. Voir le [guide français](docs/multiples_atlas_affectations_export.md) : politique de montants explicite, migration Django, usage, exports et limites.
+
+## Mode maintenance de l’application Django
+
+Voir le [guide d’administration et de récupération](docs/mode_maintenance_django.md)
+pour programmer, activer et désactiver la maintenance, les permissions et la migration.

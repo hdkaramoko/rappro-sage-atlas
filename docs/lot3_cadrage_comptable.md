@@ -1,5 +1,10 @@
 # Lot 3 : cadrage comptable autonome
 
+**Évolution du 12 novembre 2026 :** le [cadrage exhaustif et le diagnostic ODA](cadrage_exhaustif_oda.md)
+incluent désormais tous les Sage éligibles du projet, même sans Atlas. Les motifs
+individuels sont distingués des vrais blocages de calcul. Les formules ci-dessous
+sont actualisées ; les résultats de recette historiques restent ceux du Lot 3 initial.
+
 ## Note de conception avant implémentation — 9 novembre 2026
 
 Les contrôles globaux matérialisés fournissent les contributions Comptabilisé
@@ -56,9 +61,10 @@ reconstructibles créées par la migration **0024_accounting_rollups**.
   service métier ; son montant initial n'est compté qu'une fois.
 - **Atlas retenu** = Comptabilisé corrigé et non doublon + Envoyé confirmé,
   moins les contributions dont tout le comparateur Sage est exclu par type.
-- **Sage retenu** = somme des écritures éligibles des groupes ayant une
-  contribution Atlas Comptabilisé ou Envoyé confirmée. Toutes les écritures du
-  groupe entrent, même sans proposition individuelle. Aucune jointure au montant.
+- **Sage retenu** = somme de toutes les écritures éligibles du projet/exercice,
+  avec ou sans contribution Atlas, selon les exclusions enregistrées dans la
+  campagne. Les doublons techniques prouvés sont neutralisés et tracés. Aucune
+  jointure au montant ne décide du périmètre.
 - **Ajustements** = Comptabilisé retenu avant exclusions de types + Envoyé
   confirmé − Comptabilisé initial − initial des Envoyé actuellement confirmés.
 - **Écart** = Atlas retenu − Sage retenu, arrondi par `Decimal.quantize(0.01)`
@@ -74,21 +80,22 @@ Les types sont les préfixes de trois caractères des pièces Sage du groupe.
 Une clé ODS/ODG couvrant plusieurs préfixes reste **MIXTE**, sans fractionner
 artificiellement l'Atlas. Sans preuve Sage, le type standard provient de la
 pièce Atlas ; une clé composite reste affichée ODS/ODG. **Non attribué / Non
-confirmé** porte les Envoyé sans confirmation et les montants comptabilisés
-qui ne peuvent pas être affectés aux projections existantes. Les chiffres
+confirmé** porte les Envoyé sans confirmation. Un retenu comptabilisé retiré par
+un lien périmé est conservé dans son propre groupe source avec diagnostic. Les chiffres
 initiaux des Comptabilisé suivent leur pièce source, les retenus suivent leur
 groupe actuel : un changement de type entre ces colonnes peut donc être légitime.
 
 Les écritures Sage hors rattachement et les types exclus sont comptés dans
 deux postes séparés et disjoints. Une exclusion Sage complète expose aussi
 l'Atlas correspondant hors périmètre : il ne disparaît pas silencieusement.
-Un groupe partiellement exclu est insuffisant, car la ventilation de son Atlas
-n'est pas démontrée. Un doublon Atlas exclu ne suffit pas à rattacher Sage si
+La part Atlas d'un type explicitement exclu est également retirée d'un groupe
+ODS/ODG mixte lorsque sa pièce source la détermine. Un doublon Atlas exclu ne suffit pas à rattacher Sage si
 aucune autre contribution Atlas ne subsiste ; ses montants initiaux et son
 ajustement restent visibles.
 
-Les clés incomplètes, références Sage répétées, montants absents et projections
-périmées empêchant de déterminer le périmètre produisent **Données insuffisantes**.
+Les clés ou références individuelles ambiguës restent des diagnostics. Seuls les
+montants indispensables absents et les véritables impossibilités de déterminer
+le périmètre produisent **Données insuffisantes**.
 Les totaux non calculables restent absents, jamais remplacés par 0 €. Les postes
 disponibles restent consultatifs. Une anomalie de signes ou de cardinalité seule
 ne bloque pas le cadrage. Le diagnostic existant et l'état du nouveau cadrage
@@ -186,7 +193,7 @@ dans les recettes suivantes.
    une seule fois dans l'Atlas retenu. Annuler ou refuser et vérifier l'inverse.
 4. Corriger un Comptabilisé : vérifier montant initial intact, ajustement,
    montant retenu et état courant. Tester également l'exclusion d'un doublon.
-5. Vérifier un groupe Sage sans Atlas et un type exclu : ils sont visibles hors
-   périmètre mais ne gonflent pas le Sage retenu. Vérifier aussi un projet à
+5. Vérifier un groupe Sage sans Atlas : il est inclus dans Sage retenu et son
+   écart est visible. Un type explicitement exclu reste hors périmètre. Vérifier aussi un projet à
    données insuffisantes, une ancienne campagne et les accès hors portefeuille.
 6. Vérifier les largeurs ordinateur/fenêtre étroite, le clavier et les textes longs.

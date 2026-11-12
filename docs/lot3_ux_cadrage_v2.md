@@ -1,5 +1,9 @@
 # Synthèse du cadrage : présentation compacte v2
 
+**Périmètre actualisé le 12 novembre 2026 :** les Sage sans Atlas sont inclus et
+filtrables avec les écarts. Seuls les types explicitement exclus sont hors
+périmètre. Voir le [cadrage exhaustif et le diagnostic ODA](cadrage_exhaustif_oda.md).
+
 Le décalage provenait notamment du style global `dl { display:grid;
 grid-template-columns:1fr 2fr }`, qui plaçait des montants dans une colonne
 distincte de leur libellé. La synthèse neutralise maintenant cette règle dans

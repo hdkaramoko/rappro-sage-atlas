@@ -70,7 +70,7 @@ class BapDecisionTests(TestCase):
             manual_refs=[reference], manual_confirm=True, multiple_confirm=True, acknowledge=True, **changes)
 
     def test_import_real_new_rules_and_unique_allocations(self):
-        """Les quatre AUTO réservent quatre identités distinctes ; le BAP ambigu reste manuel."""
+        """Les quatre AUTO restent uniques ; les 400 Sage non rapprochés entrent désormais dans le cadrage."""
         campaign = Campaign.objects.get(is_current=True)
         self.assertEqual(campaign.reviews.filter(decision__validation_source="AUTO").count(), 4)
         self.assertEqual(self.line("1681313").group.rule, "MATCH_BAP")
@@ -87,8 +87,8 @@ class BapDecisionTests(TestCase):
         from .accounting_models import AccountingProject
         accounting = AccountingProject.objects.get(campaign=campaign)
         self.assertEqual(accounting.atlas, Decimal("2004.91"))
-        self.assertEqual(accounting.sage, Decimal("2054.91"))
-        self.assertEqual(accounting.gap, Decimal("-50.00"))
+        self.assertEqual(accounting.sage, Decimal("2454.91"))
+        self.assertEqual(accounting.gap, Decimal("-450.00"))
         shared_piece = [c for c in contributions if c.line.transaction.source_id in ("1681313", "1681314")]
         self.assertEqual(shared_piece[0].control_id, shared_piece[1].control_id)
         self.assertNotEqual(shared_piece[0].entries, shared_piece[1].entries)

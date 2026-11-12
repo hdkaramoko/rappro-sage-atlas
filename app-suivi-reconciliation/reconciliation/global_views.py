@@ -110,8 +110,9 @@ def global_control_detail(request, pk):
     Les deux tableaux sont paginés indépendamment. Les écritures Sage viennent
     de la clé du contrôle (ou de ses preuves historiques), jamais d'un montant.
     BAP et libellés sont des données de présentation ; aucun état n'est recalculé.
+    Le diagnostic ODA préparé est joint en lecture seule, sans ajouter de décision.
     """
-    control = get_object_or_404(global_controls_for(request.user), pk=pk)
+    control = get_object_or_404(global_controls_for(request.user).select_related("accounting"), pk=pk)
     assigned = ManualAllocation.objects.filter(entry__campaign=control.campaign, entry__control_key=control.key,
         active=True, link__active=True).values("link__inventory_id")
     related = ReviewControlContext.objects.filter(campaign=control.campaign, project_code=control.project_code,

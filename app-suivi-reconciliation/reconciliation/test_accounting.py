@@ -50,15 +50,15 @@ class AccountingTests(TestCase):
         return AccountingProject.objects.get(campaign=self.campaign, project_code="P")
 
     def test_confirmed_counts_once_and_sage_without_proposal_is_included(self):
-        """6000 comptabilisés et 4000 confirmés couvrent une pièce de 10000, sans doubler Sage."""
+        """La pièce de 10000 est couverte une fois ; les 50 Sage seuls restent dans le total exhaustif."""
         initial = self.summary()
         self.assertEqual(initial.atlas, Decimal("6100"))
-        self.assertEqual(initial.sage, Decimal("10100"))
+        self.assertEqual(initial.sage, Decimal("10150"))
         self.assertEqual(Decimal(initial.data["totals"]["pending_initial"]), Decimal("4000"))
         self.assertEqual(Decimal(initial.data["totals"]["unattached_sage"]), Decimal("50"))
         self.confirm()
         result = self.summary()
-        self.assertEqual((result.atlas, result.sage, result.state), (Decimal("10100"), Decimal("10100"), "CADRE"))
+        self.assertEqual((result.atlas, result.sage, result.state), (Decimal("10100"), Decimal("10150"), "NON_CADRE"))
         fac = AccountingGroup.objects.get(control__campaign=self.campaign, control__key=self.entry().control_key)
         self.assertEqual(fac.sage, Decimal("10000"))
         self.assertEqual(fac.atlas, Decimal("10000"))
@@ -78,11 +78,11 @@ class AccountingTests(TestCase):
         self.assertEqual(accounting_state(None, Decimal(0))[0], "INSUFFISANT")
 
     def test_correction_duplicate_and_cancel_refresh_without_changing_sources(self):
-        """Les ajustements changent les chiffres retenus ; annulation et doublon conservent l'initial."""
+        """Les ajustements changent Atlas sans jamais retirer les Sage éligibles, même après exclusion de doublon Atlas."""
         source = self.inventory("C")
         before = copy.deepcopy(source.data)
         correct_inventory(source.pk, self.user, reason="AMOUNT", amount="10000", expected_version=0)
-        self.assertEqual(self.summary().state, "CADRE")
+        self.assertEqual(self.summary().gap, Decimal("-50"))
         source.refresh_from_db()
         self.assertEqual(source.data, before)
         self.assertEqual(Decimal(self.summary().data["totals"]["adjustments"]), Decimal("4000"))
@@ -91,11 +91,11 @@ class AccountingTests(TestCase):
         source.refresh_from_db()
         correct_inventory(source.pk, self.user, reason="DUPLICATE", expected_version=source.business_version)
         self.assertEqual(self.summary().atlas, Decimal("100"))
-        self.assertEqual(self.summary().sage, Decimal("100"))
+        self.assertEqual(self.summary().sage, Decimal("10150"))
         self.assertEqual(Decimal(self.summary().data["totals"]["accounted_initial"]), Decimal("6100"))
 
     def test_source_15000_corrected_to_10000_and_missing_amount_is_not_zero(self):
-        """15000 corrigés à 10000 cadrent ; une valeur source manquante reste absente, jamais zéro."""
+        """La correction laisse les 50 Sage seuls visibles ; une source absente n'est jamais remplacée par zéro."""
         records = copy.deepcopy(self.records)
         for record in records:
             if record.get("type") == "inventory" and record["atlas"]["Id"] == "C":
@@ -103,7 +103,7 @@ class AccountingTests(TestCase):
         self.campaign = self.load(records)
         source = self.inventory("C")
         correct_inventory(source.pk, self.user, reason="AMOUNT", amount="10000", expected_version=0)
-        self.assertEqual(self.summary().state, "CADRE")
+        self.assertEqual(self.summary().gap, Decimal("-50"))
         self.assertEqual(Decimal(self.summary().data["totals"]["accounted_initial"]), Decimal("15100"))
         source.data["total_sage_charges"] = None
         source.save(update_fields=["data"])
@@ -123,37 +123,37 @@ class AccountingTests(TestCase):
         self.assertEqual(list(previous.global_controls.values_list("pk", "data", "current_data")), controls)
 
     def test_link_cancellation_removes_only_confirmed_amount(self):
-        """L'annulation d'un lien retire les 4000 confirmés et rétablit le poste en attente."""
+        """L'annulation retire 4000 Atlas confirmés ; les 50 Sage sans Atlas restent inclus."""
         self.confirm()
         source = self.inventory()
         cancel_inventory_link(source.pk, self.user, expected_version=source.business_version)
-        self.assertEqual(self.summary().gap, Decimal("-4000"))
+        self.assertEqual(self.summary().gap, Decimal("-4050"))
         self.assertEqual(Decimal(self.summary().data["totals"]["confirmed"]), 0)
 
     def test_existing_validation_and_rejection_buttons_update_the_summary(self):
-        """Les décisions du parcours existant alimentent le cadrage sans créer une validation supplémentaire."""
+        """Validation puis refus changent Atlas, sans neutraliser les 50 Sage hors rapprochement."""
         line = LineReview.objects.select_related("transaction__project", "group", "campaign").get(transaction__source_id="S")
         values = {key: {"mode": "SET", "value": value} for key, value in {
             "status": "Comptabilisé", "amount": "4000", "document": "FAC123", "date": "2026-01-01"}.items()}
-        for state, expected in (("VALIDATED", "CADRE"), ("REJECTED", "NON_CADRE")):
+        for state, expected in (("VALIDATED", Decimal("-50")), ("REJECTED", Decimal("-4050"))):
             decide(line.pk, self.user, state=state, values=values, comment="Recette cadrage",
                 expected_version=line.version, expected_group_version=line.group.version,
                 expected_source=signature(line), multiple_confirm=True)
-            self.assertEqual(self.summary().state, expected)
+            self.assertEqual(self.summary().gap, expected)
             line.refresh_from_db()
             line.group.refresh_from_db()
 
     def test_exclusion_keeps_atlas_visible_outside_scope(self):
-        """Un type exclu retire son comparateur et expose l'Atlas correspondant sans le dissimuler."""
+        """Une exclusion explicite retire FAC, mais conserve les 50 Sage sans Atlas des autres types."""
         self.campaign.sage_inventory.filter(document="FAC123").update(eligible=False)
         result = refresh_project(self.campaign, "P")
         self.assertEqual(result.atlas, Decimal("100"))
-        self.assertEqual(result.sage, Decimal("100"))
+        self.assertEqual(result.sage, Decimal("150"))
         self.assertEqual(Decimal(result.data["totals"]["outside_atlas"]), Decimal("6000"))
         self.assertEqual(Decimal(result.data["totals"]["excluded_sage"]), Decimal("10000"))
 
     def test_compensating_local_gaps_keep_project_balanced_and_totals_reconcile(self):
-        """Deux écarts locaux se compensent au projet ; les postes par type reconstituent ses totaux."""
+        """Les écarts locaux se compensent, mais les 50 Sage seuls restent un écart légitime du projet."""
         self.confirm()
         controls = list(self.campaign.global_controls.order_by("pk"))
         attached = [c for c in controls if (c.current_data or c.data).get("atlas_count")]
@@ -163,26 +163,26 @@ class AccountingTests(TestCase):
             control.current_data = data
             control.save(update_fields=["current_data"])
         result = refresh_project(self.campaign, "P")
-        self.assertEqual(result.state, "CADRE")
+        self.assertEqual(result.state, "NON_CADRE")
         self.assertTrue(AccountingGroup.objects.filter(campaign=self.campaign, state="NON_CADRE", data__attached=True).exists())
         self.assertEqual(sum(Decimal(t["atlas"]) for t in result.data["types"]), result.atlas)
         self.assertEqual(sum(Decimal(t["sage"]) for t in result.data["types"]), result.sage)
 
     def test_incomplete_ods_and_reference_collision_are_not_false_balances(self):
-        """Une clé ODS incomplète ou une référence Sage dupliquée rend le périmètre insuffisant."""
+        """Une clé ODS incomplète reste un diagnostic ; un doublon Sage prouvé est neutralisé sans faux équilibre."""
         control = self.campaign.global_controls.get(data__identity__strategy="ODS_ODG_BY_GROUP")
         data = copy.deepcopy(control.data)
         data["identity"]["parts"][-1] = ""
         control.current_data = data
         control.save(update_fields=["current_data"])
         result = refresh_project(self.campaign, "P")
-        self.assertEqual(result.state, "INSUFFISANT")
-        self.assertIsNone(result.atlas)
+        self.assertEqual(result.state, "NON_CADRE")
+        self.assertIsNotNone(result.atlas)
         entry = self.entry()
         entry.pk = None
         entry.record_id = "f" * 64
         entry.save(force_insert=True)
-        self.assertTrue(any("répétée" in issue for issue in refresh_project(self.campaign, "P").data["issues"]))
+        self.assertTrue(any("Doublon" in issue for issue in refresh_project(self.campaign, "P").data["diagnostics"]))
 
     def test_views_filters_permissions_links_and_readonly_consultation(self):
         """Les pages autonomes préservent filtres et retours ; aucun accès direct hors portefeuille."""

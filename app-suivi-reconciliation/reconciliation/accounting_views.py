@@ -100,8 +100,9 @@ def accounting_detail(request, pk):
     Le résultat enregistré est consultatif. Les liens descendants portent un
     retour local contrôlé ; les décisions restent dans les fiches existantes.
     Les filtres type_state et group_state restent indépendants. L'écart stocké
-    est comparé à zéro sans arrondi/tolérance supplémentaire. Les groupes hors
-    périmètre ou insuffisants ne sont jamais qualifiés d'équilibrés par la vue.
+    est comparé à zéro sans arrondi/tolérance supplémentaire. Les groupes exclus
+    ou insuffisants ne sont jamais qualifiés d'équilibrés. Les Sage sans Atlas
+    restent comparables après reconstruction du périmètre exhaustif.
     """
     summary = get_object_or_404(AccountingProject.objects.select_related("campaign").filter(campaign__published=True,
         project_code__in=projects_for(request.user).values("code")), pk=pk)
@@ -110,7 +111,9 @@ def accounting_detail(request, pk):
     kinds = [row["type"] for row in types]
     kind = request.GET.get("type", "")
     rows = AccountingGroup.objects.filter(campaign=summary.campaign, project_code=summary.project_code)
-    in_scope = Q(data__attached=True, data__excluded=False)
+    in_scope = Q(data__excluded=False)
+    if summary.data.get("accounting_policy") != "exhaustive-sage-v1":
+        in_scope &= Q(data__attached=True)
     type_statuses = {row["piece_type"]: row for row in rows.values("piece_type").annotate(
         attached=Count("pk", filter=in_scope), insufficient=Count("pk", filter=in_scope & Q(state="INSUFFISANT")))}
     shown_types = []

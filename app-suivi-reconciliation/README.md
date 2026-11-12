@@ -1,5 +1,10 @@
 # Validation des rapprochements Atlas / Sage
 
+Le [cadrage exhaustif et le diagnostic ODA](../docs/cadrage_exhaustif_oda.md)
+incluent toutes les écritures Sage éligibles, même sans Atlas. Pour une campagne
+déjà importée, reconstruire les agrégats après essai sur copie ; aucun nouveau
+JSONL ni migration n’est nécessaire pour cette évolution.
+
 L’[import Excel des utilisateurs](../docs/import_utilisateurs_excel.md) est
 accessible dans Administration → Utilisateurs. Les comptes sont créés sans
 portefeuille ; leurs projets sont attribués ensuite par l’import existant.

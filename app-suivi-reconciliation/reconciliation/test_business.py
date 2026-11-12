@@ -469,7 +469,7 @@ class BusinessTests(TestCase):
         self.assertTrue(event.after["controls"])
 
     def test_large_unrelated_inventory_does_not_expand_confirmation_queries(self):
-        """2000 pièces supplémentaires ne déclenchent ni calcul complet ni N+1 lors d'un clic."""
+        """2000 Sage seuls entrent au cadrage ; les détails manquants sont créés en lots, sans N+1 ni recalcul métier global."""
         source = self.entry().data["entry"]
         rows = []
         for i in range(2000):
@@ -482,9 +482,17 @@ class BusinessTests(TestCase):
         CampaignSageEntry.objects.bulk_create(rows, batch_size=500)
         with CaptureQueriesContext(connection) as queries, patch("reconciliation.global_control.campaign_controls", wraps=campaign_controls) as calculate:
             self.confirm()
-        self.assertLess(len(queries), 90)
+        # L'exhaustivité exige désormais les contrôles techniques manquants pour
+        # ces écritures ajoutées après import. Isoler les seuls INSERT en lots
+        # conserve le budget historique du reste de l'opération.
+        control_inserts = sum(query["sql"].lstrip().startswith('INSERT INTO "reconciliation_campaignglobalcontrol"') for query in queries)
+        group_inserts = sum(query["sql"].lstrip().startswith('INSERT INTO "reconciliation_accountinggroup"') for query in queries)
+        self.assertLessEqual(control_inserts, 40)
+        self.assertLessEqual(group_inserts, 42)
+        self.assertLess(len(queries) - control_inserts - group_inserts, 90)
         self.assertTrue(all(call.kwargs.get("keys") is not None and len(call.kwargs["keys"]) <= 2 for call in calculate.call_args_list))
         self.assertEqual(self.result()["state"], "EQUILIBRE")
+        self.assertEqual(self.campaign.accounting_projects.get(project_code="P").sage, Decimal("8010150"))
 
     def test_corrected_auto_is_not_automatically_reactivated_in_next_campaign(self):
         """La correction persiste mais ne réactive jamais à elle seule une décision AUTO."""

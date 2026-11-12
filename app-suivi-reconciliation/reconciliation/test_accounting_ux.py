@@ -91,7 +91,7 @@ class AccountingUXTests(TestCase):
         self.assertEqual(self.client.get(url, {"campaign": "invalide"}).status_code, 200)
 
     def test_independent_filters_use_stored_gaps_and_keep_unknown_in_all(self):
-        """Les écarts nuls comparables sont équilibrés ; insuffisants et hors périmètre restent dans Toutes."""
+        """Les Sage seuls sont des écarts filtrables ; insuffisants et types exclus restent dans Toutes."""
         all_rows = self.detail()
         self.assertEqual(len(all_rows.context["type_rows"]), len(self.summary().data["types"]))
         response = self.detail(type_state="gap", group_state="balanced")
@@ -99,7 +99,7 @@ class AccountingUXTests(TestCase):
         self.assertTrue(all(row.state == "CADRE" and row.data["attached"] for row in response.context["page"]))
         response = self.detail(type_state="balanced", group_state="gap")
         self.assertEqual([r["type"] for r in response.context["type_rows"]], ["ODG"])
-        self.assertEqual(response.context["page"].paginator.count, 1)
+        self.assertEqual(response.context["page"].paginator.count, 2)
         group = self.campaign.accounting_groups.get(piece_type="ODG")
         group.state = "INSUFFISANT"
         group.save(update_fields=["state"])

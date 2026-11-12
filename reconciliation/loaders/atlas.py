@@ -26,7 +26,14 @@ def validate_atlas_columns(columns: pd.Index) -> None:
 
 
 def load_atlas(path: str | Path, *, year: int | None = None) -> pd.DataFrame:
-    """Empile les feuilles valides puis conserve le premier exemplaire de chaque Id."""
+    """Charge `path` XLSX, filtre `year` puis conserve le premier exemplaire de chaque Id.
+
+    Retourne un DataFrame typé, ses compteurs de doublons/conflits et deux
+    colonnes décimales sources privées pour les charges EUR de l'inventaire.
+    Ces colonnes évitent un passage par float dans les calculs comptables sans
+    changer les colonnes historiques du matching. Lève AtlasLoaderError si
+    fichier invalide, Id absent ou population annuelle vide. Lecture seule.
+    """
     try:
         source = validate_path(path, ".xlsx")
         frames = []
@@ -73,6 +80,27 @@ def load_atlas(path: str | Path, *, year: int | None = None) -> pd.DataFrame:
         conflicting_ids = int(conflicting.sum())
         if conflicting_ids:
             logger.warning("Atlas : %s Id contradictoires ; contrôles multiples indéterminés", conflicting_ids)
+        from reconciliation_contract.atlas_context import ATLAS_CONTEXT, ATLAS_CONTEXT_ALIASES, context_number
+        for column, aliases in ATLAS_CONTEXT_ALIASES.items():
+            for alias in aliases:
+                if alias in result:
+                    if column in result:
+                        raise AtlasLoaderError(f"Colonnes en double : {column} et {alias}")
+                    result[column] = result[alias]
+        for column in ATLAS_CONTEXT:
+            if column in result:
+                try:
+                    result[column] = result[column].map(
+                        lambda value: context_number(None if pd.isna(value) else value)
+                    )
+                except ValueError as exc:
+                    raise AtlasLoaderError(f"Colonne {column} : {exc}") from exc
+        from reconciliation_contract import money
+        for column, target in (("Total charges SAGE (€)", "_total_sage_decimal"),
+                               ("Total charges projet (€)", "_total_project_decimal")):
+            if column in result:
+                values = result[column].str.replace(r"[ \u00a0\u202f]", "", regex=True).str.replace(",", ".", regex=False)
+                result[target] = values.map(lambda value: str(money(value)) if money(value) is not None else None)
         type_columns(
             result, config.ATLAS_TEXT_COLUMNS, config.ATLAS_DATE_COLUMNS,
             config.ATLAS_NUMERIC_COLUMNS, config.ATLAS_INTEGER_COLUMNS,

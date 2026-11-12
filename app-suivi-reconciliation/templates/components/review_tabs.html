@@ -1,0 +1,4 @@
+<nav class="journey-tabs" aria-label="Vues de Mes rapprochements">
+<a href="{% url 'reconciliation:reviews' %}" {% if active_view != 'controls' %}aria-current="page"{% endif %}>Envoyé SAGE</a>
+<a href="{% url 'reconciliation:reviews' %}?view=controls" {% if active_view == 'controls' %}aria-current="page"{% endif %}>Contrôle des montants</a>
+</nav>

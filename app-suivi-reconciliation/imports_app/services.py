@@ -147,6 +147,14 @@ def _parse_new(values: dict, row_number: int) -> dict:
     data["suggestion_total_sage_charges"] = _decimal(
         data["suggestion_total_sage_charges"], row_number, "Suggestion - Total charges SAGE (€)"
     )
+    from reconciliation_contract.atlas_context import ATLAS_CONTEXT, context_number
+
+    for column, field in ATLAS_CONTEXT.items():
+        try:
+            value = context_number(values.get(column))
+        except ValueError as exc:
+            raise ImportValidationError(f"Ligne {row_number}, colonne {column} : {exc}") from exc
+        data[field] = Decimal(value) if value is not None else None
     return data
 
 

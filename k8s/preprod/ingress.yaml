@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+
+metadata:
+  name: rappro-sage-atlas-preprod
+  namespace: user-hdkaramoko
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "5121m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+
+spec:
+  ingressClassName: nginx
+
+  rules:
+    - host: rappro-sage-atlas-preprod.lab.sspcloud.fr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: rappro-sage-atlas-preprod
+                port:
+                  number: 80

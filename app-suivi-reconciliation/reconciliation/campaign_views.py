@@ -163,6 +163,9 @@ def campaign_review(request, pk):
         "payment_method": "Moyen de paiement",
         "total_project_charges": "Charges projet (€)",
         "total_sage_charges": "Charges SAGE (€)",
+        "rebillable_amount": "Montant refacturables",
+        "planned_unit_price": "Prix unitaire prévu",
+        "unit_count": "Nombre d'unités",
         "sage_document_number": "Pièce dans Atlas",
         "accounting_date": "Date comptable",
     }
@@ -174,6 +177,9 @@ def campaign_review(request, pk):
         "reconciliation/campaign_review.html",
         {
             "snapshot": row,
+            "piece_check": row.group.data.get("piece_coherence"),
+            "piece_active": row.campaign.metadata.get("piece_coherence_mode") == "ACTIVE",
+            "piece_assignment": row.decision.get("automatic_assignment"),
             "source_fields": [(label, row.source.get(key)) for key, label in source_labels.items()],
             "comparison_label": COMPARISONS.get(row.comparison, row.comparison),
             "validated_at": parse_datetime(row.decision.get("validated_at") or ""),
@@ -186,7 +192,13 @@ def campaign_review(request, pk):
 @login_required
 @require_GET
 def campaign_export(request, pk):
-    """Exporte les corrections actuelles dans la photographie choisie, avec provenance."""
+    """Exporte en XLSX les décisions validées et actuelles de la campagne pk autorisée.
+
+    Lit uniquement les photographies et conserve la provenance. Les liens Lot 2
+    fournissent leurs allocations réelles dans la colonne manuelle existante,
+    sans devenir des preuves moteur. Montants EUR en Decimal, lecture par lots,
+    aucun recalcul ni modification des sources/décisions. Retourne HttpResponse.
+    """
     campaign = get_object_or_404(campaigns_for(request.user), pk=pk)
     rows = reviews_for(request.user).filter(
         campaign=campaign, decision__state="VALIDATED", decision__current=True
@@ -220,6 +232,9 @@ def campaign_export(request, pk):
         "Affectation métier",
         "Écritures SAGE affectées",
         "Diagnostic multiples",
+        "Origine de décision",
+        "Règle automatique",
+        "Affectation automatique SAGE",
     ]
     sheet = book.create_sheet("Corrections validées")
     sheet.append(headers)
@@ -249,9 +264,12 @@ def campaign_export(request, pk):
                 decision.get("actor"),
                 decision.get("origin_name"),
                 decision.get("origin_id") != campaign.pk,
-                "MANUAL_MATCH" if decision.get("manual_assignment") else "",
-                json.dumps(decision.get("manual_assignment", []), ensure_ascii=False),
+                "INVENTORY_MANUAL" if decision.get("inventory_link") else "MANUAL_MATCH" if decision.get("manual_assignment") else "",
+                json.dumps((decision.get("inventory_link") or {}).get("allocations", decision.get("manual_assignment", [])), ensure_ascii=False),
                 json.dumps(decision.get("multiple_diagnostic", {}), ensure_ascii=False),
+                decision.get("validation_source", "MANUAL"),
+                decision.get("auto_validation_rule", ""),
+                json.dumps(decision.get("automatic_assignment", {}), ensure_ascii=False),
             ]
             cells = []
             for value in values:

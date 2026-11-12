@@ -17,7 +17,14 @@ from reconciliation.exporters.review import export_review_bundle
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Charge et rapproche ; retourne 0 en succès, 1 en erreur de traitement."""
+    """Exécute la CLI sur `argv` (liste de chaînes ou arguments du processus).
+
+    Charge les extractions, rapproche sans modifier la cascade et publie les
+    sorties demandées. Le JSONL CLI inclut l'inventaire Sage v3 déclaré et les
+    exclusions figées de config.py. Retourne 0 en succès, 1 si traitement en
+    échec ; argparse lève SystemExit pour options invalides. Lit les sources et
+    écrit les exports/trace, sans accès à la base Django.
+    """
     parser = argparse.ArgumentParser(description="Rapprocher les extractions Atlas et Sage")
     parser.add_argument("--atlas", required=True, help="Chemin du JDD .xlsx")
     parser.add_argument("--sage", required=True, help="Chemin du CSV Sage annuel")
@@ -25,6 +32,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trace", help="Journal JSONL ; par défaut <output>.tentatives.jsonl")
     parser.add_argument("--trace-mode", choices=("compact", "detailed"), default="compact")
     parser.add_argument("--review-output", help="Propositions JSONL pour l'application de validation")
+    parser.add_argument("--legacy-review-output", action="store_true",
+                        help="Produit le contrat v3 historique sans inventaire Sage (compatibilité)")
     parser.add_argument("--campaign-name", help="Nom de la campagne de validation")
     parser.add_argument("--accounted-amount-field", choices=("total_sage_charges", "total_project_charges"),
                         default="total_sage_charges",
@@ -79,13 +88,16 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 logging.info("Ecriture des propositions pour validation")
                 from reconciliation.multiples import build_controls
+                from reconciliation.config import SAGE_EXCLUDED_PREFIXES
                 controls = build_controls(frames['Atlas'], frames['Sage'], result,
                                           amount_field=args.accounted_amount_field,
-                                          tolerance=args.multiple_tolerance)
+                                          tolerance=args.multiple_tolerance,
+                                          excluded_prefixes=None if args.legacy_review_output else SAGE_EXCLUDED_PREFIXES)
                 path = export_review_bundle(frames["Atlas"], frames["Sage"], result, args.review_output,
                                            campaign_name=args.campaign_name, scope=args.campaign_scope,
                                            year=args.year,
                                            controls=controls, amount_field=args.accounted_amount_field,
+                                           include_sage_inventory=not args.legacy_review_output,
                                            tolerance=args.multiple_tolerance,
                                            source_paths={"Atlas": args.atlas, "SAGE": args.sage})
             except (ValueError, OSError) as exc:

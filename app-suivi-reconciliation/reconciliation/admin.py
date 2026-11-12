@@ -7,6 +7,8 @@ from .models import (
     CampaignGroup,
     CampaignInventory,
     CampaignReview,
+    CampaignSageEntry,
+    CampaignGlobalControl,
     LineReview,
     ReconciliationTransaction,
     ReviewEvent,
@@ -15,10 +17,15 @@ from .models import (
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
+    """Expose en consultation les modèles audités, y compris les photographies lot 1."""
     def get_queryset(self, request):
-        """N'expose pas les preuves d'une campagne en cours de préparation."""
+        """Retourne le QuerySet de consultation autorisé pour la requête admin.
+
+        Masque les photographies Atlas/Sage, groupes, décisions et contrôles
+        globaux liés à une campagne non publiée. Aucun effet de bord en base.
+        """
         rows = super().get_queryset(request)
-        if self.model in (CampaignGroup, CampaignInventory, CampaignReview):
+        if self.model in (CampaignGroup, CampaignInventory, CampaignReview, CampaignSageEntry, CampaignGlobalControl):
             rows = rows.filter(campaign__published=True)
         return rows
 
@@ -55,5 +62,5 @@ class TransactionAdmin(ReadOnlyAdmin):
 admin.site.register(ReviewGroup, ReadOnlyAdmin)
 admin.site.register(LineReview, ReadOnlyAdmin)
 admin.site.register(ReviewEvent, ReadOnlyAdmin)
-for model in (Campaign, CampaignGroup, CampaignInventory, CampaignReview):
+for model in (Campaign, CampaignGroup, CampaignInventory, CampaignReview, CampaignSageEntry, CampaignGlobalControl):
     admin.site.register(model, ReadOnlyAdmin)

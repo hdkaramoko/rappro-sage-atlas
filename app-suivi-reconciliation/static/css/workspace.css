@@ -166,3 +166,149 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
 .manual-assignment #id_manual_refs>div{padding:8px 12px;margin:6px 0;background:#f5f7fc;border:1px solid #e0e7f2;border-radius:8px}
 .manual-assignment output{display:block;padding:10px 12px;background:#eef3ff;border-radius:8px;margin:12px 0;font-size:12px}
 .manual-assignment small{display:block;color:#64748b;line-height:1.5}
+
+/* Contrôles des multiples : mêmes cartes et actions que les rapprochements. */
+.multiple-detail-stack {display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+.multiple-summary {grid-template-columns:repeat(3,minmax(0,1fr))}
+.multiple-summary dd {font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.multiple-table {table-layout:fixed}
+.multiple-table th {white-space:normal;overflow-wrap:anywhere}
+.multiple-table td {white-space:normal;overflow-wrap:anywhere}
+.multiple-table .numeric {white-space:nowrap}
+.multiple-table.atlas-composition th:nth-child(2) {width:25%}
+.multiple-table.sage-entries th:nth-child(3) {width:35%}
+.multiple-table th,.multiple-table td {padding:12px 10px}
+.multiple-arbitration {display:grid;gap:18px}
+.multiple-arbitration .field label {margin:0}
+.multiple-arbitration select,.multiple-arbitration textarea {display:block;margin-top:7px}
+.multiple-arbitration .button {justify-self:start}
+.badge.decision-status {font-size:14px;padding:10px 16px;border:1px solid currentColor;white-space:normal}
+.badge.decision-status.success {border-color:#b8dec9;background:#e8f5ee;color:#18714f}
+.badge.decision-status svg {width:19px;height:19px}
+.piece-comparison {margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
+.piece-comparison summary {cursor:pointer;color:var(--blue);font-size:13px;font-weight:650;padding:5px 0}
+.piece-comparison summary:focus-visible {outline:3px solid #93b4ff;outline-offset:3px;border-radius:4px}
+.piece-comparison .table-scroll {margin-top:12px}.piece-comparison caption {text-align:left;padding:8px 0;font-size:11px}
+@media(max-width:1200px){.multiple-table {table-layout:auto}.multiple-table.atlas-composition {min-width:860px}.multiple-table.sage-entries {min-width:660px}.multiple-table .multiple-label {min-width:180px;max-width:380px}}
+@media(max-width:760px){.multiple-summary {grid-template-columns:1fr}.multiple-summary dd {font-size:20px}}
+
+/* Les filtres s'adaptent à la largeur disponible, y compris sidebar repliée. */
+.journey-tabs {display:flex;gap:12px;margin:18px 0;border-bottom:1px solid var(--line)}
+.journey-tabs a {padding:12px;text-decoration:none;border-bottom:3px solid transparent}
+.journey-tabs a[aria-current] {border-color:var(--blue);font-weight:700}
+.multi-filter {position:relative;min-width:140px}
+.multi-filter summary,.revision-panel>summary {cursor:pointer;padding:12px;border:1px solid var(--line);border-radius:8px}
+.multi-filter summary span {display:block;font-size:12px;color:var(--muted)}
+.multi-filter fieldset {position:absolute;top:100%;left:0;z-index:12;background:white;border:1px solid var(--line);border-radius:8px;padding:12px;min-width:240px;max-height:300px;overflow:auto;box-shadow:0 6px 18px #0002}
+.multi-filter label {display:flex;gap:8px;align-items:center;padding:7px 4px;font-weight:400}
+.multi-filter input[type=checkbox] {width:auto;margin:0}
+.multi-filter summary:focus-visible,.revision-panel>summary:focus-visible {outline:3px solid #93b4ff;outline-offset:2px}
+.revision-panel {margin:18px 0}.revision-panel>summary {font-weight:600}.revision-panel>form {padding:16px 0}
+.review-filter-layout {container-type:inline-size}
+.review-filter-layout .review-filters {grid-template-columns:repeat(3,minmax(0,1fr))}
+.review-filters .field {min-width:0}
+.review-filters .search-field {grid-column:span 2}
+.review-filters .origin-filter {width:140px;max-width:100%}
+.review-filters .page-size-filter {width:70px;max-width:100%}
+@container (min-width:1100px) {
+  .review-filter-layout .review-filters {grid-template-columns:repeat(4,minmax(140px,1fr)) minmax(200px,2fr) 70px}
+  .review-filters .search-field {grid-column:auto}
+}
+@container (max-width:700px) {
+  .review-filter-layout .review-filters {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .review-filters .search-field {grid-column:1/-1}
+}
+@container (max-width:400px) {
+  .review-filter-layout .review-filters {grid-template-columns:minmax(0,1fr)}
+  .review-filters .filter-actions {flex-wrap:wrap;justify-content:flex-start}
+}
+
+/* Fiches de contrôle : espacement explicite et textes source contenus dans la carte. */
+.control-detail-stack {display:grid;grid-template-columns:minmax(0,1fr);gap:22px;min-width:0}
+.control-detail-stack>.card,.control-detail-stack>.revision-panel,.control-detail-stack>.page-heading {margin:0}
+.control-detail-stack .card {min-width:0;background:var(--surface)}
+.control-detail-stack h2 {margin-top:0}
+.control-detail-stack .summary-grid {grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.control-detail-stack .summary-grid>div,.control-detail-stack .page-heading>div {min-width:0}
+.control-detail-stack dd,.control-detail-stack p,.control-detail-stack li,.control-detail-stack h1,
+.control-detail-stack td,.control-detail-stack .notice {overflow-wrap:anywhere;white-space:normal}
+.control-detail-stack dd {margin-left:0}
+.source-identity {padding-bottom:20px;margin-bottom:20px;border-bottom:1px solid var(--line)}
+.consultation-panel {margin-top:22px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.consultation-panel>summary,.inventory-page>.revision-panel>summary {display:flex;align-items:center;gap:10px;cursor:pointer;padding:14px;list-style:none;font-weight:650}
+.consultation-panel>summary::-webkit-details-marker,.inventory-page>.revision-panel>summary::-webkit-details-marker {display:none}
+.consultation-panel>summary::before,.inventory-page>.revision-panel>summary::before {content:'›';font-size:22px;line-height:1;transition:transform .15s}
+.consultation-panel[open]>summary::before,.inventory-page>.revision-panel[open]>summary::before {transform:rotate(90deg)}
+.consultation-panel>summary:focus-visible {outline:3px solid #93b4ff;outline-offset:3px}
+.disclosure-body {padding:0 18px 14px 40px}
+.inventory-page>.revision-panel {padding:18px}
+.business-mode-tabs {display:flex;flex-wrap:wrap;gap:6px;padding:6px;background:var(--bg);border:1px solid var(--line);border-radius:10px;margin:18px 0 10px}
+.business-mode-tabs a {flex:1;padding:12px 16px;text-align:center;border-radius:7px;text-decoration:none;font-weight:650}
+.business-mode-tabs a[aria-current],.business-mode-tabs a[aria-selected=true] {background:var(--blue);color:white}
+.business-mode-panel[hidden] {display:none!important}
+.business-mode-panel {min-width:0;padding-top:12px}
+.business-mode-panel .filter-bar {flex-wrap:wrap}
+.business-mode-panel .filter-bar>p {flex:1 1 180px;min-width:0}
+.business-mode-panel .field {margin:16px 0}
+.business-mode-panel form+form {margin-top:16px}
+.business-mode-panel .errorlist {color:var(--danger)}
+.mode-help {color:var(--muted);font-size:13px}
+.atlas-lines-table {min-width:560px;table-layout:fixed;width:100%}
+.atlas-lines-table td {vertical-align:top}
+.business-events {list-style:none;margin:0;padding:0;display:grid;gap:16px}
+.business-events>li {padding:0 0 16px 16px;border-left:3px solid var(--line);border-bottom:1px solid var(--line);min-width:0}
+.business-events>li:last-child {border-bottom:0;padding-bottom:0}
+.business-events p {margin:6px 0}
+.filter-hint {display:block;color:var(--muted);font-size:11px}
+@media(max-width:700px) {
+  .control-detail-stack {gap:18px}
+  .control-detail-stack .summary-grid {grid-template-columns:minmax(0,1fr)}
+  .business-mode-tabs {flex-direction:column}
+  .inventory-page>.revision-panel {padding:14px}
+}
+@media(prefers-reduced-motion:reduce) {.consultation-panel>summary::before,.inventory-page>.revision-panel>summary::before {transition:none}}
+
+/* Cadrage autonome : chiffres essentiels et details accessibles. */
+.accounting-kpis {display:flex;flex-wrap:wrap;gap:16px;margin:18px 0}
+.accounting-kpis .card {display:flex;gap:12px;align-items:center;flex:1;min-width:180px}
+.accounting-kpis strong {font-size:24px}
+.accounting-filters {flex-wrap:wrap}
+.accounting-filters .field {flex:1;min-width:180px}
+.accounting-table {width:100%}
+.accounting-table .numeric {text-align:right;font-variant-numeric:tabular-nums}
+.accounting-table td:first-child {max-width:340px;overflow-wrap:anywhere;white-space:normal}
+.accounting-detail .badge {white-space:normal}
+.accounting-table-filter {display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:16px 0}
+.accounting-table-filter .field {min-width:190px}
+.accounting-detail dl {margin:0;min-width:0}
+.accounting-detail dt {font-size:12px;color:var(--muted)}
+/* Le dl global de l'application est en colonnes : ici chaque valeur reste sous son libellé. */
+.accounting-financial-summary {display:grid;gap:14px;margin:16px 0}
+.accounting-financial-summary dl {display:block;margin:0;min-width:0}
+.accounting-financial-summary dt,.accounting-financial-summary dd {padding:0;margin:0;text-align:left;overflow-wrap:anywhere}
+.accounting-reference-grid,.accounting-result-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.accounting-metric-card {padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--surface);min-width:0}
+.accounting-reference-grid .accounting-metric-card {background:var(--bg)}
+.accounting-financial-summary .accounting-main-amount {margin-top:4px;font-size:clamp(22px,2.4vw,30px);font-weight:750;line-height:1.25;font-variant-numeric:tabular-nums;white-space:normal}
+.accounting-financial-summary .accounting-breakdown {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.accounting-breakdown>div,.accounting-complementary>div {min-width:0}
+.accounting-breakdown dd {margin-top:3px;font-weight:650;font-variant-numeric:tabular-nums}
+.accounting-gap-card {border-color:#c8d3e8}
+.accounting-gap-card .badge {margin-top:10px}
+.accounting-financial-summary .accounting-complementary {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;padding:14px 0 0;border-top:1px solid var(--line)}
+.accounting-complementary dd {margin-top:4px;font-weight:650;font-variant-numeric:tabular-nums}
+.accounting-detail .accounting-summary-note {font-size:12px;color:var(--muted);margin:12px 0}
+#accounting-groups,#accounting-types {scroll-margin-top:24px}
+@media(max-width:1100px){.accounting-financial-summary .accounting-complementary {grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.accounting-reference-grid,.accounting-result-grid {grid-template-columns:minmax(0,1fr)}.accounting-table-filter .field {width:100%}.accounting-metric-card {padding:14px}}
+@media(max-width:400px){.accounting-financial-summary .accounting-breakdown {grid-template-columns:minmax(0,1fr)}}
+@media(max-width:850px){.accounting-secondary {display:none}.accounting-table {min-width:640px}.accounting-detail .page-heading {align-items:flex-start;flex-direction:column}}
+.work-table .sage-choice-cell{width:64px;text-align:center;vertical-align:middle;padding:6px}
+.sage-choice-target{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;cursor:pointer}
+.sage-choice-target input.sage-choice{width:18px;height:18px;min-width:18px;min-height:18px;margin:0;padding:0;accent-color:var(--color-primary);cursor:pointer}
+.sage-choice-target input.sage-choice:focus-visible{outline:3px solid #2553e8;outline-offset:3px}
+.sage-choice-target input.sage-choice:disabled{opacity:.5;cursor:not-allowed}
+.bap-reference{overflow-wrap:anywhere;white-space:normal;max-width:240px}
+.atlas-lines-table,.sage-control-table{min-width:720px}
+.atlas-lines-table td,.sage-control-table td{overflow-wrap:anywhere;max-width:360px}
+#atlas-lines,#sage-lines{scroll-margin-top:24px}

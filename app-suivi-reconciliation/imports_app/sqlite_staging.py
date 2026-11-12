@@ -20,21 +20,31 @@ STAGED = (
     "reconciliation_campaigninventory",
     "reconciliation_campaigngroup",
     "reconciliation_multiplecontrol",
+    "reconciliation_campaignsageentry",
+    "reconciliation_campaignglobalcontrol",
+    "reconciliation_accountinggroup",
+    "reconciliation_accountingproject",
 )
 PROJECTED = (
     "projects_project",
     "reconciliation_reconciliationtransaction",
     "reconciliation_reviewgroup",
+    "reconciliation_atlasadjustment",
+    "reconciliation_manualreconciliation",
+    "reconciliation_manualallocation",
+    "reconciliation_campaignaction",
     "reconciliation_linereview",
     "reconciliation_reviewevent",
     "reconciliation_campaignreview",
+    "reconciliation_reviewcontrolcontext",
     "reconciliation_controlcontribution",
 )
 CAMPAIGN = "reconciliation_campaign"
 REVISION = "reconciliation_importrevision"
 BATCH = 500
 LABELS = dict(
-    zip(STAGED, ("Inventaire", "Preuves des groupes", "Contrôles des multiples"), strict=True)
+    zip(STAGED, ("Inventaire", "Preuves des groupes", "Contrôles des multiples",
+                 "Inventaire Sage", "Contrôles globaux", "Groupes de cadrage", "Synthèses de cadrage"), strict=True)
 )
 
 
@@ -95,10 +105,14 @@ def write_batch(db, progress, phase, *, expected=None):
 
 
 def clear_unpublished(db, progress):
-    """Nettoie uniquement les lots invisibles d'un import interrompu."""
+    """Nettoie les lots invisibles d'un import interrompu, enfants avant parents.
+
+    Préserve les campagnes publiées ; l'ordre inverse protège les références
+    des groupes de cadrage aux contrôles. Les écritures restent par lots atomiques.
+    """
     # Une interruption pendant publication est annulée par SQLite ; les seules
     # traces possibles sont les tables de staging avec published=0.
-    for table in STAGED:
+    for table in reversed(STAGED):
         while True:
             with write_batch(db, progress, "Nettoyage des lots non publiés"):
                 cursor = db.execute(
@@ -232,7 +246,13 @@ def stage_and_publish(db, maxima, expected, *, job, count, progress):
 
 
 def staged_import(path, *, job=None, directory, progress):
-    """Exécute le circuit SQLite complet sans verrou de la base métier pendant les calculs."""
+    """Prépare la copie SQLite puis publie atomiquement, sans maintenance dans l'import.
+
+    Le JSONL est validé et committé sur copie privée ; les statistiques puis le
+    cadrage y sont préparés hors transaction englobante. Toute erreur empêche la
+    publication et conserve la campagne active. Les synthèses sont transférées
+    avec leurs contrôles, sans modifier leurs valeurs ni le protocole de publication.
+    """
     from reconciliation.review_import import import_bundle
 
     from .models import MatchingJob
@@ -265,7 +285,18 @@ def staged_import(path, *, job=None, directory, progress):
         with private_database(private):
             progress("Préparation et contrôles hors base métier")
             private_job = MatchingJob.objects.get(pk=job.pk) if job else None
-            count = import_bundle(path, job=private_job, progress=progress)
+            from reconciliation.sqlite_statistics import defer_private_accounting, maintain_statistics
+            from reconciliation.accounting import prepare_campaign
+            from reconciliation.models import Campaign
+            with defer_private_accounting():
+                count = import_bundle(path, job=private_job, progress=progress)
+            campaign = Campaign.objects.filter(is_current=True, pk__gt=maxima[CAMPAIGN]).first()
+            if campaign is not None:
+                maintenance = maintain_statistics(after_import=True)
+                progress("Statistiques SQLite : " + maintenance["status"], seconds=round(maintenance["seconds"], 3))
+                if maintenance["status"] in ("failed", "deferred"):
+                    raise ValidationError("Maintenance SQLite indisponible sur copie : publication annulée")
+                prepare_campaign(campaign, progress=progress)
         with Path(path).open("rb") as source:
             if hashlib.file_digest(source, "sha256").hexdigest() != expected_hash:
                 raise ValidationError("Le fichier a changé pendant la préparation")
@@ -274,6 +305,11 @@ def staged_import(path, *, job=None, directory, progress):
             stage_and_publish(db, maxima, expected, job=job, count=count, progress=progress)
         finally:
             db.execute("DETACH DATABASE prepared")
+        # Publication déjà committée : un échec de maintenance reste un avertissement,
+        # jamais une annulation fictive d'un import réussi. Aucune préparation ici.
+        if campaign is not None:
+            maintenance = maintain_statistics(after_import=True)
+            progress("Statistiques SQLite publiées : " + maintenance["status"], seconds=round(maintenance["seconds"], 3))
         return count
     finally:
         db.close()

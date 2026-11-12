@@ -54,7 +54,16 @@ def load_sage(
     decimal: str = config.SAGE_CSV_DECIMAL,
     year: int | None = None,
 ) -> pd.DataFrame:
-    """Charge une année et supprime seulement les lignes sources identiques."""
+    """Charge le CSV `path`, déduplique les lignes identiques et filtre `year`.
+
+    Les paramètres d'encodage/séparateur/décimale suivent la configuration.
+    Retourne un DataFrame typé et ses compteurs ; `_charges_decimal` conserve
+    les charges EUR sources sans passage par float pour l'inventaire. Les
+    identifiants restent textuels. `_sage_source_fingerprint` signe la ligne
+    source dédupliquée avant typage pour conserver les collisions distinctes.
+    Lève SageLoaderError si lecture impossible
+    ou année vide. Seule la lecture du fichier constitue un effet de bord.
+    """
     try:
         source = validate_path(path, ".csv")
         if separator not in (None, ";", ",") or decimal not in (".", ","):
@@ -69,6 +78,21 @@ def load_sage(
         rows_read = len(result)
         # Avant conversion : deux représentations distinctes ne sont pas des doublons stricts.
         result = result.drop_duplicates(keep="first", ignore_index=True)
+        from reconciliation_contract import digest
+        source_columns = list(result.columns)
+        result["_sage_source_fingerprint"] = [
+            digest({column: None if pd.isna(value) else str(value)
+                    for column, value in zip(source_columns, values)})
+            for values in result.itertuples(index=False, name=None)
+        ]
+        if "Charges (Dépenses)" in result:
+            from reconciliation_contract import money
+            values = result["Charges (Dépenses)"].str.replace(r"[ \u00a0\u202f]", "", regex=True)
+            if decimal == ",":
+                values = values.str.replace(",", ".", regex=False)
+            result["_charges_decimal"] = values.map(
+                lambda value: str(money(value)) if money(value) is not None else None
+            )
         type_columns(
             result, config.SAGE_TEXT_COLUMNS, config.SAGE_DATE_COLUMNS,
             config.SAGE_NUMERIC_COLUMNS, config.SAGE_INTEGER_COLUMNS, decimal,

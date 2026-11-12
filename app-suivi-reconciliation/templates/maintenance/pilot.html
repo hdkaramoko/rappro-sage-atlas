@@ -1,0 +1,11 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p><strong>État actuel : {{ configuration.get_state_display }}</strong></p>
+<p>{% if configuration.updated_at %}Dernier changement : {{ configuration.updated_at|date:"d/m/Y H:i:s" }} · {{ configuration.actor|default:"Exploitation serveur" }}{% else %}Configuration initiale : aucun changement.{% endif %}</p>
+<p role="note"><strong>Avant toute migration ou maintenance lourde, vérifiez la fin des imports et traitements en cours.</strong> L’activation bloque les nouvelles requêtes ; elle n’interrompt pas les opérations déjà lancées.</p>
+<p>La date est informative : elle ne déclenche aucune activation automatique et n’annonce pas une heure de reprise.</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<div class="submit-row"><input type="submit" value="Enregistrer l’état" class="default"></div></form>
+<h2>Derniers changements</h2><div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Auteur</th><th>Ancien état</th><th>Nouvel état</th><th>Message / motif</th></tr></thead><tbody>
+{% for event in events %}<tr><td>{{ event.created_at|date:"d/m/Y H:i:s" }}</td><td>{{ event.actor_label }}</td><td>{{ event.previous_state }}</td><td>{{ event.next_state }}</td><td>{{ event.message }}{% if event.reason %} · {{ event.reason }}{% endif %}</td></tr>{% empty %}<tr><td colspan="5">Aucun changement enregistré.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

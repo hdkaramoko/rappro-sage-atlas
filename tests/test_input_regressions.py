@@ -18,6 +18,7 @@ from reconciliation.transformations.sage import transform_sage
 
 
 def test_sage_sentinel_dates_descriptive_vat_and_trailing_separator(tmp_path):
+    """Préserve dates invalides signalées, colonne CSV vide et charges décimales exactes."""
     source = tmp_path / "ZLISTPJT.csv"
     source.write_text(
         "Projet;Numéro pièce;Date comptable;Date modification;Date début de prestation;"
@@ -32,7 +33,8 @@ def test_sage_sentinel_dates_descriptive_vat_and_trailing_separator(tmp_path):
     assert sage.attrs["typing_issues"] == {"Date modification": 1, "Date début de prestation": 1, "Taux de TVA": 1}
     assert sage["Charges (Dépenses)"].iloc[0] == 1000
     assert sage["Numéro pièce"].iloc[0] == "00001"
-    assert sage.iloc[:, -1].isna().all()
+    assert sage["Unnamed: 10"].isna().all()
+    assert sage["_charges_decimal"].iloc[0] == "1000.00"
     atlas, _ = frames()
     result = match_reconciliations(atlas, transform_sage(sage))
     assert result.iloc[0].match_rule == "MATCH_EXACT"

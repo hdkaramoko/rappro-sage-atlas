@@ -52,6 +52,83 @@ def proposal(rows, key="group", **changes):
 
 
 class CampaignTests(TestCase):
+    def test_batched_snapshots_and_project_cache(self):
+        from unittest.mock import patch
+
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        rows = [atlas(str(n)) for n in range(5)]
+        proposals = [proposal([row], key=f"group-{n}") for n, row in enumerate(rows)]
+        with (
+            patch("reconciliation.campaigns.BATCH_SIZE", 2),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            campaign = self.load(inventory=rows, proposals=proposals)
+        self.assertEqual(campaign.reviews.count(), 5)
+        project_reads = [q for q in queries if 'FROM "projects_project"' in q["sql"]]
+        self.assertEqual(len(project_reads), 1)
+        inserts = [q for q in queries if 'INSERT INTO "reconciliation_campaignreview"' in q["sql"]]
+        self.assertEqual(len(inserts), 3)
+
+    def test_late_failure_rolls_back_already_flushed_snapshots(self):
+        from unittest.mock import patch
+
+        from .models import CampaignReview, ReviewGroup
+
+        rows = [atlas(str(n)) for n in range(5)]
+        proposals = [proposal([row], key=f"group-{n}") for n, row in enumerate(rows)]
+        # Le dernier groupe contredit l'inventaire après deux lots déjà écrits.
+        proposals[-1]["atlas"] = [atlas("missing")]
+        with patch("reconciliation.campaigns.BATCH_SIZE", 2), self.assertRaises(ValidationError):
+            self.load(inventory=rows, proposals=proposals)
+        self.assertFalse(Campaign.objects.exists())
+        self.assertFalse(CampaignReview.objects.exists())
+        self.assertFalse(ReviewGroup.objects.exists())
+
+    def test_import_hash_never_loads_whole_file(self):
+        from unittest.mock import patch
+
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("Full file read")):
+            campaign = self.load()
+        self.assertEqual(campaign.reviews.count(), 1)
+
+    def test_atlas_context_changes_require_reexamination(self):
+        """Chaque champ invalide la reprise ; null/zéro et six décimales restent distincts."""
+        from reconciliation_contract.atlas_context import ATLAS_CONTEXT
+
+        for column, field in ATLAS_CONTEXT.items():
+            with self.subTest(column=column):
+                row = atlas(**{column: "1.123456"})
+                first = self.load(inventory=[row], proposals=[proposal([row])])
+                self.validate()
+                same = self.load(inventory=[row], proposals=[proposal([row])])
+                self.assertEqual(same.reviews.get().comparison, "CARRIED")
+                changed = atlas(**{column: "1.123457"})
+                current = self.load(inventory=[changed], proposals=[proposal([changed])])
+                self.assertEqual(current.reviews.get().comparison, "CHANGED")
+                self.assertIn(field, current.inventory.get().differences)
+                self.assertEqual(first.reviews.get().source[field], "1.123456")
+                self.assertFalse(is_current(LineReview.objects.get()))
+                self.assertIn(column, " ".join(current.reviews.get().reasons))
+                self.validate()
+                zero = atlas(**{column: "0"})
+                self.load(inventory=[zero], proposals=[proposal([zero])])
+                self.validate()
+                absent = self.load()
+                self.assertEqual(absent.reviews.get().comparison, "CHANGED")
+                self.assertIsNone(getattr(LineReview.objects.get().transaction, field))
+
+    def test_context_mismatch_or_invalid_number_rolls_back(self):
+        """Les valeurs incohérentes, infinies ou trop précises ne sont jamais arrondies."""
+        for value in ("NaN", "Infinity", "texte", "0.1234567"):
+            row = atlas(**{"Nombre d'unités": value})
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                self.load(inventory=[row], proposals=[proposal([row])])
+        with self.assertRaises(ValidationError):
+            self.load(inventory=[atlas()], proposals=[proposal([atlas(**{"Nombre d'unités": 1})])])
+        self.assertFalse(Campaign.objects.exists())
+
     def test_annual_campaigns_compare_only_the_same_year(self):
         first = self.load(year=2026)
         self.validate()

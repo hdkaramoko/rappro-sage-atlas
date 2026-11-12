@@ -13,6 +13,16 @@ load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "cle-locale-a-remplacer")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
+# Politique simple : chaque campagne SQLite complète justifie des statistiques fraîches.
+# Aucun seuil de volume arbitraire ; les actions métier ne déclenchent pas ce service.
+SQLITE_STATISTICS_AUTO = os.getenv("SQLITE_STATISTICS_AUTO", "true").lower() == "true"
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"statistics_console": {"class": "logging.StreamHandler"}},
+    "loggers": {"reconciliation.sqlite_statistics": {
+        "handlers": ["statistics_console"], "level": "INFO", "propagate": False}},
+}
 ALLOWED_HOSTS = [
     h.strip() for h in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 ]
@@ -20,6 +30,8 @@ ALLOWED_HOSTS = [
 CSRF_TRUSTED_ORIGINS = [
     "https://user-hdkaramoko-807581-0.user.lab.sspcloud.fr",
     "https://rappro-sage-atlas.lab.sspcloud.fr",
+    "https://rappro-sage-atlas-dev.lab.sspcloud.fr",
+    "https://rappro-sage-atlas-preprod.lab.sspcloud.fr",
 ]
 
 INSTALLED_APPS = [
@@ -35,14 +47,16 @@ INSTALLED_APPS = [
     "reconciliation",
     "imports_app",
     "dashboard",
+    "maintenance",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
+    "maintenance.middleware.MaintenanceSafeSessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "maintenance.middleware.MaintenanceMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -108,6 +122,15 @@ LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "dashboard:index"
 LOGOUT_REDIRECT_URL = "login"
 
+# Expiration après 10 minutes sans requête HTTP, renouvelée à chaque requête.
+SESSION_COOKIE_AGE = 600
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+
 MATCHING_JOB_ROOT = BASE_DIR / "var" / "matching"
 MATCHING_MAX_FILE_BYTES = 5 * 1024**3
-FILE_UPLOAD_HANDLERS = ["django.core.files.uploadhandler.TemporaryFileUploadHandler"]
+FILE_UPLOAD_HANDLERS = ["imports_app.upload_handlers.HashedTemporaryFileUploadHandler"]
+
+# L'import de comptes utilise exclusivement un tampon RAM borné par requête.
+USER_IMPORT_MAX_BYTES = int(os.getenv("USER_IMPORT_MAX_BYTES", str(5 * 1024**2)))
+USER_IMPORT_MAX_ROWS = int(os.getenv("USER_IMPORT_MAX_ROWS", "500"))

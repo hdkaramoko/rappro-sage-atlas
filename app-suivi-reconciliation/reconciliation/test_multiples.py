@@ -14,6 +14,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, connections
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
+from django.utils import timezone
 from openpyxl import load_workbook
 from reconciliation_contract import control_identity, entry_from_sage, snapshot
 
@@ -28,6 +29,93 @@ from .review_import import import_bundle
 
 class MultipleTests(TestCase):
     """Vérifie les décisions, reports et exports avec deux groupes sur une même pièce."""
+
+    def test_multiple_presentation_preserves_sources_and_review_actions(self):
+        """Les colonnes métier remplacent les regroupements sans modifier les preuves."""
+        control = MultipleControl.objects.first()
+        original = copy.deepcopy(control.data)
+        response = self.client.get(
+            reverse("reconciliation:multiples", args=[control.campaign_id])
+        )
+        self.assertContains(response, 'class="button compact ghost"')
+        self.assertContains(
+            response, reverse("reconciliation:multiple-detail", args=[control.pk])
+        )
+        response = self.client.get(
+            reverse("reconciliation:multiple-detail", args=[control.pk])
+        )
+        for label in ("Synthèse", "ID Atlas", "N° pièce Atlas", "N° pièce SAGE"):
+            self.assertContains(response, label)
+        self.assertNotContains(response, "Libellé / tiers")
+        self.assertNotContains(response, "Pièce / date")
+        self.assertNotContains(response, "<th>Référence</th>")
+        self.assertContains(response, 'name="version"')
+        self.assertContains(response, 'name="state"')
+        self.assertContains(response, 'name="comment"')
+        control.refresh_from_db()
+        self.assertEqual(control.data, original)
+
+    def test_prominent_validation_uses_existing_decision_state(self):
+        """Le badge suit la décision et sa date locale affichée, même autour de minuit UTC."""
+        self.validate()
+        line = LineReview.objects.get(transaction__source_id="A")
+        url = reverse("reconciliation:review-detail", args=[line.pk])
+        response = self.client.get(url)
+        self.assertContains(response, 'badge success decision-status')
+        self.assertContains(response, "Validé</span>")
+        self.assertContains(response, str(self.user))
+        self.assertContains(response, timezone.localtime(line.validated_at).strftime("%d/%m/%Y"))
+        LineReview.objects.filter(pk=line.pk).update(state="REJECTED")
+        response = self.client.get(url)
+        self.assertContains(response, 'badge danger decision-status')
+        self.assertNotContains(response, 'badge success decision-status')
+        LineReview.objects.filter(pk=line.pk).update(state="VALIDATED")
+        line.transaction.atlas_label = "Source modifiée"
+        line.transaction.save(update_fields=["atlas_label"])
+        response = self.client.get(url)
+        self.assertContains(response, 'badge warning decision-status')
+        self.assertNotContains(response, 'badge success decision-status')
+
+    def test_new_atlas_context_preserves_v3_controls_and_invalidates_validation(self):
+        """Le contexte enrichi ne change pas les preuves multiples ; sa variation invalide A."""
+        records = copy.deepcopy(self.records)
+        for record in records:
+            rows = (
+                [record["atlas"]]
+                if record.get("type") == "inventory"
+                else (record["atlas"] if record.get("type") == "proposal" else [])
+            )
+            for row in rows:
+                if row["Id"] == "A":
+                    row.update(
+                        {
+                            "Montant refacturables": "0",
+                            "Prix unitaire prévu": "12.123456",
+                            "Nombre d'unités": "2.5",
+                        }
+                    )
+        self.load(records)
+        self.validate()
+        self.assertEqual(
+            self.load(records).reviews.get(source__source_id="A").comparison, "CARRIED"
+        )
+        line = LineReview.objects.get(transaction__source_id="A")
+        response = self.client.get(reverse("reconciliation:review-detail", args=[line.pk]))
+        self.assertContains(response, "Montant refacturables")
+        self.assertContains(response, "Prix unitaire prévu")
+        self.assertContains(response, "12,123456")
+        for record in records:
+            rows = (
+                [record["atlas"]]
+                if record.get("type") == "inventory"
+                else (record["atlas"] if record.get("type") == "proposal" else [])
+            )
+            for row in rows:
+                if row["Id"] == "A":
+                    row["Nombre d'unités"] = "2.6"
+        self.assertEqual(
+            self.load(records).reviews.get(source__source_id="A").comparison, "CHANGED"
+        )
 
     @classmethod
     def setUpClass(cls):
@@ -72,6 +160,10 @@ class MultipleTests(TestCase):
     def load(self, records=None):
         """Importe atomiquement une variante du fichier fictif."""
         path = Path(self.folder.name) / "input.jsonl"
+        records = copy.deepcopy(records or self.records)
+        # Une nouvelle campagne a une identité documentaire distincte ; les
+        # réimports des mêmes octets sont désormais volontairement idempotents.
+        records[0]["name"] = f"Campagne {Campaign.objects.count() + 1}"
         path.write_text(
             "\n".join(json.dumps(r, ensure_ascii=False) for r in (records or self.records)),
             encoding="utf-8",
@@ -151,8 +243,8 @@ class MultipleTests(TestCase):
         self.assertEqual(result.group.match_status, "MATCHED")
         self.assertTrue(result.multiple_diagnostic["derogation"])
 
-    def test_validate_button_accepts_manual_assignment_and_risk_without_checkboxes(self):
-        """Le POST Valider suffit ; preuves, justification et dérogation restent historisées."""
+    def test_validate_button_cannot_override_selected_entry_capacity(self):
+        """Le POST Valider ne permet pas de dépasser la capacité en sélectionnant une écriture entière."""
         self.validate("A")
         line = LineReview.objects.select_related("campaign", "group", "transaction").get(
             transaction__source_id="B"
@@ -181,13 +273,11 @@ class MultipleTests(TestCase):
         line.refresh_from_db()
         self.assertEqual(line.state, "DRAFT")
         data["comment"] = "Pièce partagée vérifiée par le métier"
-        self.assertEqual(self.client.post(url, data).status_code, 302)
+        response = self.client.post(url, data)
+        self.assertContains(response, "capacité Sage")
         line.refresh_from_db()
-        self.assertEqual(line.state, "VALIDATED")
-        event = line.events.get().snapshot
-        self.assertEqual(event["matching_decision"], "MANUAL_MATCH")
-        self.assertTrue(event["multiple_diagnostic"]["derogation"])
-        self.assertEqual(event["comment"], data["comment"])
+        self.assertEqual(line.state, "DRAFT")
+        self.assertFalse(ControlContribution.objects.filter(control__campaign=line.campaign, line=line).exists())
 
     def test_identical_campaign_carries_and_collective_excess_invalidates_all(self):
         """Un report sûr est conservé ; un risque collectif invalide toutes les reprises."""
@@ -296,8 +386,12 @@ class MultipleTests(TestCase):
         )
 
     def test_select_two_individual_entries_and_changed_proof(self):
-        """Deux écritures restent sélectionnables séparément ; leur somme est contrôlée."""
+        """Deux écritures disponibles sont sélectionnables ; leur somme et leur disparition sont contrôlées."""
         records = copy.deepcopy(self.records)
+        # Isoler la sélection : aucune AUTO B ne consomme la capacité de cette recette.
+        for record in records:
+            if record.get("type") == "proposal":
+                record.pop("auto_validation", None)
         proposal = next(
             r for r in records if r.get("type") == "proposal" and r["atlas"][0]["Id"] == "A"
         )
@@ -340,9 +434,13 @@ class MultipleTests(TestCase):
                 if r.get("type") == "inventory" and r["atlas"]["Id"] == "C"
             )
         )
-        raw.update({"Id": "ODS-A", "N° pièce SAGE": "ODS-ATLAS", "Libellé ATLAS": "Café Mission"})
+        raw.update({"Id": "ODS-A", "N° pièce SAGE": "ODS-ATLAS", "Libellé ATLAS": "Texte Atlas", "Libellé SAGE": "Café Mission"})
         records.insert(1, {"type": "inventory", "atlas": raw})
         source = normalize_inventory(raw, extended=True)
+        # Les preuves moteur contiennent le contrat multiple, pas le contexte de validation.
+        from reconciliation_contract.atlas_context import ATLAS_CONTEXT
+
+        source = {key: value for key, value in source.items() if key not in ATLAS_CONTEXT.values()}
         entry = entry_from_sage(
             {
                 "Projet": "P",
@@ -387,7 +485,7 @@ class MultipleTests(TestCase):
         self.assertEqual(newer.controls.get(strategy="ODS_ODG_BY_GROUP").state, "TO_REVIEW")
 
     def test_unknown_policy_blocks_without_bypassing_and_historical_v2_remains_readable(self):
-        """Une confirmation utilisateur ne remplace jamais un calcul impossible."""
+        """Refuse un calcul impossible ; le v2 historique reste lisible sans les politiques réservées au v3."""
         records = copy.deepcopy(self.records)
         records[0]["amount_field"] = None
         for r in records:
@@ -401,7 +499,10 @@ class MultipleTests(TestCase):
         self.validate()
         old = [r for r in copy.deepcopy(self.records) if r.get("type") != "control"]
         old[0]["schema_version"] = 2
+        old[0].pop("ods_label_policy", None)
+        old[0].pop("ods_party_policy", None)
         old[0]["controls_available"] = False
+        old[0]["piece_coherence_mode"] = "DIAGNOSTIC"
         for r in old:
             if r.get("type") == "proposal":
                 r["schema_version"] = 2

@@ -22,14 +22,22 @@ spec:
         
       containers:
         - name: rappro-sage-atlas
-          image: ghcr.io/hdkaramoko/rappro-sage-atlas:0.1
+          image: ghcr.io/hdkaramoko/rappro-sage-atlas:prod-<sha>
           imagePullPolicy: Always
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
 
           ports:
             - containerPort: 8000
 
           env:
-            - name: DEBUG
+            - name: DJANGO_DEBUG
               value: "False"
 
             - name: DJANGO_ALLOWED_HOSTS

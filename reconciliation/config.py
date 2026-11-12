@@ -13,7 +13,7 @@ ATLAS_DATE_COLUMNS = (
     "Date début", "Date fin", "Date comptable", "Date d'import", "Modifié le",
 )
 ATLAS_NUMERIC_COLUMNS = (
-    "Nombre d'unités", "Total charges Atlas (en devise)", "Taux de change",
+    "Total charges Atlas (en devise)", "Taux de change",
     "Total charges projet (€)", "Total charges SAGE (€)", "Ecart comptable",
 )
 ATLAS_INTEGER_COLUMNS = ("Année",)
@@ -84,3 +84,14 @@ SAGE_CANONICAL_COLUMNS = {
     "label": "Libellé pièce",
     "third_party": "Nom du Tiers",
 }
+
+# Validation métier : activation explicite, après tous les contrôles du moteur.
+AUTO_VALIDATION = {"enabled": True, "statuses": ["MATCH_CONFIRMED_ATLAS", "MATCH_EXACT", "MATCH_AMOUNT",
+                                              "MATCH_FUZZY_HIGH", "MATCH_FUZZY_REVIEW", "MATCH_WITHOUT_LABEL",
+                                              "MATCH_BAP", "MATCH_INDIVIDUAL"]}
+
+# Diagnostic par défaut ; ACTIVE autorise la validation collective explicite.
+PIECE_COHERENCE = {"enabled": True, "mode": "ACTIVE"}
+
+# Liste d'exclusion validée par le métier, vide tant qu'aucun préfixe n'est décidé.
+SAGE_EXCLUDED_PREFIXES = []

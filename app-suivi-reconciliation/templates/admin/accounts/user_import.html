@@ -1,0 +1,27 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p>Classeur <strong>.xlsx</strong> · feuille <strong>data</strong> · colonnes exactes <strong>nom, prénom, username, mdp</strong>.</p>
+<p>Maximum {{ max_mb }} Mo et {{ max_rows }} lignes. Saisissez les quatre colonnes au format Texte dans Excel. Aucun compte existant ni mot de passe existant ne sera modifié.</p>
+<p><strong>Comptes créés sans portefeuille ; attribuez ensuite les périmètres depuis <a href="{% url 'projects:portfolio-import' %}">Importer des portefeuilles</a>.</strong></p>
+{% if result %}
+<div class="messagelist" role="status"><p>{{ result.created|length }} compte(s) créé(s) · {{ result.ignored|length }} ignoré(s), déjà présent(s).</p></div>
+<p>Lignes créées : {{ result.created|join:", "|default:"aucune" }}. Lignes ignorées : {{ result.ignored|join:", "|default:"aucune" }}.</p>
+<p><a href="{% url 'admin:accounts_user_changelist' %}">Voir les utilisateurs</a> · <a href="{% url 'admin:accounts-user-import' %}">Nouvel import</a></p>
+{% else %}
+{% if errors %}<div role="alert"><p><strong>{% if uncertain %}Résultat non confirmé : vérifiez les comptes avant de recommencer.{% else %}Import rejeté : aucun compte créé.{% endif %}</strong></p><ul class="errorlist">{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+{{ form.errors }}
+{% if preview %}
+<h2>Aperçu sans mot de passe</h2><p>{{ preview|length }} ligne(s) · {{ create_count }} compte(s) à créer. Les comptes déjà présents seront ignorés.</p>
+<div style="overflow-x:auto"><table><thead><tr><th>Ligne</th><th>Nom</th><th>Prénom</th><th>Username</th><th>Résultat prévu</th></tr></thead><tbody>
+{% for row in preview %}<tr><td>{{ row.number }}</td><td>{{ row.last_name }}</td><td>{{ row.first_name }}</td><td>{{ row.username }}</td><td>{% if row.existing %}Ignoré : déjà présent{% else %}À créer{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>
+{% endif %}
+<form method="post" enctype="multipart/form-data">{% csrf_token %}
+{% if token %}<p>Pour confirmer, sélectionnez de nouveau <strong>le même fichier</strong>. Il n’est pas conservé entre les deux étapes. Confirmation valable dix minutes.</p>{% endif %}
+<p>{{ form.workbook.label_tag }} {{ form.workbook }}</p>
+<input type="hidden" name="action" value="{% if token %}confirm{% else %}preview{% endif %}">
+{% if token %}<input type="hidden" name="token" value="{{ token }}">{% endif %}
+<div class="submit-row"><input class="default" type="submit" value="{% if token %}Confirmer l’import{% else %}Contrôler et afficher l’aperçu{% endif %}"></div>
+</form>
+{% endif %}
+{% endblock %}

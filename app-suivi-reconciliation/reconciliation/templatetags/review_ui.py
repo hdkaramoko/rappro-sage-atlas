@@ -141,3 +141,10 @@ def page_link(context, parameter, number):
     query = context["request"].GET.copy()
     query[parameter] = number
     return "?" + query.urlencode()
+
+
+@register.filter
+def ods_party_label(value):
+    """Affiche le marqueur d'absence d'une clé ODS sans l'exposer comme une donnée source."""
+    from reconciliation_contract.ods_party import ABSENT
+    return "Non renseigné (vide/NA)" if value == ABSENT else value or "—"

@@ -86,6 +86,8 @@ def control_identity(row, *, sage=False):
     Les ODS comptabilisés du nouveau contrat comparent Libellé SAGE Atlas au
     Libellé pièce Sage. Envoyé SAGE et anciens contrats gardent Libellé ATLAS.
     La sélection du libellé ne change pas la normalisation ni la clé standard.
+    La politique ODS versionnée assimile seulement les tiers absents entre eux,
+    dans la clé technique ; les sources et les anciennes campagnes sont préservées.
     """
     project = text(row.get("project_code")).upper()
     year = row.get("fiscal_year")
@@ -95,10 +97,11 @@ def control_identity(row, *, sage=False):
     ods = is_ods(document, row.get("journal", ""))
     parts = [project, year]
     if ods:
+        from .ods_party import party_key
         parts += [
-            text(
+            party_key(text(
                 row.get("third_party") if sage else row.get("sage_third_party_code")
-            ).upper(),
+            ).upper()),
             label(row.get("label") if sage else atlas_control_label(row)),
         ]
     else:

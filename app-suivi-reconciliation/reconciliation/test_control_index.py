@@ -60,7 +60,12 @@ class ControlIndexTests(TestCase):
         with CaptureQueriesContext(connection) as queries:
             response = self.client.get(reverse("reconciliation:reviews"), {"view": "controls", "origin": ""})
         self.assertEqual(response.status_code, 200)
-        control_queries = [query["sql"] for query in queries if 'FROM "reconciliation_campaignglobalcontrol"' in query["sql"]]
+        # L'unique requête d'options de types est distincte des comptages et
+        # lectures paginées, dont le budget et l'absence de calcul restent vérifiés.
+        type_options = [query["sql"] for query in queries if 'AS "filter_piece_type"' in query["sql"]]
+        self.assertEqual(len(type_options), 1)
+        control_queries = [query["sql"] for query in queries if 'FROM "reconciliation_campaignglobalcontrol"' in query["sql"]
+                           and 'AS "filter_piece_type"' not in query["sql"]]
         self.assertTrue(any("COUNT(" in sql for sql in control_queries))
         for sql in control_queries:
             if "COUNT(" in sql or "LIMIT" in sql:

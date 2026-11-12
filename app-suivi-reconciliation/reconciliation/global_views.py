@@ -2,8 +2,9 @@
 
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import F, Q
-from django.db.models.functions import Coalesce
+from django.db.models import Case, CharField, F, Q, Value, When
+from django.db.models.functions import Coalesce, NullIf, Substr, Upper
+from django.db.models.fields.json import KeyTextTransform
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_GET
 
@@ -26,6 +27,20 @@ def global_controls_for(user):
             result=Coalesce("current_data", "data"), pending=F("has_pending"))
 
 
+def with_piece_type(rows):
+    """Annote le type des contrôles autorisés, sans recalcul ni écriture.
+
+    Réutilise la projection de cadrage si disponible ; le JSON est le repli des
+    anciens contrôles. Les groupes composites conservent le libellé ODS/ODG.
+    """
+    fallback = Case(When(result__identity__strategy="ODS_ODG_BY_GROUP", then=Value("ODS/ODG")),
+        default=Coalesce(NullIf(Upper(Substr(KeyTextTransform.from_lookup("result__identity__parts__2"), 1, 3)), Value("")), Value("NA")),
+        output_field=CharField())
+    return rows.annotate(filter_piece_type=Case(
+        When(accounting__piece_type__in=["ODS", "ODG", "ODS/ODG", "MIXTE"], then=Value("ODS/ODG")),
+        default=Coalesce(F("accounting__piece_type"), fallback), output_field=CharField()))
+
+
 def control_workspace(request):
     """Affiche les anomalies courantes par défaut, avec filtres et pagination serveur.
 
@@ -39,12 +54,16 @@ def control_workspace(request):
     Origine utilise en SQL les compteurs de sources et confirmations du résultat
     courant, jamais les montants. Sans inventaire Sage complet, l'origine reste
     inconnue ; Toutes conserve ces groupes ainsi que les sources exclues.
-    Sans paramètre origin, Présentes dans les deux est le défaut ; une valeur
-    vide explicite conserve Toutes, y compris après pagination.
+    Origine et Type de pièce valent Toutes par défaut. Le type filtre côté
+    serveur avant pagination, sans modifier les calculs ni étendre les droits.
     """
     campaign = Campaign.objects.filter(is_current=True).first()
     rows = global_controls_for(request.user).filter(campaign=campaign)
     projects = list(rows.order_by("project_code").values_list("project_code", flat=True).distinct())
+    kinds = list(with_piece_type(rows).order_by("filter_piece_type").values_list("filter_piece_type", flat=True).distinct())
+    chosen_types = selections(request.GET, "piece_type", kinds)
+    if chosen_types:
+        rows = with_piece_type(rows).filter(filter_piece_type__in=chosen_types)
     selected = selections(request.GET, "project", projects)
     states = [("EQUILIBRE", "Équilibré"), ("ECART", "Écart"), ("INDETERMINE", "À revoir"), ("EXCLU", "Exclu")]
     legacy = {"ANOMALY": ["ECART", "INDETERMINE"], "RECONCILED": ["EQUILIBRE"], "EXCLUDED": ["EXCLU"]}
@@ -62,7 +81,7 @@ def control_workspace(request):
         rows = rows.filter(condition)
     chosen = list(dict.fromkeys(state for value in chosen for state in legacy.get(value, [value])))
     origins = [("atlas", "Atlas uniquement"), ("sage", "Sage uniquement"), ("both", "Présentes dans les deux")]
-    origin = selections(request.GET, "origin", [key for key, _ in origins], ("both",))
+    origin = selections(request.GET, "origin", [key for key, _ in origins])
     if origin:
         from reconciliation_contract.sage_inventory import CAPABILITY
         if campaign is None or CAPABILITY not in campaign.metadata.get("capabilities", []):
@@ -94,6 +113,7 @@ def control_workspace(request):
         "page": page, "search": search,
         "filter_menus": [filter_menu("project", "Projet", [(p, p) for p in projects], selected),
                          filter_menu("control_state", "État du contrôle", states, chosen),
+                         filter_menu("piece_type", "Type de pièce", [(kind, "Type inconnu" if kind == "NA" else kind) for kind in kinds], chosen_types),
                          filter_menu("origin", "Origine", origins, origin)],
         "page_range": page.paginator.get_elided_page_range(page.number)})
 

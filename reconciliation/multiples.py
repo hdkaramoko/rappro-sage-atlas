@@ -11,6 +11,7 @@ from reconciliation_contract import (
     snapshot,
 )
 from decimal import Decimal
+from reconciliation_contract.ods_party import party_context
 
 INVENTORY = {
     "Code projet": "project_code",
@@ -63,6 +64,7 @@ def inventory_rows(atlas):
         yield row
 
 
+@party_context(new=True)
 def build_controls(atlas, sage, result, *, amount_field="total_sage_charges", tolerance="0.01", excluded_prefixes=None):
     """Indexe les pièces utiles sur SAGE complet, sans produit Atlas × SAGE.
 
@@ -73,6 +75,7 @@ def build_controls(atlas, sage, result, *, amount_field="total_sage_charges", to
     Retourne un itérateur de photographies v3 signées, montants EUR individuels
     et tolérance décimale en euros. Les exclusions invalides lèvent ValueError.
     Aucun accès SQL ni écriture de fichier ; mémoire proportionnelle aux clés utiles.
+    Les nouvelles clés ODS assimilent NA et vide sans modifier les champs sources.
     """
     identities, accounted, evidence = {}, defaultdict(list), defaultdict(list)
     from reconciliation_contract.sage_inventory import exclusion_policy

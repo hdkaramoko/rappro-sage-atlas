@@ -382,14 +382,15 @@ class JourneyTests(TestCase):
         response = self.client.get(self.list_url, {"view": "controls", "origin": ""})
         self.assertContains(response, "FAC999")
 
-    def test_origin_defaults_to_both_and_all_is_explicit(self):
-        """Le défaut et Réinitialiser ciblent les deux sources ; Toutes reste sélectionnable."""
+    def test_origin_defaults_to_all_and_both_is_explicit(self):
+        """Le défaut et Réinitialiser montrent Toutes ; Présentes dans les deux reste un choix explicite."""
         response = self.origin_rows()
         menu = next(m for m in response.context["filter_menus"] if m["name"] == "origin")
-        self.assertEqual(menu["selected"], ["both"])
-        self.assertEqual(response.context["page"].paginator.count, 2)
+        self.assertEqual(menu["selected"], [])
+        self.assertEqual(response.context["page"].paginator.count, 3)
         self.assertEqual(self.origin_rows(origin="").context["page"].paginator.count, 3)
-        self.assertNotContains(response, "Pièce FAC999")
+        self.assertContains(response, "Pièce FAC999")
+        self.assertEqual(self.origin_rows(origin="both").context["page"].paginator.count, 2)
 
     def test_replacement_preview_shows_old_and_new_and_keeps_history(self):
         """Un remplacement exige confirmation explicite et conserve les cibles avant/après."""

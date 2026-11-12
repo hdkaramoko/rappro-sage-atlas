@@ -9,6 +9,7 @@ from django.utils import timezone
 from reconciliation_contract import STANDARD, compare, control_identity, digest, entry_from_sage, money
 from reconciliation_contract.fuzzy_safety import INDIVIDUAL_RULES
 from reconciliation_contract.matching_policy import rule_tolerance
+from reconciliation_contract.ods_party import party_context
 
 from .models import Campaign, ControlContribution, MultipleControl, MultipleEvent
 
@@ -95,6 +96,7 @@ def compatible_exact_peer(line, contribution):
         return False
 
 
+@party_context()
 def context_for(line):
     """Signe les preuves fixes pertinentes ; ne signe jamais le solde des autres décisions."""
     from .review import effective
@@ -204,6 +206,7 @@ def selection_values(line, values, selection, automatic_fields=()):
     return result
 
 
+@party_context()
 def allocation_plan(line, resolved, selection, *, verified_entry=None):
     """Décompose une réservation par pièce, sans sommer un total de groupe répété.
 

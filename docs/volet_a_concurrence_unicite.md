@@ -2,7 +2,8 @@
 
 Le garde bilatéral distingue désormais une ligne Atlas déjà comptabilisée d'une
 ligne réellement susceptible de consommer la même écriture Sage. Ce traitement
-est activé uniquement pour `MATCH_FUZZY_HIGH`, à l'export et au contrôle serveur.
+est activé pour `MATCH_FUZZY_HIGH`, à l'export et au contrôle serveur, et désormais
+pour `MATCH_BAP` : voir [le correctif tiers/BAP/filtres](correctifs_tiers_ods_bap_filtres.md).
 Les autres catégories conservent leurs contrôles précédents.
 
 Une concurrente comptabilisée est écartée uniquement si son projet, exercice,

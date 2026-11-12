@@ -5,11 +5,13 @@ from reconciliation_contract.auto_validation import AUTO_VALIDATION_RULES
 from reconciliation_contract import compare, control_identity, digest, entry_from_sage
 from reconciliation_contract.fuzzy_safety import STRUCTURED_RULES, INDIVIDUAL_RULES, FuzzySafety
 from reconciliation_contract.matching_policy import RESIDUAL_RULES, precise_source, rule_tolerance
+from reconciliation_contract.ods_party import party_context
 from .models import ControlContribution, LineReview, ReviewEvent
 from .review import FIELDS, decide, is_current, signature
 from .campaigns import decision_record
 
 
+@party_context()
 def automatic_blockers(campaign):
     """Recense les conflits avant toute AUTO, indépendamment de l'ordre des lignes.
 

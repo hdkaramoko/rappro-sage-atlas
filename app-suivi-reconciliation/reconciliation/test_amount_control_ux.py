@@ -168,10 +168,13 @@ class AmountControlUXTests(TestCase):
         self.assertContains(response, reverse("reconciliation:inventory-detail", args=[inventory.pk]) + "?return=")
 
     def test_state_filter_does_not_load_json_for_count_or_page(self):
-        """La multisélection conserve le comptage SQL léger et le chargement d'une seule page."""
+        """La multisélection garde comptage et page légers ; les options de types ont leur unique requête distincte."""
         with CaptureQueriesContext(connection) as queries:
             self.workspace(control_state=["ECART", "INDETERMINE"])
-        controls = [q["sql"] for q in queries if 'FROM "reconciliation_campaignglobalcontrol"' in q["sql"]]
+        type_options = [q["sql"] for q in queries if 'AS "filter_piece_type"' in q["sql"]]
+        self.assertEqual(len(type_options), 1)
+        controls = [q["sql"] for q in queries if 'FROM "reconciliation_campaignglobalcontrol"' in q["sql"]
+                    and 'AS "filter_piece_type"' not in q["sql"]]
         for sql in controls:
             if "COUNT(" in sql or "LIMIT" in sql:
                 self.assertNotIn("JSON_", sql)

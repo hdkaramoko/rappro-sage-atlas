@@ -54,7 +54,8 @@ Les autres états, multisélections et règles de présence restent inchangés.
   Comptabilisé depuis l'inventaire, conservé comme concurrent potentiel si son
   BAP n'est pas connu ; référence Sage depuis `attributes.Référence`.
 - `business.py` : retrait du veto sur la devise d'origine dans `search_sage()`.
-- `global_views.py` : défaut `origin=both` sans écraser Toutes explicite.
+- `global_views.py` : défaut historique `origin=both`, remplacé par Toutes dans
+  [le correctif tiers/BAP/filtres](correctifs_tiers_ods_bap_filtres.md).
 
 Les objets enrichis de référence sont privés au contrôle d'unicité : aucun
 champ n'est ajouté aux entrées Sage signées, ni aux modèles, ni au format JSONL.

@@ -11,17 +11,22 @@ from tempfile import NamedTemporaryFile
 
 from reconciliation.exporters.excel import canonical_atlas
 from reconciliation.matching.trace import json_value
+from reconciliation_contract.ods_party import POLICY as ODS_PARTY_POLICY, party_context
 
 
 INVENTORY_COLUMNS = ("Code projet", "Année", "Id", "Statut BAP", "Total charges projet (€)",
                      "Total charges SAGE (€)", "N° pièce SAGE", "Date comptable")
 
 
+@party_context(new=True)
 def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None,
                         scope="atlas-complet", source_paths=None, year=None,
                         controls=None, amount_field="total_sage_charges", tolerance="0.01",
                         include_sage_inventory=False, excluded_prefixes=None):
     """Publie atomiquement un JSONL v2/v3 à partir des DataFrames et du résultat.
+
+    Les nouveaux v3 déclarent ods_party_policy ; seuls les tiers absents des
+    clés ODS/ODG sont assimilés, jamais les champs des sources ou preuves.
 
     `controls` est un itérateur v3 ; `include_sage_inventory` déclare la
     capacité sage_inventory_v1 et exige v3. `excluded_prefixes` est une liste
@@ -108,7 +113,7 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
             version = 3 if controls is not None else 2
             emit({"type": "campaign", "schema_version": version,
                   **({"validation_policy": "confirmed-exact-v2", "ods_label_policy": ODS_LABEL_POLICY,
-                      "matching_tolerances": MATCHING_TOLERANCES} if version == 3 else {}),
+                      "matching_tolerances": MATCHING_TOLERANCES, "ods_party_policy": ODS_PARTY_POLICY} if version == 3 else {}),
                   **({"capabilities": [CAPABILITY], "sage_exclusions": policy} if include_sage_inventory else {}),
                   "piece_coherence_mode": "ACTIVE" if piece_active else "DIAGNOSTIC",
                   "controls_available": controls is not None,

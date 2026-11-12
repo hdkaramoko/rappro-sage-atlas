@@ -1,5 +1,9 @@
 # Validation des rapprochements Atlas / Sage
 
+Voir les [correctifs tiers ODS/ODG, unicité BAP et filtres](../docs/correctifs_tiers_ods_bap_filtres.md).
+Ils s'appliquent aux prochains JSONL ; aucun recalcul de la campagne courante
+n'est requis. Les filtres Type de pièce et Origine sont disponibles immédiatement.
+
 Le [cadrage exhaustif et le diagnostic ODA](../docs/cadrage_exhaustif_oda.md)
 incluent toutes les écritures Sage éligibles, même sans Atlas. Pour une campagne
 déjà importée, reconstruire les agrégats après essai sur copie ; aucun nouveau

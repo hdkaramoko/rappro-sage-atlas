@@ -14,6 +14,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db import IntegrityError, transaction
 from django.db.models import Subquery
 from reconciliation_contract.atlas_context import ATLAS_CONTEXT, context_number
+from reconciliation_contract.ods_party import POLICY as ODS_PARTY_POLICY, party_context
 
 from imports_app.services import build_business_key
 
@@ -367,6 +368,7 @@ def add_absences(campaign):
         CampaignInventory.objects.bulk_create(batch, batch_size=BATCH_SIZE)
 
 
+@party_context()
 @suspend_indexing()
 def import_campaign(header, stream, *, job=None, progress=None):
     """Importe `header` et l'itérateur JSONL `stream` dans la transaction parente.
@@ -406,6 +408,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
     v3 = header["schema_version"] == 3
     from reconciliation_contract import ODS_LABEL_POLICY
     ods_label_policy = header.get("ods_label_policy")
+    if header.get("ods_party_policy") not in (None, ODS_PARTY_POLICY) or header.get("ods_party_policy") and not v3:
+        raise ValidationError("Politique de tiers absents ODS/ODG non prise en charge")
     if ods_label_policy not in (None, ODS_LABEL_POLICY) or ods_label_policy and not v3:
         raise ValidationError("Politique de libellé ODS non prise en charge")
     piece_mode = header.get("piece_coherence_mode", "DIAGNOSTIC")

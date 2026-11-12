@@ -119,9 +119,12 @@ def test_accounted_competitor_requires_distinct_identified_entry(problem):
         guard.verify(a, s)
     if problem is None:
         guard.verify(a, s, distinct_accounted=True)
+        guard.verify_bap_balance(a, s)
     else:
         with pytest.raises(ValueError, match="non unique"):
             guard.verify(a, s, distinct_accounted=True)
+        with pytest.raises(ValueError, match="non unique"):
+            guard.verify_bap_balance(a, s)
 
 
 def test_export_fuzzy_high_ignores_proven_distinct_accounted(tmp_path):

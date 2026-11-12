@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Subquery
 from reconciliation_contract import ODS, control_identity, digest, money, snapshot
+from reconciliation_contract.ods_party import party_context
 
 from .models import CampaignInventory, ControlContribution, MultipleControl
 
@@ -33,6 +34,7 @@ def validate_header(header):
         raise ValidationError("Tolérance de contrôle invalide")
 
 
+@party_context()
 def import_control(campaign, data, *, inventory=None, previous_by_key=None, persist=True):
     """Vérifie les preuves/totaux contre l'inventaire et retourne le contrôle importé.
 

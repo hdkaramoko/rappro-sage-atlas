@@ -8,10 +8,12 @@ from typing import Iterator
 from django.core.exceptions import ValidationError
 from reconciliation_contract import ODS, control_identity, digest, money
 from reconciliation_contract.sage_inventory import CAPABILITY, consolidate, ods_scope
+from reconciliation_contract.ods_party import party_context
 
 from .models import CampaignGlobalControl, CampaignReview, ControlContribution
 
 
+@party_context()
 def campaign_controls(campaign, *, keys: list[str] | None = None) -> Iterator[dict]:
     """Retourne en flux les contrôles actuels d'une campagne ou des `keys` ciblées.
 

@@ -129,7 +129,7 @@ class FuzzySafety:
         Ni le score ni le libellé ne départagent les concurrents. Lecture pure.
         `precise` choisit les sources exactes pour les seuls recours ; `tolerance`
         est le seuil vérifié de la règle, pas celui du contrôle comptable.
-        `distinct_accounted` réserve aux libellés proches l'exclusion prouvée
+        `distinct_accounted` réserve aux libellés proches et au BAP l'exclusion prouvée
         des comptabilisées ; les autres catégories gardent leur comportement.
         """
         key = (text(atlas.get("project_code")).upper(), text(atlas.get("sage_third_party_code")).upper(),
@@ -152,7 +152,7 @@ class FuzzySafety:
                 or right[0].get("ref") != entry["ref"]):
             raise ValueError("Correspondance non unique dans les deux sens")
 
-    def verify_bap_balance(self, atlas, entry, *, tolerance=Decimal("0.01"), precise=False):
+    def verify_bap_balance(self, atlas, entry, *, tolerance=Decimal("0.01"), precise=False, distinct_accounted=True):
         """Vérifie la paire et l'équilibre complet de son BAP avant AUTO BAP.
 
         Les index proviennent des populations complètes, pas des seuls candidats
@@ -161,8 +161,10 @@ class FuzzySafety:
         Aucun effet de bord ; les réservations restent contrôlées par Django.
         Le seuil explicite porte sur chaque paire ET la somme complète ; le
         cache local inclut le seuil et la précision, sans tolérance cumulée.
+        Écarte les comptabilisées seulement sur preuve d'écriture Sage distincte,
+        avec le même mécanisme que Libellé proche ; aucun autre contrôle n'est levé.
         """
-        self.verify(atlas, entry, tolerance=tolerance, precise=precise)
+        self.verify(atlas, entry, tolerance=tolerance, precise=precise, distinct_accounted=distinct_accounted)
         key = (text(atlas.get("project_code")).upper(), text(atlas.get("sage_third_party_code")).upper(),
                atlas.get("fiscal_year"), text(atlas.get("sage_bap_number")).upper())
         cache_key = (key, tolerance, precise)

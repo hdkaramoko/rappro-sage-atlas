@@ -7,6 +7,7 @@ from itertools import islice
 from django.db import transaction
 from reconciliation_contract import money
 from reconciliation_contract.sage_inventory import CAPABILITY
+from reconciliation_contract.ods_party import party_context
 
 from .accounting_models import AccountingGroup, AccountingProject
 from .models import Campaign, CampaignReview
@@ -30,6 +31,7 @@ def new_bucket():
     return {"initial": ZERO, "atlas": ZERO, "sage": ZERO, "outside_atlas": ZERO, "groups": 0}
 
 
+@party_context()
 @transaction.atomic
 def refresh_project(campaign, project):
     """Matérialise un projet sous verrou campagne, sans rejouer décisions ou moteur.

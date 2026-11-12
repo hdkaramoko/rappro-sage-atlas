@@ -220,5 +220,158 @@
         ```
     -   Mais du coup le sha, on le récupère avec la commande : ```git rev-parse HEAD```
     -   Migration et création du superuser
-        *   Appliquer les migrations à la BDD : kubectl exec -it deployments/rappro-sage-atlas-dev -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py migrate'
-        *   kubectl exec -it deployment/rappro-sage-atlas-dev -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py createsuperuser'
+        *   Appliquer les migrations à la BDD : ```kubectl exec -it deployments/rappro-sage-atlas-dev -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py migrate'```
+        *   ```kubectl exec -it deployment/rappro-sage-atlas-dev -- sh -c 'cd /app/app-suivi-reconciliation && uv run python manage.py createsuperuser'```
+
+## Etape 3 : Migration de la base de données SQLite vers PostgreSQL
++   Sauvegarde de la base existante :
+    -   Lancer la commande : ```cp app-suivi-reconciliation/db.sqlite3 app-suivi-reconciliation/db.sqlite3.backup```
+    -   Vérifier l'intégrité de la BDD : (On exécute un code python dans le terminal sans créer de fichier .py)
+        ```
+            python - <<'PY'
+            import sqlite3
+
+            db = sqlite3.connect("db.sqlite3")
+            print(db.execute("PRAGMA integrity_check").fetchone())
+            db.close()
+            PY
+        ```
+    -   Le résultat attendu est ok (intégrité structurelle - tables, indexes, etc - référentielles - relations entre les données respectées, données - unicité, obligatoire, etc)
+    -   Explication de la syntaxe :
+        *   python - : permet de demander à python de lire le code qui va suivre
+        *   << : c'est un opérateur du shell appelé "Here document" et qui permet de fournir plusieurs lignes de texte à une commande
+        *   'PY' : délimiteur qui indique où commence et où se termine le code. Les guillemets pour empêcher le shell d'interpréter son contenu
+
++   Création du service PostgreSQL pour l'nevironnement de dev
+    -   Copie des credentials dans les variables d'environnements du projet
+
++   Import du module python de connexion à postgres : ```uv add "psycopg[binary]"```
+
++   Adapter le fichier settings.py
+    -   Articulation entre variables d'environnement et settings.py
+
++   Le cablage est fait à cette étape, on procède à l'évaluation de celui-ci et l'identification des migrations :
+    ```
+        uv run python app-suivi-reconciliation/manage.py check
+        uv run python app-suivi-reconciliation/manage.py showmigrations
+        uv run python app-suivi-reconciliation/manage.py migrate
+    ```
+
++   Visualisation de la base de données depuis l'interface pgadmin
+    -   Création du service pgadmin
+    -   Connexion au service avec les credentials
+    -   Accès bdd : autodiscovery > postgresql-cnpg-* > Bases de données > DB_NAME > Schémas > public > Tables 
+
++   Export des données sqlite
+    -   Django prévoit une fonction d'export des données d'une BDD. Pour cela, il faut recabler sqlite et faire la syntaxe suivante 
+    -   Syntaxe : 
+        ```
+            uv run python app-suivi-reconciliation/manage.py dumpdata \
+            --natural-foreign \
+            --natural-primary \
+            --all \
+            --exclude=contenttypes \
+            --exclude=auth.Permission \
+            --exclude=sessions \
+            --output=app-suivi-reconciliation/data_export.json.gz
+        ```
+    -   Il peut arriver que cette commande ne fonctionne pas. Dans ce cas, premier réflexe, c'est de regarder les migrations. Certaines non appliquées
+    -   Cabler à nouveau la BDD sur l'instance postgres
+    -   Exécuter la commande suivante qui va charger les données exportées vers la nouvelle base:
+        ```
+            uv run python app-suivi-reconciliation/manage.py loaddata app-suivi-reconciliation/data_export.json.gz
+        ```
+    -   Ainsi, toutes les données de la base sqlite sont transférées vers la nouvelle base
++   Réinitialiser les séquences
+    -   PostgreSQL utilise des séquences pour certaines clés primaires auto-incrémentées.
+    -   L'objectif est donc de réinitialiser ces séquences pour éviter des collisions
+    -   On le fait pour toutes les applications déclarées dans le projet django
+    -   La syntaxe :
+        ```
+            uv run python app-suivi-reconciliation/manage.py sqlsequencereset accounts
+            uv run python app-suivi-reconciliation/manage.py sqlsequencereset projects
+            uv run python app-suivi-reconciliation/manage.py sqlsequencereset reconciliation
+            uv run python app-suivi-reconciliation/manage.py sqlsequencereset imports_app
+            uv run python app-suivi-reconciliation/manage.py sqlsequencereset dashboard
+        ```
++   Modification du manifest de déploiement
+    -   Rajout des éléments de connexion de la DB au manifest
+    -   Initialiser postgresql avec la syntaxe de migration : ```uv run python app-suivi-reconciliation/manage.py migrate```
+    -   Appliquer le nouveau déploiement du pod - attention, il faut récupérer le sha de l'ancien
+        ```
+            kubectl apply -f k8s/dev/deployment.yaml
+            kubectl set image deployment/rappro-sage-atlas-dev rappro-sage-atlas-dev=ghcr.io/hdkaramoko/rappro-sage-atlas:dev-<SHA>
+            kubectl rollout status deployment/rappro-sage-atlas-dev -n user-hdkaramoko --timeout=120s
+        ```
+    -   Faire les migrations
+
+
+Accorder les privileges pour des requetes
++   Identifier le pod PostgreSQL : ```kubectl get pods -n user-hdkaramoko | grep postgresql-cnpg-555845```
++   Ouvrir une session PostgreSQL : ```kubectl exec -it -n user-hdkaramoko <nom-du-pod> -- psql -U postgres -d defaultdb```
++   Accorder les droits à ton utilisateur : 
+    ```
+        GRANT USAGE ON SCHEMA public TO "user-hdkaramoko";
+        GRANT SELECT, INSERT, UPDATE, DELETE  ON ALL TABLES IN SCHEMA public TO "user-hdkaramoko";
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.accounts_user_groups_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.accounts_user_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.accounts_user_user_permissions_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.auth_group_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.auth_group_permissions_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.auth_permission_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.django_admin_log_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.django_content_type_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.django_migrations_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.imports_app_importbatch_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.imports_app_transactionobservation_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.projects_portfolioimport_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.projects_project_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.projects_projectportfolio_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_campaign_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_campaignglobalcontrol_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_campaigngroup_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_campaigninventory_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_campaignreview_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_campaignsageentry_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_controlcontribution_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_correctionhistory_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_importrevision_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_linereview_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_multiplecontrol_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_multipleevent_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_reconciliationtransaction_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_reviewevent_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON SEQUENCE public.reconciliation_reviewgroup_id_seq TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.accounts_user TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.accounts_user_groups TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.accounts_user_user_permissions TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.auth_group TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.auth_group_permissions TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.auth_permission TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.django_admin_log TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.django_content_type TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.django_migrations TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.django_session TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.imports_app_importbatch TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.imports_app_matchingjob TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.imports_app_transactionobservation TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.projects_portfolioimport TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.projects_project TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.projects_projectportfolio TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_campaign TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_campaignglobalcontrol TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_campaigngroup TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_campaigninventory TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_campaignreview TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_campaignsageentry TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_controlcontribution TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_correctionhistory TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_importrevision TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_linereview TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_multiplecontrol TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_multipleevent TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_reconciliationtransaction TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_reviewevent TO "user-hdkaramoko";
+        GRANT ALL ON TABLE public.reconciliation_reviewgroup TO "user-hdkaramoko";
+    ```

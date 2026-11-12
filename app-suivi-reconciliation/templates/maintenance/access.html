@@ -1,0 +1,5 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Accès administratif — Atlas × Sage X3</title>
+<style>body{font:1rem/1.6 system-ui,sans-serif;background:#f4f6fb;color:#17304d;margin:0}main{box-sizing:border-box;max-width:32rem;margin:5vh auto;padding:2rem;background:white;border-radius:1rem}input{box-sizing:border-box;max-width:100%;padding:.7rem}button{padding:.8rem;background:#2855de;color:white;border:0;border-radius:.4rem}label{display:block}.errorlist{color:#a51b31}</style></head><body><main>
+<p>Atlas × Sage X3</p><h1>Accès administratif</h1><p>Réservé aux personnes autorisées à gérer la maintenance.</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<button type="submit">Accéder au pilotage</button></form>
+</main></body></html>

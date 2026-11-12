@@ -11,6 +11,7 @@ from reconciliation_contract import (
     snapshot,
 )
 from decimal import Decimal
+from reconciliation_contract.ods_party import party_context
 
 INVENTORY = {
     "Code projet": "project_code",
@@ -22,12 +23,25 @@ INVENTORY = {
     "N° pièce SAGE": "sage_document_number",
     "Date comptable": "accounting_date",
     **EXTRA_INVENTORY,
+    "Libellé SAGE": "sage_label",
 }
 
 
 def inventory_rows(atlas):
-    """Parcourt les seuls champs du contrat, sans recopier toutes les colonnes Atlas."""
-    canonical = atlas.reindex(columns=list(INVENTORY))
+    """Retourne en flux les dictionnaires canoniques Atlas du DataFrame `atlas`.
+
+    Conserve les champs v3 et les montants individuels en chaînes EUR à deux
+    décimales. Les colonnes décimales du loader priment sur les flottants du
+    matching ; None reste distinct de zéro et les signes sont conservés.
+    Aucune mutation de la source ni écriture de fichier/base.
+    Libellé SAGE est conservé séparément, vide si absent, pour les contrôles ODS
+    comptabilisés. Il ne remplace jamais le libellé utilisé par le matching Envoyé.
+    """
+    canonical = atlas.reindex(columns=list(INVENTORY)).copy()
+    for column, origin in (("Total charges SAGE (€)", "_total_sage_decimal"),
+                           ("Total charges projet (€)", "_total_project_decimal")):
+        if origin in atlas:
+            canonical[column] = atlas[origin]
     for values in canonical[list(INVENTORY)].itertuples(index=False, name=None):
         row = json_value(dict(zip(INVENTORY.values(), values)))
         if row["accounting_date"]:
@@ -44,19 +58,28 @@ def inventory_rows(atlas):
             "sage_document_number",
         ):
             row[name] = str(row[name] or "").strip()
-        for name in EXTRA_INVENTORY.values():
+        for name in (*EXTRA_INVENTORY.values(), "sage_label"):
             row[name] = str(row[name] or "")
         row["project_code"] = row["project_code"].upper()
         yield row
 
 
-def build_controls(atlas, sage, result, *, amount_field="total_sage_charges", tolerance="0.01"):
+@party_context(new=True)
+def build_controls(atlas, sage, result, *, amount_field="total_sage_charges", tolerance="0.01", excluded_prefixes=None):
     """Indexe les pièces utiles sur SAGE complet, sans produit Atlas × SAGE.
 
     Les lignes déjà comptabilisées sont les seules contributions sources.
     Les pièces des propositions sont aussi conservées pour les validations futures.
+    `excluded_prefixes`, liste optionnelle de préfixes de trois caractères, rend
+    les contrôles concernés UNKNOWN sans filtrer les candidats de la cascade.
+    Retourne un itérateur de photographies v3 signées, montants EUR individuels
+    et tolérance décimale en euros. Les exclusions invalides lèvent ValueError.
+    Aucun accès SQL ni écriture de fichier ; mémoire proportionnelle aux clés utiles.
+    Les nouvelles clés ODS assimilent NA et vide sans modifier les champs sources.
     """
     identities, accounted, evidence = {}, defaultdict(list), defaultdict(list)
+    from reconciliation_contract.sage_inventory import exclusion_policy
+    exclusions = exclusion_policy([] if excluded_prefixes is None else excluded_prefixes)["prefixes"]
     for row in inventory_rows(atlas):
         if row["bap_status"] not in ("Comptabilisé", "Envoyé SAGE"):
             continue
@@ -87,6 +110,8 @@ def build_controls(atlas, sage, result, *, amount_field="total_sage_charges", to
     summary = atlas.attrs.get("load_summary", {})
     for key, identity in sorted(identities.items()):
         reasons = []
+        if any(entry["document"][:3] in exclusions for entry in evidence[key]):
+            reasons.append("Type de pièce exclu des contrôles selon la politique de campagne")
         if identity["parts"][0] in uncertain_projects or sage.attrs.get(
             "load_summary", {}
         ).get("invalid_accounting_dates", 0):

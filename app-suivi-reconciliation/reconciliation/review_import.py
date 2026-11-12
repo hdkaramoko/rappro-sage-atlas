@@ -13,13 +13,16 @@ from projects.models import Project
 from .models import Campaign, LineReview, ReconciliationTransaction, ReviewGroup
 
 
-def upsert_group(payload, number, seen):
+def upsert_group(payload, number, seen, *, projects=None):
     """Met à jour la projection de travail ; campaigns.py conserve les photographies."""
     if payload.get("schema_version") not in (1, 2, 3) or not payload.get("atlas"):
         raise ValidationError("Format de propositions invalide")
-    project, _ = Project.objects.get_or_create(
-        code=payload["project"].strip().upper(), defaults={"label": "Projet importé"}
-    )
+    code = payload["project"].strip().upper()
+    project = projects.get(code) if projects is not None else None
+    if project is None:
+        project, _ = Project.objects.get_or_create(code=code, defaults={"label": "Projet importé"})
+        if projects is not None:
+            projects[code] = project
     group, _ = ReviewGroup.objects.select_for_update().get_or_create(
         key=payload["key"],
         defaults={
@@ -85,7 +88,8 @@ def import_bundle(path, *, job=None, progress=None):
     """Valide et importe atomiquement ; le worker SQLite appelle ce service sur sa copie privée."""
     import hashlib
     from pathlib import Path
-    file_hash = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    with Path(path).open("rb") as source:
+        file_hash = hashlib.file_digest(source, "sha256").hexdigest()
     existing = Campaign.objects.filter(file_hash=file_hash).first()
     if existing:
         return existing.reviews.count()

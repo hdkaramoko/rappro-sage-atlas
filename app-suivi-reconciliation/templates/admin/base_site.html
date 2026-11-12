@@ -1,0 +1,4 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ title }} | Atlas × Sage X3{% endblock %}
+{% block branding %}<div id="site-name"><a href="{% url 'admin:index' %}">Atlas × Sage X3 — Administration</a></div>{% endblock %}
+{% block messages %}{% include "maintenance/banner.html" %}{{ block.super }}{% endblock %}

@@ -1,0 +1,10 @@
+{% load review_ui %}
+<div class="table-scroll"><table class="work-table sage-control-table"><thead><tr>
+<th scope="col">Date comptable</th><th scope="col">N° pièce Sage</th><th scope="col">Code tiers</th>
+<th scope="col">N° de référence / BAP Sage</th><th scope="col">Libellé Sage</th><th scope="col" class="numeric">Montant des charges</th>
+</tr></thead><tbody>
+{% for row in sage_page %}<tr><td>{{ row.date|date_fr }}</td><td>{{ row.document|default:"—" }}</td>
+<td>{{ row.third_party|default:"—" }}</td><td class="bap-reference">{{ row.bap|default:"—" }}</td>
+<td>{{ row.label|default:"—" }}</td><td class="numeric">{{ row.amount|euros }}</td></tr>
+{% empty %}<tr><td colspan="6">Aucune écriture Sage concernée disponible pour ce contrôle.</td></tr>{% endfor %}
+</tbody></table></div>

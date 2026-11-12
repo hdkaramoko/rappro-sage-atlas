@@ -1,6 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -15,7 +15,13 @@ from .portfolio_import import import_portfolios, project_from_inventory
 
 @login_required
 def portfolio(request):
-    """Affiche le portefeuille et traite l'ajout d'un projet connu."""
+    """Affiche les projets attribués ; réserve l'auto-ajout aux administrateurs globaux existants.
+
+    Un compte classique sans portefeuille ne peut pas s'attribuer lui-même un
+    accès par POST direct. Les exceptions administratives restent inchangées.
+    """
+    if request.method == "POST" and not request.user.is_global_admin:
+        raise PermissionDenied
     form = PortfolioAddForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         try:

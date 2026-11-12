@@ -8,8 +8,12 @@ import pandas as pd
 from reconciliation.main import main
 
 
-def generate(folder):
-    """Écrit deux propositions distinctes partageant une pièce et un existant Atlas."""
+def generate(folder, *, lot1=False):
+    """Écrit des sources fictives et leur JSONL dans `folder` (chemin).
+
+    `lot1=True` exerce l'inventaire Sage ; False conserve les fixtures v3
+    historiques utilisées pour la non-régression. Retourne le code CLI.
+    """
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     atlas = []
@@ -64,9 +68,10 @@ def generate(folder):
             "total_sage_charges",
             "--review-output",
             str(folder / "campaign.jsonl"),
+            *([] if lot1 else ["--legacy-review-output"]),
         ]
     )
 
 
 if __name__ == "__main__":
-    raise SystemExit(generate(sys.argv[1]))
+    raise SystemExit(generate(sys.argv[1], lot1="--lot1" in sys.argv[2:]))

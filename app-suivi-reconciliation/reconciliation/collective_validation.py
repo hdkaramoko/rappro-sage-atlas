@@ -31,6 +31,15 @@ def reject_piece(campaign, frozen_rows, messages):
 
 
 def prepare_piece(campaign, rows, owners):
+    """Prépare les affectations bijectives d'une pièce Confirmé en mode ACTIVE.
+
+    `rows` contient les photographies de campagne, `owners` tous les ayants droit.
+    Compare les charges Sage Atlas (jamais les charges projet) aux montants
+    individuels Sage, avec tolérance signée de 0,01 EUR et contrôle collectif.
+    Retourne les affectations par Id Atlas ; ValidationError si preuve incomplète,
+    décision humaine, identité partagée ou incohérence. Une base métier Lot 2
+    d'une ancienne campagne nécessite une nouvelle revue. Lecture SQL sans mutation.
+    """
     if campaign.metadata.get("schema_version") != 3 or campaign.metadata.get("piece_coherence_mode") != "ACTIVE":
         raise ValidationError("Activation collective absente : contrôle manuel requis")
     data = rows[0].group.data.get("piece_coherence")
@@ -43,6 +52,9 @@ def prepare_piece(campaign, rows, owners):
     if owners - {r.line_id for r in rows}:
         raise ValidationError("Autre proposition revendiquant la pièce SAGE")
     for frozen in rows:
+        from .business import LOCAL_BUSINESS_REVIEW_REASON
+        if LOCAL_BUSINESS_REVIEW_REASON in frozen.reasons:
+            raise ValidationError(LOCAL_BUSINESS_REVIEW_REASON)
         line, group_data = frozen.line, frozen.group.data
         if line.version and line.validation_source == "MANUAL":
             raise ValidationError("Décision humaine prioritaire : pièce laissée au contrôle manuel")
@@ -51,8 +63,8 @@ def prepare_piece(campaign, rows, owners):
                 or group_data.get("auto_validation") != {"source": "AUTO", "state": "VALIDATED", "rule": "MATCH_CONFIRMED_ATLAS"}
                 or line.group.lines.count() != 1 or line.manual_assignment):
             raise ValidationError("Autorisation collective incomplète ou proposition non admissible")
-        amount, total = line.transaction.total_project_charges, line.group.sage_total
-        if amount is None or total is None or abs(amount - total) > Decimal("0.01"):
+        amount, total = line.transaction.total_sage_charges, line.group.sage_total
+        if amount is None or total is None or abs(amount - total) > Decimal("0.01") or amount * total < 0:
             raise ValidationError("Montants Atlas/SAGE incompatibles avec la validation automatique")
     # Les dates ne découpent pas la pièce ; l'affectation individuelle respecte
     # néanmoins les preuves pièce/date exigées par le service métier existant.
@@ -122,24 +134,36 @@ def validate_piece(campaign, rows, owners):
         frozen.save(update_fields=["fingerprint"])
 
 
-def apply_collective_validations(campaign):
-    rows = list(campaign.reviews.select_related("group", "line__transaction__project", "line__group", "line__campaign"))
+def apply_collective_validations(campaign, *, progress=None):
+    """Applique les Confirmé collectifs existants, sans traiter les affectations Exact.
+
+    `campaign` est la nouvelle campagne en cours d'import ; `progress` suit les
+    pièces. Retourne les ids traités. Les savepoints et critères Confirmé restent
+    inchangés ; le discriminant EXACT_GROUP évite de retraiter ces réservations
+    comme des preuves Confirmé. Aucun accès aux campagnes closes.
+    """
+    rows = campaign.reviews.select_related("group", "line").iterator(chunk_size=500)
     groups, owners = defaultdict(list), defaultdict(set)
     active = campaign.metadata.get("piece_coherence_mode") == "ACTIVE"
     targets = set()
     for frozen in rows:
         key = (identifier(frozen.source["project_code"]), identifier(frozen.source.get("sage_document_number")))
-        groups[key].append(frozen)
+        groups[key].append(frozen.pk)
         owners[key].add(frozen.line_id)
         for candidate in frozen.group.data.get("evidence", []):
             for proof in candidate.get("rows", []):
                 owners[(key[0], identifier(proof.get("Numéro pièce")))].add(frozen.line_id)
         if ((active and frozen.group.data.get("rule") == "MATCH_CONFIRMED_ATLAS")
-                or frozen.line.automatic_assignment):
+                or (frozen.line.automatic_assignment and frozen.line.automatic_assignment.get("kind") != "EXACT_GROUP")):
             targets.add(key)
     handled = set()
-    for key in sorted(targets):
-        members = groups[key]
+    for number, key in enumerate(sorted(targets), 1):
+        if progress and number % 100 == 0:
+            progress("Pièces collectives examinées", number)
+        members = list(campaign.reviews.filter(pk__in=groups[key]).select_related(
+            "group", "line__transaction__project", "line__group", "line__campaign",
+            "line__updated_by", "line__validation_origin",
+        ))
         handled.update(r.line_id for r in members)
         try:
             with transaction.atomic():

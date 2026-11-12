@@ -86,7 +86,12 @@ SAGE_CANONICAL_COLUMNS = {
 }
 
 # Validation métier : activation explicite, après tous les contrôles du moteur.
-AUTO_VALIDATION = {"enabled": True, "statuses": ["MATCH_CONFIRMED_ATLAS", "MATCH_EXACT", "MATCH_AMOUNT"]}
+AUTO_VALIDATION = {"enabled": True, "statuses": ["MATCH_CONFIRMED_ATLAS", "MATCH_EXACT", "MATCH_AMOUNT",
+                                              "MATCH_FUZZY_HIGH", "MATCH_FUZZY_REVIEW", "MATCH_WITHOUT_LABEL",
+                                              "MATCH_BAP", "MATCH_INDIVIDUAL"]}
 
 # Diagnostic par défaut ; ACTIVE autorise la validation collective explicite.
 PIECE_COHERENCE = {"enabled": True, "mode": "ACTIVE"}
+
+# Liste d'exclusion validée par le métier, vide tant qu'aucun préfixe n'est décidé.
+SAGE_EXCLUDED_PREFIXES = []

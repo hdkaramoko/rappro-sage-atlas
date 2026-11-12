@@ -21,7 +21,13 @@ FIELDS = {
 
 
 def source_snapshot(line):
-    """Photographie les champs déterminants et les contrôles fixes, sans solde utilisateur."""
+    """Retourne les preuves source et bases métier de fraîcheur de LineReview.
+
+    Conserve les sources immuables et signatures historiques (Lot 2 absent).
+    Si une base de correction/lien existe, inclut sa version locale ; les soldes
+    des autres décisions ne sont jamais signés. Lecture relationnelle éventuelle,
+    aucun écrit. Les montants sont sérialisés en décimales, sans float.
+    """
     item = line.transaction
 
     def stable(value):
@@ -68,6 +74,10 @@ def source_snapshot(line):
         },
         **({"multiple_context": line.multiple_context} if line.multiple_context else {}),
         **({"automatic_assignment": line.automatic_assignment} if line.automatic_assignment else {}),
+        **({"business_basis": {"adjustment_version": line.adjustment_version,
+                               "inventory_link": line.inventory_link_id,
+                               "link_version": line.inventory_link.version if line.inventory_link_id else None}}
+           if line.adjustment_version or line.inventory_link_id else {}),
     }
 
 
@@ -115,12 +125,34 @@ def decide(
     acknowledge=False,
     manual_refs=None,
     manual_confirm=False,
+    selection_autofill=(),
     multiple_confirm=False,
     _automatic=False,
     _automatic_assignment=None,
     _previous_automatic_assignment=None,
 ):
-    """Verrouille le groupe pour éviter deux répartitions concurrentes incompatibles."""
+    """Enregistre une décision avec permissions, signatures et verrous campagne/groupe.
+
+    `line_id` identifie la ligne, `user` son auteur ; `state`, `values` KEEP/SET/CLEAR
+    et `comment` définissent la décision individuelle. Les versions et
+    `expected_source` protègent sa fraîcheur. Les paramètres d'affectation et de
+    confirmation conservent les avertissements manuels existants. Le parcours
+    interne `_automatic` recontrôle les preuves Exact avant réservation et ne
+    permet le partage de pièce qu'entre écritures AUTO distinctes et actuelles.
+    Retourne LineReview ; ValidationError/PermissionDenied annulent la transaction.
+    Persiste décision, contributions, événement et photographie de campagne sans
+    modifier les montants sources Atlas/Sage ni les campagnes historiques.
+    L'événement conserve aussi l'origine MANUAL/AUTO et la campagne de la décision
+    précédente pour rendre une contestation d'auto-validation explicable.
+    Le Lot 2 capture les anciennes/nouvelles cibles et recalcule leur état courant
+    dans cette même transaction, hors auto-validations de l'import initial.
+    La politique confirmed-exact-v2 permet une preuve Confirmé résolue côté serveur
+    en décision humaine : le seul écart BAP est audité sans commentaire obligatoire.
+    Les groupes Exact AUTO portent une autorisation collective mais réservent
+    exclusivement des montants et références individuels.
+    `selection_autofill` identifie les champs préremplis depuis une sélection ;
+    les preuves sont rechargées et leur somme recalculée avant les contrôles.
+    """
     entry = LineReview.objects.get(pk=line_id)
     # Verrouiller une identité stable : après attente d'un import concurrent,
     # la campagne lue doit être recontrôlée, même si elle vient d'être close.
@@ -152,6 +184,9 @@ def decide(
         raise ValidationError("La ligne, le groupe ou les sources ont changé. Rechargez la page.")
     if state not in ("DRAFT", "VALIDATED", "REJECTED"):
         raise ValidationError("Décision inconnue.")
+    from .multiple_review import apply_projection, selected_entries, selection_values
+    selection = line.manual_assignment if manual_refs is None else selected_entries(line, manual_refs)
+    values = selection_values(line, values, selection, selection_autofill)
     for field in FIELDS:
         entry = values.get(field, {})
         if entry.get("mode") not in ("KEEP", "SET", "CLEAR"):
@@ -170,11 +205,21 @@ def decide(
             date.fromisoformat(str(resolved["date"]))
         except ValueError as exc:
             raise ValidationError("Date invalide.") from exc
+    confirmed_entry, confirmed_audit = None, None
+    if (state == "VALIDATED" and not _automatic and group.rule == "MATCH_CONFIRMED_ATLAS"
+            and line.campaign_id and line.campaign.metadata.get("schema_version") == 3
+            and line.campaign.metadata.get("validation_policy") == "confirmed-exact-v2"
+            and not manual_refs and not line.manual_assignment):
+        from .validation_evidence import confirmed_manual_evidence
+        confirmed_entry, confirmed_audit = confirmed_manual_evidence(line, resolved)
     warnings = []
     if state == "VALIDATED":
         if any(resolved[k] in (None, "") for k in FIELDS):
-            raise ValidationError("Pour valider, renseignez statut, montant, pièce et date.")
-        siblings = list(group.lines.select_related("transaction", "group"))
+            missing = [label for name, label in (("status", "statut"), ("amount", "montant Sage affecté"),
+                       ("document", "pièce Sage"), ("date", "date comptable")) if resolved[name] in (None, "")]
+            raise ValidationError("Pour valider, renseignez : " + ", ".join(missing) + ".")
+        grouped_exact = bool(_automatic and _automatic_assignment and _automatic_assignment.get("kind") == "EXACT_GROUP")
+        siblings = [] if grouped_exact else list(group.lines.select_related("transaction", "group"))
         allocations = [
             resolved
             if other.pk == line.pk
@@ -183,6 +228,10 @@ def decide(
             else effective(other)
             for other in siblings
         ]
+        if grouped_exact:
+            # Le total de groupe a déjà été vérifié par la bijection ; il ne
+            # remplace jamais le montant individuel réservé dans les contrôles.
+            allocations = [{"amount": group.sage_total}]
         if group.sage_total is None:
             warnings.append("Aucun total Sage de référence")
         elif any(v["amount"] is None for v in allocations):
@@ -212,22 +261,23 @@ def decide(
             )
     if state == "REJECTED" and not comment.strip():
         raise ValidationError("Un commentaire est obligatoire pour refuser.")
-    from .multiple_review import apply_projection, selected_entries
-
-    selection = (
-        line.manual_assignment if manual_refs is None else selected_entries(line, manual_refs)
-    )
     if selection and (not manual_confirm or not comment.strip()):
         raise ValidationError(
             "Expliquez votre affectation manuelle dans le commentaire avant validation"
         )
+    from .business import prepare_review_change, after_review_change
+    business_context = prepare_review_change(line, resolved, state, automatic=_automatic, actor=user)
     previous_assignment = (line.automatic_assignment if _previous_automatic_assignment is None
                            else _previous_automatic_assignment)
     line.automatic_assignment = (_automatic_assignment or {}) if _automatic else {}
     diagnostic = apply_projection(
-        line, resolved, selection, state=state, confirmed=multiple_confirm, comment=comment
+        line, resolved, selection, state=state, confirmed=multiple_confirm, comment=comment,
+        automatic=_automatic,
+        verified_entry=confirmed_entry,
     )
-    before = {"state": line.state, "values": line.values, "version": line.version}
+    before = {"state": line.state, "values": line.values, "version": line.version,
+              "validation_source": line.validation_source, "auto_validation_rule": line.auto_validation_rule,
+              "validation_origin_id": line.validation_origin_id}
     before["manual_assignment"] = line.manual_assignment
     before["automatic_assignment"] = previous_assignment
     line.validation_source = "AUTO" if _automatic else "MANUAL"
@@ -264,7 +314,8 @@ def decide(
             "comment": line.comment,
             "version": line.version,
             "source": source_snapshot(line),
-            "warnings": warnings,
+            "warnings": warnings + (["Référence BAP différente entre Atlas et Sage"] if confirmed_audit and confirmed_audit["bap_difference"] else []),
+            "confirmed_evidence": confirmed_audit,
             "derogation": bool(warnings and acknowledge),
             "manual_assignment": selection,
             "automatic_assignment": line.automatic_assignment,
@@ -275,4 +326,5 @@ def decide(
     from .campaigns import save_decision_snapshot
 
     save_decision_snapshot(line)
+    after_review_change(business_context, line, user)
     return line

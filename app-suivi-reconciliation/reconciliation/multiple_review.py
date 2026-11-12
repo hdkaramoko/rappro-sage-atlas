@@ -6,7 +6,10 @@ from decimal import Decimal
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
-from reconciliation_contract import STANDARD, compare, control_identity, digest, entry_from_sage
+from reconciliation_contract import STANDARD, compare, control_identity, digest, entry_from_sage, money
+from reconciliation_contract.fuzzy_safety import INDIVIDUAL_RULES
+from reconciliation_contract.matching_policy import rule_tolerance
+from reconciliation_contract.ods_party import party_context
 
 from .models import Campaign, ControlContribution, MultipleControl, MultipleEvent
 
@@ -27,6 +30,73 @@ def candidates_for(line):
     return result
 
 
+def exact_entry(line):
+    """Retourne l'unique écriture complète d'une proposition individuelle v3.
+
+    `line` est une LineReview avec transaction, groupe et campagne chargés.
+    Vérifie la référence v3, la cardinalité réelle, projet/exercice, montants
+    individuels projet/Sage et leurs signes avec tolérance de 0,01 EUR. Les
+    doublons ne sont pas dédupliqués pour autoriser une preuve ambiguë.
+    Lève ValidationError si non démontrable. Aucun effet de bord SQL/fichier.
+    Une affectation EXACT_GROUP est revalidée par sa signature collective et sa
+    preuve individuelle ; le total agrégé n'est jamais réservé sur chaque ligne.
+    Les règles fuzzy utilisent ces mêmes contrôles individuels ; leur unicité
+    bilatérale sur l'inventaire est vérifiée avant toute AUTO par automatic_blockers.
+    Seul l'écart Atlas/Sage des recours à politique déclarée admet 0,05 EUR,
+    sur la base source exacte ; les preuves Sage et capacités restent inchangées.
+    """
+    if line.automatic_assignment.get("kind") == "EXACT_GROUP":
+        from .validation_evidence import verified_exact_group_entry
+        return verified_exact_group_entry(line)
+    raw = [r for candidate in line.group.evidence for r in candidate.get("rows", [])]
+    if (not line.campaign_id or line.campaign.metadata.get("schema_version") != 3
+            or line.group.rule not in INDIVIDUAL_RULES or line.group.match_status != "MATCHED"
+            or len(line.group.evidence) != 1 or len(raw) != 1):
+        raise ValidationError("Écriture SAGE exacte non unique ou identité insuffisante")
+    candidates = candidates_for(line)
+    if len(candidates) != 1:
+        raise ValidationError("Écriture SAGE exacte non unique")
+    entry = next(iter(candidates.values()))
+    from .matching_evidence import source_project_amount
+    amount, total, project = money(entry["amount"]), money(line.group.sage_total), money(source_project_amount(line))
+    tolerance = rule_tolerance(line.group.rule, line.campaign.metadata.get("matching_tolerances"))
+    if (not entry["identity_complete"] or entry["project_code"] != line.transaction.project.code
+            or entry["fiscal_year"] != line.transaction.fiscal_year):
+        raise ValidationError("Identité d'écriture SAGE absente ou hors projet/exercice")
+    if (amount is None or total is None or project is None
+            or abs(total - amount) > Decimal("0.01") or abs(project - amount) > tolerance
+            or total * amount < 0 or project * amount < 0):
+        raise ValidationError("Montants signés incompatibles avec l'écriture SAGE exacte")
+    return entry
+
+
+def compatible_exact_peer(line, contribution):
+    """Autorise une pièce partagée entre deux contributions AUTO individuelles distinctes.
+
+    `line` est la proposition automatique en cours ; `contribution` une
+    réservation déjà validée. Recontrôle les preuves individuelles, la fraîcheur,
+    le montant effectif et la référence réellement réservée. Retourne False
+    sur ambiguïté, décision manuelle ou preuve réutilisée, sans modifier la base.
+    Cette exemption concerne Exact et fuzzy, jamais une référence réutilisée.
+    """
+    from .review import effective, is_current
+    other = contribution.line
+    if other.validation_source != "AUTO" or other.state != "VALIDATED" or not is_current(other):
+        return False
+    try:
+        left, right = exact_entry(line), exact_entry(other)
+        resolved = effective(other)
+        return (left["ref"] != right["ref"] and contribution.entries == [right["ref"]]
+                and contribution.amount == resolved["amount"]
+                and money(resolved["amount"]) == (money(other.transaction.total_project_charges)
+                    if other.automatic_assignment.get("kind") == "EXACT_GROUP" else money(other.group.sage_total))
+                and str(resolved["document"]).strip().upper() == right["document"]
+                and str(resolved["date"])[:10] == right["date"])
+    except ValidationError:
+        return False
+
+
+@party_context()
 def context_for(line):
     """Signe les preuves fixes pertinentes ; ne signe jamais le solde des autres décisions."""
     from .review import effective
@@ -65,7 +135,7 @@ def context_for(line):
         context[key] = "MISSING"
     # Une campagne v3 sans candidat ne doit pas hériter d'une validation v2.
     result = {"contract": 3, "controls": context}
-    if line.automatic_assignment:
+    if line.automatic_assignment and line.automatic_assignment.get("kind") != "EXACT_GROUP":
         from .piece_coherence import campaign_check
         data = campaign_check(line)
         result["piece"] = {"mode": line.campaign.metadata.get("piece_coherence_mode"),
@@ -83,12 +153,76 @@ def selected_entries(line, references):
     return [available[ref] for ref in references]
 
 
-def allocation_plan(line, resolved, selection):
+def selection_values(line, values, selection, automatic_fields=()):
+    """Retourne une copie des décisions enrichie par les écritures choisies.
+
+    `selection` contient des preuves rechargées par selected_entries, `values`
+    les modes saisis, et `automatic_fields` les champs calculés dans l'interface.
+    Recalcule la somme signée Decimal et rejette les montants falsifiés, les
+    identités hors campagne/projet/exercice et les choix pièce/date ambigus.
+    L'affichage au centime des champs automatiques n'arrondit pas la réservation.
+    Aucun écrit ; ValidationError empêche la transaction de décision.
+    """
+    result = {name: dict(value) for name, value in values.items()}
+    if not selection:
+        if automatic_fields:
+            raise ValidationError("Aucune écriture Sage sélectionnée : restaurez les champs calculés.")
+        return result
+    if any(not e["identity_complete"] or e["project_code"] != line.transaction.project.code
+           or e["fiscal_year"] != line.transaction.fiscal_year for e in selection):
+        raise ValidationError("Écriture Sage sans identité complète ou hors projet/exercice.")
+    amounts = [money(e["amount"]) for e in selection]
+    if any(v is None for v in amounts):
+        raise ValidationError("Montant Sage absent : somme sélectionnée impossible.")
+    total = sum(amounts, Decimal(0))
+    entered = result["amount"]
+    if entered["mode"] == "CLEAR":
+        raise ValidationError("Le montant affecté ne peut pas être effacé avec une sélection Sage.")
+    if entered["mode"] == "SET":
+        value = money(entered.get("value"))
+        valid = value == total
+        if "amount" in automatic_fields:
+            valid = value is not None and value.quantize(Decimal("0.01")) == total.quantize(Decimal("0.01"))
+        if not valid:
+            raise ValidationError("La somme Sage est différente du montant saisi : vérifiez la sélection.")
+    source_amount = money(line.transaction.total_sage_charges)
+    if entered["mode"] == "KEEP" and source_amount is not None and source_amount != total:
+        raise ValidationError("La somme Sage est différente du montant conservé : choisissez Modifier.")
+    if entered["mode"] != "KEEP" or source_amount is None:
+        result["amount"] = {"mode": "SET", "value": str(total)}
+    for name in ("document", "date"):
+        distinct = {e[name] for e in selection}
+        if result[name]["mode"] == "KEEP" or name in automatic_fields:
+            source = getattr(line.transaction, "sage_document_number" if name == "document" else "accounting_date")
+            source = (str(source).strip().upper() if name == "document" else str(source)[:10]) if source else ""
+            if result[name]["mode"] == "KEEP" and source:
+                if source not in distinct:
+                    raise ValidationError("La pièce ou date conservée est différente de la sélection Sage : choisissez Modifier.")
+                continue
+            if len(distinct) != 1 or not all(distinct):
+                raise ValidationError("Plusieurs pièces Sage : choisissez une pièce principale." if name == "document"
+                                      else "Plusieurs dates Sage : choisissez une date comptable.")
+            result[name] = {"mode": "SET", "value": next(iter(distinct))}
+    return result
+
+
+@party_context()
+def allocation_plan(line, resolved, selection, *, verified_entry=None):
     """Décompose une réservation par pièce, sans sommer un total de groupe répété.
 
     Une sélection manuelle réserve les montants individuels exacts. Sans sélection,
     la correction individuelle réserve le montant saisi sur sa pièce résolue.
+    `verified_entry` est exclusivement une preuve Confirmé déjà résolue côté
+    serveur. EXACT_GROUP utilise son entrée signée ; les autres parcours restent
+    inchangés. Retourne les contrôles/montants/références, sans écriture.
     """
+    if verified_entry or line.automatic_assignment.get("kind") == "EXACT_GROUP" and not selection:
+        entry = verified_entry or exact_entry(line)
+        key = digest(control_identity(entry, sage=True))
+        control = line.campaign.controls.filter(key=key, strategy=STANDARD).first()
+        if not control or entry not in control.data["entries"]:
+            raise ValidationError("Écriture affectée absente des contrôles de campagne")
+        return [(control, resolved["amount"], [entry["ref"]])]
     if line.automatic_assignment and not selection:
         from .piece_coherence import verified_assignment
         control, entry = verified_assignment(line, resolved)
@@ -155,12 +289,22 @@ def allocation_plan(line, resolved, selection):
     return plan
 
 
-def diagnose_plan(line, plan, *, manual=False):
-    """Ajoute les validations actuelles à la source, remplace la contribution de cette ligne."""
+def diagnose_plan(line, plan, *, manual=False, automatic=False):
+    """Calcule les diagnostics des réservations `plan` de `line`, sans écrire.
+
+    Ajoute les contributions des autres lignes aux charges Sage Atlas sources.
+    `manual` conserve les alertes des sélections manuelles ; `automatic` permet
+    uniquement aux AUTO Exact/fuzzy à écritures distinctes et actuelles de partager
+    une pièce. Les références partagées et dépassements restent bloquants.
+    Une référence réellement déjà réservée est toujours refusée en sélection
+    manuelle, même avec commentaire ; partager une pièce distincte reste possible.
+    Retourne une liste de diagnostics EUR ; aucune dérogation n'est accordée ici.
+    """
     diagnostics = []
     for control, amount, refs in plan:
         data = control.data
-        others = list(control.contributions.exclude(line=line).select_related("line__transaction"))
+        others = list(control.contributions.exclude(line=line).select_related(
+            "line__transaction__project", "line__group", "line__campaign"))
         contributions = [c.amount for c in others] + [amount]
         source_amounts = [r.get(data["amount_field"]) for r in data["atlas"]]
         diagnostic = compare(
@@ -178,6 +322,8 @@ def diagnose_plan(line, plan, *, manual=False):
                 if manual or c.line.manual_assignment or c.line.group_id != line.group_id
             }
         )
+        if manual and shared:
+            raise ValidationError("Écriture Sage déjà affectée à une autre ligne : choisissez une écriture disponible.")
         # Atlas Comptabilisé ne porte pas l'identité analytique ; signaler le
         # partage de pièce sans prétendre identifier l'écriture déjà consommée.
         if manual and refs and data["atlas"]:
@@ -193,22 +339,50 @@ def diagnose_plan(line, plan, *, manual=False):
             source_lines=[r["source_id"] for r in data["atlas"]],
             shared_entries=shared,
             shared_piece=any(c.line.group_id != line.group_id
-                and not compatible_piece_peer(line, c.line) for c in others),
+                and not compatible_piece_peer(line, c.line)
+                and not (automatic and compatible_exact_peer(line, c)) for c in others),
         )
         diagnostics.append(diagnostic)
     return diagnostics
 
 
-def apply_projection(line, resolved, selection, *, state, confirmed, comment):
-    """Contrôle puis remplace la réservation ; l'appelant détient le verrou de campagne."""
+def apply_projection(line, resolved, selection, *, state, confirmed, comment, automatic=False, verified_entry=None):
+    """Contrôle puis remplace les réservations v3 de `line` sous verrou de campagne.
+
+    `resolved` contient le montant individuel EUR et la pièce/date effectifs ;
+    `selection` conserve le parcours manuel existant. `automatic=True` revalide
+    la preuve unique Exact/fuzzy et autorise les seuls pairs AUTO individuels distincts.
+    Les alertes manuelles, références partagées, dépassements et données inconnues
+    restent soumis aux contrôles existants (`confirmed` et commentaire).
+    Les réservations actives du nouvel inventaire manuel sont exclusives et ne
+    peuvent pas être contournées par une ancienne sélection de candidats moteur.
+    Une sélection d'écritures entières ne peut pas dépasser la capacité Sage,
+    même avec confirmation ; les anciennes corrections sans sélection restent inchangées.
+    Retourne le diagnostic ; ValidationError annule les écritures parentes.
+    `verified_entry` permet la preuve Confirmé résolue sans candidate écran ; elle
+    ne dispense jamais des contrôles de réservation, de partage ou de capacité.
+    """
     if not line.campaign_id or line.campaign.metadata.get("schema_version") != 3:
         if selection:
             raise ValidationError("Une campagne v3 est requise pour affecter des écritures")
         return {}
     diagnostics, plan = [], []
     if state == "VALIDATED":
-        plan = allocation_plan(line, resolved, selection)
-        diagnostics = diagnose_plan(line, plan, manual=bool(selection))
+        if automatic and line.group.rule in INDIVIDUAL_RULES:
+            entry = exact_entry(line)
+            if (str(resolved["document"]).strip().upper() != entry["document"]
+                    or str(resolved["date"])[:10] != entry["date"]
+                    or money(resolved["amount"]) != (money(line.transaction.total_project_charges)
+                        if line.automatic_assignment.get("kind") == "EXACT_GROUP" else money(line.group.sage_total))):
+                raise ValidationError("Affectation automatique différente de l'écriture SAGE exacte")
+        plan = allocation_plan(line, resolved, selection, verified_entry=verified_entry)
+        from .models import ManualAllocation
+        refs = {ref for _, _, references in plan for ref in references}
+        if refs and ManualAllocation.objects.filter(active=True, entry__campaign=line.campaign, entry__entry_ref__in=refs).exists():
+            raise ValidationError("Cette écriture Sage est déjà affectée à un rapprochement manuel d'inventaire.")
+        diagnostics = diagnose_plan(line, plan, manual=bool(selection), automatic=automatic)
+        if selection and any(d["status"] == "EXCESS" for d in diagnostics):
+            raise ValidationError("La capacité Sage disponible est dépassée : affectation impossible.")
         unknown = [d for d in diagnostics if d["status"] == "UNKNOWN"]
         if unknown:
             raise ValidationError(

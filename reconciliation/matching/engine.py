@@ -42,6 +42,8 @@ def _match_reconciliations(atlas_df, sage_df, options, trace):
 
     Les règles expérimentales proposent un match avec revue. Une preuve Sage
     incomplète interdit un statut cible automatique. Les entrées restent intactes.
+    Les recours BAP puis individuel ne traitent que les UNMATCHED après toute
+    la cascade ; leurs preuves individuelles enrichissent le catalogue existant.
     """
     options = options or MatchingConfig()
     atlas = prepare_matching(atlas_df, "ATLAS")
@@ -57,6 +59,7 @@ def _match_reconciliations(atlas_df, sage_df, options, trace):
     pending = atlas.loc[~confirmed]
     sage_groups = pd.DataFrame()
     sage_rows_retained, sage_groups_total = 0, 0
+    extra_candidates = []
     if not pending.empty:
         scoped_sage, sage_groups_total = restrict_sage(
             prepare_matching(sage_df, "SAGE"), pending, enabled=options.prefilter_sage,
@@ -102,9 +105,16 @@ def _match_reconciliations(atlas_df, sage_df, options, trace):
                 if not enabled and stage not in executed:
                     trace.add(result, stage, "NON_EXECUTE", "Étape désactivée dans la configuration")
                     executed.add(stage)
+            if options.enable_residual and result.match_status == "UNMATCHED":
+                executed.update(("MATCH_BAP", "MATCH_INDIVIDUAL"))  # Journalisés par les recours différés.
             trace.skipped(result, executed, "Prérequis absent ou cascade déjà arrêtée")
             results.append(result)
         resolve_shared_candidates(results)
+        if options.enable_residual:
+            from reconciliation.matching.residual import final_matches
+            results, extra_candidates = final_matches(atlas_df, sage_df, results,
+                {group["group_id"]: group for group in sage_groups.to_dict("records")}, options, trace)
+            resolve_shared_candidates(results)
     for result in results:
         trace.add(result, "DECISION_FINALE", result.match_status, result.reason,
                   before=result.candidate_count, after=result.candidate_count)
@@ -120,7 +130,7 @@ def _match_reconciliations(atlas_df, sage_df, options, trace):
         "sage_rows_excluded_by_prefilter": len(sage_df) - sage_rows_retained if options.prefilter_sage and not pending.empty else 0,
     }
     # Catalogue pour retrouver les lignes et preuves de chaque candidat ambigu.
-    output.attrs["sage_candidates"] = sage_groups.to_dict("records")
+    output.attrs["sage_candidates"] = sage_groups.to_dict("records") + extra_candidates
     output.attrs["matching_options"] = asdict(options)
     output.attrs["trace_collected"] = trace.enabled
     output.attrs["matching_attempts"] = trace.rows

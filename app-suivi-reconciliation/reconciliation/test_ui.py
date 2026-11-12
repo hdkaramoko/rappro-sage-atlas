@@ -14,6 +14,7 @@ from .review import signature
 
 
 class ReviewUITests(TestCase):
+    """Vérifie le rendu métier, les permissions et la pagination des écrans de revue."""
     def setUp(self):
         self.user = get_user_model().objects.create_user("ux", password="test")
         self.project = Project.objects.create(code="P", label="Projet")
@@ -50,6 +51,7 @@ class ReviewUITests(TestCase):
         return LineReview.objects.create(transaction=item, group=group)
 
     def test_default_uses_status_not_rule(self):
+        """Le parcours par défaut inclut les cas manuels après les propositions, sans filtre caché."""
         fuzzy = ReviewGroup.objects.create(
             project=self.project, key="fuzzy", rule="MATCH_FUZZY_REVIEW", match_status="MATCHED"
         )
@@ -59,12 +61,13 @@ class ReviewUITests(TestCase):
         self.make_line("B", fuzzy)
         self.make_line("C", unmatched)
         response = self.client.get(reverse("reconciliation:reviews"))
-        self.assertEqual(response.context["page"].paginator.count, 2)
+        self.assertEqual(response.context["page"].paginator.count, 3)
         self.assertNotContains(response, "Brouillon")
         response = self.client.get(reverse("reconciliation:reviews"), {"match_status": ""})
         self.assertEqual(response.context["page"].paginator.count, 3)
 
     def test_filters_pagination_permissions_and_query_count(self):
+        """Vérifie filtres et droits avec le budget métier historique et une lecture de maintenance."""
         for index in range(30):
             self.make_line(str(index))
         other = Project.objects.create(code="SECRET", label="Invisible")
@@ -88,7 +91,9 @@ class ReviewUITests(TestCase):
         self.assertEqual(response.context["page"].paginator.count, 31)
         self.assertNotContains(response, "SECRET")
         self.assertContains(response, "q=BAP-01")
-        self.assertLessEqual(len(queries), 12)
+        maintenance_queries = [query for query in queries if 'FROM "maintenance_maintenancestate"' in query["sql"]]
+        self.assertEqual(len(maintenance_queries), 1)
+        self.assertLessEqual(len(queries) - len(maintenance_queries), 12)
         self.assertEqual(
             self.client.get(reverse("reconciliation:review-detail", args=[hidden.pk])).status_code,
             404,

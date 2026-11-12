@@ -41,7 +41,11 @@ from .sqlite_staging import staged_import  # noqa: E402
 
 
 class Scenarios(unittest.TestCase):
-    """Utilise une base migrée neuve pour chaque scénario, indépendante du serveur."""
+    """Utilise une base neuve et vérifie publication, reprises et actions Lot 2 concurrentes.
+
+    Les fichiers/bases sont isolés du serveur ; les scénarios exercent les vraies
+    connexions SQLite, les liens manuels et les triggers de révision.
+    """
 
     def setUp(self):
         """Isole fichiers et connexions, y compris les triggers de révision."""
@@ -260,7 +264,7 @@ class Scenarios(unittest.TestCase):
             writer.close()
 
     def test_lot1_inventory_and_controls_survive_staging(self):
-        """Transporte les nouvelles photographies Sage et contrôles dans la bascule SQL."""
+        """Transporte photographies, états indexés et contextes dans la publication atomique."""
         root = Path(__file__).resolve().parents[2]
         folder = self.folder / "lot1"
         result = subprocess.run([str(root / ".venv/Scripts/python.exe"), "-m", "examples.lot1_fixture", str(folder)],
@@ -270,8 +274,70 @@ class Scenarios(unittest.TestCase):
         self.load()
         campaign = Campaign.objects.get(is_current=True)
         self.assertEqual(campaign.sage_inventory.count(), 4)
+        self.assertFalse(campaign.global_controls.filter(current_state__isnull=True).exists())
+        self.assertFalse(campaign.global_controls.filter(has_pending__isnull=True).exists())
+        self.assertTrue(campaign.review_control_contexts.exists())
         self.assertEqual(campaign.global_controls.count(), 3)
         self.assertTrue(campaign.global_controls.get(data__identity__strategy="ODS_ODG_BY_GROUP").data["auto_validated"])
+
+    def test_lot2_correction_prevents_publication_of_a_stale_import(self):
+        """Une correction concurrente garde son audit et invalide la préparation SQLite.
+
+        La relance reprend la correction sur les sources identiques. Exerce
+        les vraies tables/triggers et la copie des actions sur base sur disque.
+        """
+        from reconciliation.business import correct_inventory, retained_amount
+        from reconciliation.test_sage_inventory import sign_records
+        root = Path(__file__).resolve().parents[2]
+        folder = self.folder / "lot2"
+        subprocess.run([str(root / ".venv/Scripts/python.exe"), "-m", "examples.lot1_fixture", str(folder)],
+                       cwd=root, check=True, capture_output=True, timeout=60)
+        self.path = folder / "campaign.jsonl"
+        records = [json.loads(line) for line in self.path.read_text(encoding="utf-8").splitlines()]
+        for row in records:
+            if row.get("type") == "proposal":
+                row.pop("auto_validation", None)
+        sign_records(records)
+        self.path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records), encoding="utf-8")
+        self.load()
+        first = Campaign.objects.get(is_current=True)
+        ProjectPortfolio.objects.create(user=self.user, project=Project.objects.get(code="P"))
+        inventory = first.inventory.get(source_id="C")
+        records[0]["name"] = "Nouvelle campagne pendant correction"
+        sign_records(records)
+        self.path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records), encoding="utf-8")
+        changed = False
+
+        def edit(phase, *args, **details):
+            """Simule une vraie action métier après un lot caché, hors verrou SQLite."""
+            nonlocal changed
+            if phase.startswith("Écriture par lots") and not changed:
+                correct_inventory(inventory.pk, self.user, reason="AMOUNT", amount="5000", expected_version=0)
+                changed = True
+
+        with self.assertRaises(ValidationError):
+            self.load(edit)
+        self.assertTrue(changed)
+        self.assertEqual(Campaign.objects.get(is_current=True).pk, first.pk)
+        inventory.refresh_from_db()
+        self.assertEqual(retained_amount(inventory), 5000)
+        self.assertEqual(inventory.business_events.count(), 1)
+        self.load()
+        current = Campaign.objects.get(is_current=True)
+        self.assertNotEqual(current.pk, first.pk)
+        self.assertEqual(current.inventory.get(source_id="C").adjustment.amount, 5000)
+        from reconciliation.business import confirm_inventory_link
+        source = current.inventory.get(source_id="S")
+        entry = current.sage_inventory.get(document="FAC123", amount="4000")
+        confirm_inventory_link(source.pk, self.user, entry_ids=[entry.pk], comment="Lien avant nouvel import", expected_version=0)
+        records[0]["name"] = "Campagne après lien manuel local"
+        sign_records(records)
+        self.path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in records), encoding="utf-8")
+        self.load()
+        latest = Campaign.objects.get(is_current=True)
+        self.assertTrue(latest.inventory.get(source_id="S").inventory_match.active)
+        self.assertTrue(latest.reviews.get(source__source_id="S").decision["current"])
+        self.assertTrue(current.inventory.get(source_id="S").inventory_match.active)
 
     def test_activation_backs_up_and_refuses_running_worker(self):
         """L'installation préserve les campagnes et ne migre jamais sous un worker actif."""
@@ -292,6 +358,47 @@ class Scenarios(unittest.TestCase):
                 )
         self.assertEqual(Campaign.objects.get().published, True)
         call_command("makemigrations", check=True, dry_run=True, stdout=StringIO())
+
+
+    def test_statistics_are_outside_import_and_before_private_preparation(self):
+        """Le staging analyse la copie après commit, prépare puis publie ses synthèses atomiquement."""
+        from reconciliation.accounting import prepare_campaign
+        from reconciliation.sqlite_statistics import maintain_statistics
+        from reconciliation.accounting_models import AccountingProject
+        events = []
+
+        def observe_statistics(**kwargs):
+            """Relève la séquence et le contexte transactionnel sans changer la maintenance réelle."""
+            self.assertFalse(connection.in_atomic_block)
+            events.append("statistics")
+            return maintain_statistics(**kwargs)
+
+        def observe_preparation(campaign, **kwargs):
+            """Vérifie le commit privé avant d'appeler le vrai calcul, sans modifier ses valeurs."""
+            self.assertFalse(connection.in_atomic_block)
+            self.assertEqual(events, ["statistics"])
+            events.append("preparation")
+            return prepare_campaign(campaign, **kwargs)
+
+        with patch("reconciliation.sqlite_statistics.maintain_statistics", side_effect=observe_statistics), patch(
+                "reconciliation.accounting.prepare_campaign", side_effect=observe_preparation):
+            self.load()
+        self.assertEqual(events, ["statistics", "preparation", "statistics"])
+        self.assertEqual(AccountingProject.objects.filter(campaign__is_current=True).count(), 1)
+
+    def test_statistics_failure_keeps_current_campaign_unmodified(self):
+        """Un échec sur la copie empêche toute publication et laisse les données existantes intactes."""
+        import_bundle(self.path)
+        previous = Campaign.objects.get(is_current=True)
+        records = [json.loads(row) for row in self.path.read_text(encoding="utf-8").splitlines()]
+        records[0]["name"] = "Nouveau fichier de recette"
+        self.path.write_text("\n".join(json.dumps(row) for row in records), encoding="utf-8")
+        with patch("reconciliation.sqlite_statistics.maintain_statistics", return_value={
+                "status": "failed", "seconds": 0}):
+            with self.assertRaises(ValidationError):
+                self.load()
+        self.assertEqual(Campaign.objects.get(is_current=True).pk, previous.pk)
+        self.assertEqual(Campaign.objects.count(), 1)
 
 
 if __name__ == "__main__":

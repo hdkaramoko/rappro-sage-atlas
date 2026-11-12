@@ -106,7 +106,7 @@ def validate_inventory_record(data: dict, policy: dict) -> dict:
 
 def consolidate(identity: dict, atlas: list[dict], records: list[dict],
                 allocations: list[dict], *, amount_field: str = "total_sage_charges",
-                tolerance: str = "0.01", scope_reasons: Iterable[str] = ()) -> dict:
+                tolerance: str = "0.01", scope_reasons: Iterable[str] = (), manual_ods: bool = False) -> dict:
     """Calcule les états Comptabilisé et global pour une seule clé métier.
 
     Standard : projet/exercice/pièce ; ODS : projet/exercice/tiers/libellé
@@ -115,8 +115,19 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     La tolérance est en euros (défaut un centime), les signes sont préservés.
     Les montants absents, identités partagées et allocations ambiguës rendent
     le résultat INDETERMINE. Une proposition non confirmée ne contribue pas.
-    ODS sans libellé n'est automatiquement rapproché qu'en un-pour-un fiable.
+    Le libellé ODS des nouvelles sources Comptabilisé vient de Libellé SAGE.
+    L'exception sans libellé en un-pour-un fiable reste réservée aux anciennes
+    sources, où le champ canonique sage_label était absent.
+    `manual_ods` autorise seulement la résolution explicitement confirmée par
+    l'application de preuves ODS identifiées ; elle ne crée jamais d'auto-validation.
     Retourne un dictionnaire signé sans aucun effet de bord.
+    `individual_tolerance_verified` est une attestation serveur ciblée des nouvelles
+    affectations Confirmé/Exact : une seule écriture signée peut différer du montant
+    réservé de la tolérance, sans autoriser de fraction ni contourner l'unicité.
+    Les charges comparées sont déjà en EUR : les devises d'origine Atlas et Sage
+    ne provoquent ni conversion supplémentaire ni anomalie à elles seules.
+    Le contrôle collectif compare les sommes signées, sans veto de signe mixte
+    ni de cardinalité ODS. Les validations individuelles gardent leurs règles.
     """
     if money(tolerance) is None or money(tolerance) < 0:
         raise ValueError("Tolérance invalide")
@@ -132,14 +143,9 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     atlas_ids = [(a.get("project_code"), a.get("fiscal_year"), a.get("source_id")) for a in atlas]
     if len(atlas_ids) != len(set(atlas_ids)) or any(not a[-1] for a in atlas_ids):
         reasons.append("Identité Atlas absente ou répétée")
-    # Les colonnes de charges du contrat sont libellées en EUR. La devise
-    # source Sage décrit l'opération et ne change pas la devise de ces charges.
-    if any(text(a.get("currency")).upper() not in ("", "EUR") for a in atlas):
-        reasons.append("Devise Atlas non EUR à confirmer")
+    # Les deux sources exposent des colonnes de charges EUR ; leur devise
+    # d'opération n'est pas l'unité de ces montants et ne justifie pas un veto.
     if identity["strategy"] == ODS:
-        # Une somme de plusieurs opérations ne démontre pas leur unicité.
-        if len(atlas) != 1 or len(entries) != 1:
-            reasons.append("Unicité économique ODS/ODG non démontrée")
         for e in entries:
             prefix, journal = e["document"][:3], e["journal"]
             if journal in ("ODS", "ODG") and prefix != journal:
@@ -148,13 +154,19 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     missing_label_unique = (identity["strategy"] == ODS and not identity["parts"][-1]
                             and all(v not in (None, "") for v in identity["parts"][:-1])
                             and len(atlas) == len(entries) == 1
+                            and "sage_label" not in atlas[0]
                             and not label(atlas[0].get("atlas_label")) and not label(entries[0]["label"]))
-    if missing_label_unique:
+    if missing_label_unique or (manual_ods and identity["strategy"] == ODS and not identity["parts"][-1]
+                               and all(v not in (None, "") for v in identity["parts"][:-1])):
         checked_identity = {**identity, "parts": [*identity["parts"][:-1], "<libellé absent unique>"]}
     source = snapshot(checked_identity, atlas, entries, amount_field=amount_field,
                       tolerance=tolerance, reasons=reasons)
     # La clé publiée reste la véritable clé composite, sans libellé inventé.
-    base_reasons = source["reasons"]
+    # Le diagnostic collectif compare les sommes signées. Le snapshot partagé
+    # conserve ses garde-fous pour les parcours de validation individuelle.
+    base_reasons = [reason for reason in source["reasons"] if reason not in (
+        "Signes mixtes / compensation charge-avoir à examiner",
+        "Signes mixtes à examiner", "Unicité économique ODS/ODG non démontrée")]
     confirmed, consumed, line_ids = [], set(), set()
     allocation_reasons = []
     available = {e["ref"]: e for e in entries}
@@ -176,11 +188,13 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
         evidence_total = sum((money(available[ref]["amount"]) for ref in refs), Decimal(0))
         partial = (allocation.get("partial_validated") is True and len(refs) == 1
                    and amount * evidence_total >= 0 and abs(amount) <= abs(evidence_total))
-        if evidence_total != amount and not partial:
+        tolerated = (allocation.get("individual_tolerance_verified") is True and len(refs) == 1
+                     and amount * evidence_total >= 0 and abs(evidence_total - amount) <= money(tolerance))
+        if evidence_total != amount and not partial and not tolerated:
             allocation_reasons.append("Répartition partielle ou plusieurs-vers-plusieurs non démontrée")
             continue
         confirmed.append({**allocation, "amount": str(amount)})
-    if identity["strategy"] == ODS and confirmed:
+    if identity["strategy"] == ODS and confirmed and not manual_ods:
         allocation_reasons.append("Affectation Envoyé SAGE ODS/ODG à examiner")
     source_total, sage_total = money(source["atlas_total"]), money(source["sage_total"])
     sent_total = sum((money(a["amount"]) for a in confirmed), Decimal(0))
@@ -188,10 +202,6 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
     initial_gap = source_total - sage_total if source_total is not None and sage_total is not None else None
     initial_state = "INDETERMINE" if base_reasons else "EQUILIBRE" if abs(initial_gap) <= money(tolerance) else "ECART"
     global_reasons = sorted(set(base_reasons + allocation_reasons))
-    # Les compensations charge/avoir ne peuvent pas masquer une ambiguïté.
-    amounts = [money(a.get(amount_field)) for a in atlas] + [money(e["amount"]) for e in entries] + [money(a["amount"]) for a in confirmed]
-    if any(a is not None and a < 0 for a in amounts) and any(a is not None and a > 0 for a in amounts):
-        global_reasons = sorted(set(global_reasons + ["Signes mixtes à examiner"]))
     state = "INDETERMINE" if global_reasons else "EQUILIBRE" if abs(global_gap) <= money(tolerance) else "ECART"
     if records and len(excluded) == len(records):
         initial_state = state = "EXCLU"
@@ -206,6 +216,6 @@ def consolidate(identity: dict, atlas: list[dict], records: list[dict],
             "accounted_reasons": base_reasons, "reasons": global_reasons,
             "atlas_ids": [list(v) for v in atlas_ids], "sage_refs": sorted(e["ref"] for e in entries),
             "confirmed_allocations": confirmed, "atlas_count": len(atlas), "sage_count": len(entries),
-            "auto_validated": initial_state == "EQUILIBRE" and bool(atlas),
+            "auto_validated": initial_state == "EQUILIBRE" and bool(atlas) and not manual_ods,
             "amount_field": amount_field, "tolerance": tolerance}
     return {**data, "signature": digest(data)}

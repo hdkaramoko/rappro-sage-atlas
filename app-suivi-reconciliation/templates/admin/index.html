@@ -1,0 +1,5 @@
+{% extends "admin/index.html" %}
+{% block content %}
+{% if user.is_staff and perms.accounts.add_user %}<p><a class="button" href="{% url 'admin:accounts-user-import' %}">Importer des utilisateurs</a></p>{% endif %}
+{{ block.super }}
+{% endblock %}

@@ -9,3 +9,9 @@ build/
 data/
 prompts/
 output/
+benchmarks/
+db.sqlite3
+db.sqlite3.backup
+db.sqlite3-shm
+db.sqlite3-wal
+docs/audit_*

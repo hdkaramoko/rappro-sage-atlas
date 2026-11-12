@@ -5,7 +5,10 @@ __pycache__/
 *.py[cod]
 db.sqlite3
 db.sqlite3.backup
+db.sqlite3-shm
+db.sqlite3-wal
 *data_export.json.gz
 .env
 staticfiles/
+benchmarks/
 var/

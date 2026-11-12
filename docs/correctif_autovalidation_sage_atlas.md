@@ -1,5 +1,10 @@
 # Correctif ciblé des auto-validations Sage–Atlas
 
+**Complément du 7 novembre 2026 :** consulter [Confirmé / Exact v2](validation_confirme_exact_v2.md)
+pour les groupes Exact multilignes et la résolution manuelle d'une preuve Confirmé.
+Le présent document conserve les règles historiques ; le complément s'applique
+uniquement aux nouvelles campagnes explicitement marquées.
+
 ## Diagnostic avant modification
 
 Branche `dev-feature-amelioration-rappro`, arbre propre au début du correctif.

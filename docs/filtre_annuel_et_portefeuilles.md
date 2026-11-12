@@ -94,7 +94,7 @@ Cette combinaison évite qu'un ancien inventaire toutes années réintroduise un
 
 Si le code est attesté par l'inventaire mais n'existe pas encore dans `Project` — par exemple parce que toutes ses lignes étaient déjà comptabilisées — sa fiche est créée avec un libellé générique. Les fiches existantes et leurs libellés ne sont pas écrasés.
 
-**Importer d'abord les campagnes, puis les affectations.** Une archive de reprise sans inventaire complet ne constitue pas ce référentiel. Les utilisateurs peuvent ensuite enrichir leur propre portefeuille dans **Mon portefeuille**, avec exactement le même contrôle d'inventaire. Les accès déjà accordés ne sont pas automatiquement révoqués si un projet disparaît d'une extraction.
+**Importer d'abord les campagnes, puis les affectations.** Une archive de reprise sans inventaire complet ne constitue pas ce référentiel. Depuis l’[import des utilisateurs](import_utilisateurs_excel.md), l’ajout individuel dans **Mon portefeuille** est réservé aux administrateurs globaux existants : un compte classique ne peut plus s’attribuer un accès. Le contrôle d’inventaire reste identique. Les accès déjà accordés ne sont pas automatiquement révoqués si un projet disparaît d'une extraction.
 
 ## 5. Statut BAP dans la validation
 

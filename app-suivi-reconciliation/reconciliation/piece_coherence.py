@@ -101,9 +101,13 @@ def verified_assignment(line, resolved):
 
 
 def compatible_piece_peer(line, other):
-    """N'exempte que des affectations distinctes d'une même preuve collective courante."""
+    """N'exempte que des Confirmé distincts d'une même preuve collective courante.
+
+    Les affectations Exact utilisent leur propre vérification ; l'absence de
+    piece_signature n'est jamais une autorisation Confirmé. Lecture sans mutation.
+    """
     left, right = line.automatic_assignment, other.automatic_assignment
-    if not left or not right or left["piece_signature"] != right["piece_signature"]:
+    if not left.get("piece_signature") or left.get("piece_signature") != right.get("piece_signature"):
         return False
     if left["entry"]["ref"] == right["entry"]["ref"]:
         return False

@@ -71,12 +71,14 @@ def test_compact_retains_all_fuzzy_scores_and_final_decisions():
     assert compact.attrs["trace_row_count"] < detailed.attrs["trace_row_count"]
 
 
-def test_confirmed_compact_has_three_rows_instead_of_eight():
+def test_confirmed_compact_has_three_rows_instead_of_all_stages():
+    """Le compact résume les étapes ignorées, y compris les nouveaux recours finaux."""
     a, s = frames([atlas_row(**{"N° pièce SAGE": "D", "Date comptable": pd.Timestamp("2026-01-01"), "Total charges SAGE (€)": 10})])
     compact = match_reconciliations(a, s, collect_trace=True)
     detailed = match_reconciliations(a, s, collect_trace=True, trace_mode="detailed")
     assert compact.attrs["trace_row_count"] == 3
-    assert detailed.attrs["trace_row_count"] == 8
+    from reconciliation.matching.trace import STAGES
+    assert detailed.attrs["trace_row_count"] == len(STAGES) + 1
     skipped = compact.attrs["matching_attempts"][1]
     assert skipped["stage"] == "ETAPES_NON_EXECUTEES" and "FUZZY" in skipped["reason"]
 

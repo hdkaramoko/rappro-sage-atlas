@@ -1,0 +1,7 @@
+{% load review_ui %}
+<nav class="business-mode-tabs" aria-label="Recherche et correction" data-business-tabs>
+  <a id="search-tab" href="{% query_replace mode='search' %}#search" aria-controls="search" data-business-mode="search" {% if business_mode == 'search' %}aria-current="true"{% endif %}>Rechercher une correspondance</a>
+  <a id="correct-tab" href="{% query_replace mode='correct' %}#correct" aria-controls="correct" data-business-mode="correct" {% if business_mode == 'correct' %}aria-current="true"{% endif %}>Corriger la ligne</a>
+</nav>
+<p class="mode-help">Choisissez une action. Les champs saisis sont conservés lors du changement de mode sur cette page.</p>
+<noscript><p class="notice">Sans JavaScript, changer de mode recharge la page : enregistrez votre saisie avant de changer.</p></noscript>

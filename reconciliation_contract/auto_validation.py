@@ -7,4 +7,5 @@ configuration. Les deux côtés partagent les mêmes codes, sans dépendance ORM
 AUTO_VALIDATION_RULES = frozenset({
     "MATCH_CONFIRMED_ATLAS", "MATCH_EXACT", "MATCH_AMOUNT",
     "MATCH_FUZZY_HIGH", "MATCH_FUZZY_REVIEW", "MATCH_WITHOUT_LABEL",
+    "MATCH_BAP", "MATCH_INDIVIDUAL",
 })

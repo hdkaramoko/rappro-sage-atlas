@@ -1,6 +1,6 @@
-{% extends "base.html" %}{% load review_ui %}{% block title %}Examen d’un multiple</div>
+{% extends "base.html" %}{% load review_ui %}{% block title %}Examen des montants d’une pièce
 {% endblock %}{% block content %}
-<a class="back-link" href="{% url 'reconciliation:multiples' control.campaign_id %}">← Contrôles des multiples</a>
+<a class="back-link" href="{% url 'reconciliation:multiples' control.campaign_id %}">← Preuves et arbitrages des pièces</a>
 <header class="page-heading"><div><p class="eyebrow">{{ control.project_code }} · {{ control.campaign.name }}</p><h1>{{ control.data.identity.parts|join:" · " }}</h1><p>Diagnostic source : {{ control.status|multiple_label }} · revue : {{ control.state|multiple_label }}</p></div></header>
 {% if control.strategy == 'ODS_ODG_BY_GROUP' %}<div class="notice warning">Suspicion par projet, tiers et libellé normalisé. Les numéros de pièce des deux ERP ne sont pas comparés. Ce groupe peut réunir plusieurs opérations distinctes.</div>{% endif %}
 {% for reason in control.data.reasons %}<p class="notice warning">{{ reason }}</p>{% endfor %}

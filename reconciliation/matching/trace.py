@@ -57,7 +57,7 @@ def iter_attempts(result):
         raise TraceError(f"Lecture du journal impossible : {exc}") from exc
 
 STAGES = ("PREUVE_ATLAS", "FILTRE_STRUCTURE", "FILTRE_MONTANT", "MATCH_EXACT",
-          "MATCH_AMOUNT", "FUZZY", "MATCH_WITHOUT_LABEL")
+          "MATCH_AMOUNT", "FUZZY", "MATCH_WITHOUT_LABEL", "MATCH_BAP", "MATCH_INDIVIDUAL")
 TRACE_COLUMNS = (
     "atlas_group_id", "atlas_source_ids", "stage", "outcome", "reason",
     "candidates_before", "candidates_after", "sage_group_id", "project_code",

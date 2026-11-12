@@ -1,0 +1,20 @@
+{% load review_ui %}
+<div class="accounting-financial-summary">
+  <div class="accounting-reference-grid">
+    <div class="accounting-metric-card">
+      <dl class="accounting-metric"><dt>Atlas initial</dt><dd class="accounting-main-amount">{{ summary.data.totals.initial|euros }}</dd></dl>
+      <dl class="accounting-breakdown"><div><dt>Comptabilisé</dt><dd>{{ summary.data.totals.accounted_initial|euros }}</dd></div><div><dt>Envoyé SAGE initial</dt><dd>{{ summary.data.totals.sent_initial|euros }}</dd></div></dl>
+    </div>
+    <div class="accounting-metric-card">
+      <dl class="accounting-metric"><dt>Sage retenu</dt><dd class="accounting-main-amount">{{ summary.sage|euros }}</dd></dl>
+    </div>
+  </div>
+  <div class="accounting-result-grid">
+    <dl class="accounting-metric-card accounting-metric"><dt>Atlas retenu pour le cadrage</dt><dd class="accounting-main-amount">{{ summary.atlas|euros }}</dd></dl>
+    <div class="accounting-metric-card accounting-gap-card">
+      <dl class="accounting-metric"><dt>Écart global Atlas − Sage</dt><dd class="accounting-main-amount">{{ summary.gap|signed_euros }}</dd></dl>
+      <span class="badge {% if summary.state == 'CADRE' %}success{% else %}warning{% endif %}">{{ summary.state|accounting_label }}</span>
+    </div>
+  </div>
+  <dl class="accounting-complementary"><div><dt>Envoyé SAGE confirmé</dt><dd>{{ summary.data.totals.confirmed|euros }}</dd></div><div><dt>Envoyé SAGE initial non confirmé</dt><dd>{{ summary.data.totals.pending_initial|euros }}</dd></div><div><dt>Ajustements métier</dt><dd>{{ summary.data.totals.adjustments|signed_euros }}</dd></div><div><dt>Atlas hors types de comparaison</dt><dd>{{ summary.data.totals.outside_atlas|euros }}</dd></div></dl>
+</div>

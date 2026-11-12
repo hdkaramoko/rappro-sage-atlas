@@ -14,6 +14,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db import IntegrityError, transaction
 from django.db.models import Subquery
 from reconciliation_contract.atlas_context import ATLAS_CONTEXT, context_number
+from reconciliation_contract.ods_party import POLICY as ODS_PARTY_POLICY, party_context
 
 from imports_app.services import build_business_key
 
@@ -26,6 +27,7 @@ from .models import (
     ReviewEvent,
 )
 from .review import effective, is_current, signature, source_snapshot
+from .control_index import suspend_indexing
 
 INVENTORY = {
     "Code projet": "project_code",
@@ -37,7 +39,8 @@ INVENTORY = {
     "N° pièce SAGE": "sage_document_number",
     "Date comptable": "accounting_date",
 }
-LABELS = {value: key for key, value in {**INVENTORY, **ATLAS_CONTEXT}.items()}
+LABELS = {**{value: key for key, value in {**INVENTORY, **ATLAS_CONTEXT}.items()},
+          "sage_label": "Libellé SAGE dans Atlas"}
 BATCH_SIZE = 500
 
 
@@ -64,8 +67,16 @@ def stable_evidence(evidence):
     )
 
 
-def normalize_inventory(raw, *, extended=False):
-    """Schéma étroit : pas de création d'un objet ORM Atlas pour chaque ligne hors matching."""
+def normalize_inventory(raw, *, extended=False, ods_label_policy=None):
+    """Normalise la photographie Atlas sans créer de transaction hors matching.
+
+    Libellé SAGE est facultatif pour l'ancien format, obligatoire comme colonne
+    pour la nouvelle politique ODS (une valeur vide reste autorisée et signalée
+    dans le diagnostic). Les deux libellés sont séparés ; aucune source réécrite.
+    Retourne le dictionnaire canonique ; ValidationError si schéma incomplet.
+    Le BAP optionnel est conservé comme donnée de présentation, sans modifier
+    les clés de contrôle ni les montants comptables historiques.
+    """
     if not isinstance(raw, dict) or not set(INVENTORY).issubset(raw):
         raise ValidationError(
             "Inventaire incomplet : les huit champs sont obligatoires (valeurs nulles admises)."
@@ -83,6 +94,12 @@ def normalize_inventory(raw, *, extended=False):
         if not set(EXTRA_INVENTORY).issubset(raw):
             raise ValidationError("Inventaire v3 incomplet : tiers, libellé et devise requis")
         data.update({field: str(raw[column] or "") for column, field in EXTRA_INVENTORY.items()})
+        if ods_label_policy and "Libellé SAGE" not in raw:
+            raise ValidationError("Inventaire ODS incomplet : colonne Libellé SAGE requise")
+        if "Libellé SAGE" in raw:
+            data["sage_label"] = str(raw["Libellé SAGE"] or "")
+        if "N° BAP (SAGE)" in raw:
+            data["display_bap"] = str(raw["N° BAP (SAGE)"] or "").strip()
     for field in ("project_code", "source_id", "bap_status", "sage_document_number"):
         data[field] = str(data[field] or "").strip()
     data["project_code"] = data["project_code"].upper()
@@ -217,7 +234,13 @@ def source_record(line):
 
 
 def decision_record(line):
-    """Photographie décision, auteur, origine, affectation et diagnostic multiple."""
+    """Photographie JSON de la décision, ses versions et références réelles.
+
+    `line` fournit sources et relations ; les montants EUR restent décimaux.
+    Inclut la correction et le lien manuel de campagne sans fabriquer de preuve
+    moteur. Lecture SQL éventuelle des allocations, aucun écrit.
+    """
+    from .business import manual_link_snapshot
     return json_data(
         {
             "validation_source": line.validation_source,
@@ -226,6 +249,8 @@ def decision_record(line):
             "values": line.values,
             "manual_assignment": line.manual_assignment,
             "automatic_assignment": line.automatic_assignment,
+            "adjustment_version": line.adjustment_version,
+            "inventory_link": manual_link_snapshot(line.inventory_link) if line.inventory_link_id else None,
             "multiple_context": line.multiple_context,
             "multiple_diagnostic": line.multiple_diagnostic,
             "comment": line.comment,
@@ -244,11 +269,21 @@ def decision_record(line):
 
 
 def save_decision_snapshot(line):
-    """Met à jour uniquement la photographie de la campagne de travail."""
+    """Met à jour le snapshot courant et son index de consultation dans la transaction métier.
+
+    Aucun état historique n'est rejoué. L'import suspend l'indexage unitaire et
+    extrait les contextes finaux en une passe avant publication.
+    """
     if line.campaign_id:
+        decision = decision_record(line)
         CampaignReview.objects.filter(campaign_id=line.campaign_id, line=line).update(
-            decision=decision_record(line)
+            decision=decision
         )
+        from .control_index import indexing_suspended, sync_review
+        if not indexing_suspended.get():
+            review = CampaignReview.objects.filter(campaign_id=line.campaign_id, line=line).select_related("project").first()
+            if review:
+                sync_review(review)
 
 
 def archive_legacy(scope):
@@ -333,6 +368,8 @@ def add_absences(campaign):
         CampaignInventory.objects.bulk_create(batch, batch_size=BATCH_SIZE)
 
 
+@party_context()
+@suspend_indexing()
 def import_campaign(header, stream, *, job=None, progress=None):
     """Importe `header` et l'itérateur JSONL `stream` dans la transaction parente.
 
@@ -343,6 +380,18 @@ def import_campaign(header, stream, *, job=None, progress=None):
     ValidationError annule les écritures et conserve la publication précédente.
     Initialise les contrôles globaux après les validations applicatives sans
     modifier la cascade, les décisions historiques ou les sources Atlas.
+    Les projections Lot 2 sont d'abord invalidées, puis reprises après le calcul
+    initial uniquement sur sources identiques, uniques et capacités compatibles.
+    Sinon une proposition auditée attend confirmation. Les hooks ciblés sont
+    suspendus pendant les auto-validations initiales, avant le calcul initial.
+    La politique ods_label_policy exige Libellé SAGE pour les nouveaux flux ;
+    son absence conserve le contrat historique sans réécrire les campagnes.
+    La politique de seuil résiduel conserve les bases monétaires exactes en
+    preuves JSON séparées des projections comptables et les intègre au contexte
+    de fraîcheur des seuls recours. Une preuve incohérente annule l'import.
+    Prépare les agrégats après les décisions et reports, sauf dans la copie
+    privée SQLite qui les prépare après commit et statistiques, avant publication.
+    La maintenance directe est enregistrée après commit et disparaît sur rollback.
     """
     from .multiple_import import import_control_batch
     from .review_import import upsert_group
@@ -357,6 +406,12 @@ def import_campaign(header, stream, *, job=None, progress=None):
     if header.get("schema_version") not in (2, 3):
         raise ValidationError("Version de campagne non prise en charge")
     v3 = header["schema_version"] == 3
+    from reconciliation_contract import ODS_LABEL_POLICY
+    ods_label_policy = header.get("ods_label_policy")
+    if header.get("ods_party_policy") not in (None, ODS_PARTY_POLICY) or header.get("ods_party_policy") and not v3:
+        raise ValidationError("Politique de tiers absents ODS/ODG non prise en charge")
+    if ods_label_policy not in (None, ODS_LABEL_POLICY) or ods_label_policy and not v3:
+        raise ValidationError("Politique de libellé ODS non prise en charge")
     piece_mode = header.get("piece_coherence_mode", "DIAGNOSTIC")
     if piece_mode not in ("DIAGNOSTIC", "ACTIVE"):
         raise ValidationError("Mode de cohérence SAGE inconnu")
@@ -474,7 +529,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 sage_batch = []
                 progress("Inventaire Sage préparé", sage_count)
         elif payload.get("type") == "inventory" and not proposals_started and not sage_started:
-            data = normalize_inventory(payload.get("atlas"), extended=v3)
+            data = normalize_inventory(payload.get("atlas"), extended=v3, ods_label_policy=ods_label_policy)
             if year is not None and data["fiscal_year"] != year:
                 raise ValidationError("L'inventaire contient une ligne hors de l'année de campagne")
             batch.append(data)
@@ -508,8 +563,15 @@ def import_campaign(header, stream, *, job=None, progress=None):
             if payload.get("key") in group_keys:
                 raise ValidationError("Groupe répété dans la campagne")
             group_keys.add(payload.get("key"))
+            from reconciliation_contract.matching_policy import source_amounts, RESIDUAL_RULES
+            try:
+                precise_amounts = source_amounts(payload)
+                if header.get("matching_tolerances") and precise_amounts is None:
+                    raise ValueError("La politique de tolérance spécifique exige les montants Atlas exacts")
+            except ValueError as exc:
+                raise ValidationError(str(exc)) from exc
             # Concordance inventaire / proposition, avant mutation de la projection de travail.
-            parsed = [normalize_inventory(raw, extended=v3) for raw in payload.get("atlas", [])]
+            parsed = [normalize_inventory(raw, extended=v3, ods_label_policy=ods_label_policy) for raw in payload.get("atlas", [])]
             existing = {
                 row.business_key: row.data
                 for row in campaign.inventory.filter(
@@ -517,7 +579,12 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 )
             }
             for data in parsed:
-                if existing.get(inventory_key(data)) != data or data["bap_status"] != "Envoyé SAGE":
+                stored = existing.get(inventory_key(data))
+                comparable = data
+                if stored is not None and ("display_bap" not in stored or "display_bap" not in data):
+                    stored = {k: v for k, v in stored.items() if k != "display_bap"}
+                    comparable = {k: v for k, v in data.items() if k != "display_bap"}
+                if stored != comparable or data["bap_status"] != "Envoyé SAGE":
                     raise ValidationError(
                         "Proposition absente de l'inventaire ou contradictoire avec celui-ci"
                     )
@@ -528,6 +595,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
             group.context_signature = digest(
                 sorted(members, key=lambda item: json.dumps(item, sort_keys=True))
             )
+            if payload["rule"] in RESIDUAL_RULES and header.get("matching_tolerances"):
+                group.context_signature = digest([group.context_signature, precise_amounts, header["matching_tolerances"]])
             group.version += (
                 1  # Une page ouverte avant l'import ne décide pas dans la nouvelle campagne.
             )
@@ -538,6 +607,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
             frozen_group = CampaignGroup.objects.create(
                 campaign=campaign, key=group.key,
                 data={**group_snapshot(group), "auto_validation": payload.get("auto_validation"),
+                      **({"matching_source_amounts": precise_amounts} if precise_amounts is not None else {}),
                       **({"piece_coherence": diagnostic} if diagnostic is not None else {})},
             )
             previous_reviews = (
@@ -578,11 +648,19 @@ def import_campaign(header, stream, *, job=None, progress=None):
                             get_user_model().objects.filter(username=prior.get("actor", "")).first()
                         )
                     line.updated_by = author
+                local_business = bool(line.inventory_link_id or line.adjustment_version
+                                      or old and (old.decision.get("inventory_link") or old.decision.get("adjustment_version")))
+                line.inventory_link = None
+                line.adjustment_version = 0
                 line.campaign = campaign
                 fingerprint = signature(line)
-                unchanged = bool(old and old.fingerprint == fingerprint)
+                unchanged = bool(old and old.fingerprint == fingerprint and not local_business)
                 comparison = "UNCHANGED" if unchanged else "CHANGED" if old else "NEW"
                 reasons = []
+                if local_business:
+                    from .business import LOCAL_BUSINESS_REVIEW_REASON
+                    line.source_signature = ""
+                    reasons.append(LOCAL_BUSINESS_REVIEW_REASON)
                 if old and not unchanged:
                     current_source = source_record(line)
                     for field, label in {
@@ -622,6 +700,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
                         "values",
                         "manual_assignment",
                         "automatic_assignment",
+                        "inventory_link",
+                        "adjustment_version",
                         "multiple_context",
                         "multiple_diagnostic",
                         "comment",
@@ -678,9 +758,24 @@ def import_campaign(header, stream, *, job=None, progress=None):
     from .auto_validation import apply_automatic_validations
 
     progress("Validation automatique en cours", count)
-    apply_automatic_validations(campaign, progress=progress)
+    from .business import IMPORTING
+    token = IMPORTING.set(True)
+    try:
+        apply_automatic_validations(campaign, progress=progress)
+    finally:
+        IMPORTING.reset(token)
     if sage_enabled:
         from .global_control import initialize_controls
         initialize_controls(campaign, progress=progress)
+        from .business_carry import carry_business_actions
+        carry_business_actions(campaign, progress=progress)
+        progress("Reprise des actions métier contrôlée", count)
+    from .control_index import rebuild_campaign
+    rebuild_campaign(campaign, progress=progress)
+    from .accounting import prepare_campaign
+    from .sqlite_statistics import private_accounting_deferred, after_campaign_commit
+    if not private_accounting_deferred.get():
+        prepare_campaign(campaign, progress=progress)
+    after_campaign_commit(using=campaign._state.db or "default")
     progress("Publication terminée", count)
     return count

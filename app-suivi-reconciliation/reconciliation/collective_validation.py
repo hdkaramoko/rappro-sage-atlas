@@ -37,7 +37,8 @@ def prepare_piece(campaign, rows, owners):
     Compare les charges Sage Atlas (jamais les charges projet) aux montants
     individuels Sage, avec tolérance signée de 0,01 EUR et contrôle collectif.
     Retourne les affectations par Id Atlas ; ValidationError si preuve incomplète,
-    décision humaine, identité partagée ou incohérence. Lecture SQL sans mutation.
+    décision humaine, identité partagée ou incohérence. Une base métier Lot 2
+    d'une ancienne campagne nécessite une nouvelle revue. Lecture SQL sans mutation.
     """
     if campaign.metadata.get("schema_version") != 3 or campaign.metadata.get("piece_coherence_mode") != "ACTIVE":
         raise ValidationError("Activation collective absente : contrôle manuel requis")
@@ -51,6 +52,9 @@ def prepare_piece(campaign, rows, owners):
     if owners - {r.line_id for r in rows}:
         raise ValidationError("Autre proposition revendiquant la pièce SAGE")
     for frozen in rows:
+        from .business import LOCAL_BUSINESS_REVIEW_REASON
+        if LOCAL_BUSINESS_REVIEW_REASON in frozen.reasons:
+            raise ValidationError(LOCAL_BUSINESS_REVIEW_REASON)
         line, group_data = frozen.line, frozen.group.data
         if line.version and line.validation_source == "MANUAL":
             raise ValidationError("Décision humaine prioritaire : pièce laissée au contrôle manuel")
@@ -131,6 +135,13 @@ def validate_piece(campaign, rows, owners):
 
 
 def apply_collective_validations(campaign, *, progress=None):
+    """Applique les Confirmé collectifs existants, sans traiter les affectations Exact.
+
+    `campaign` est la nouvelle campagne en cours d'import ; `progress` suit les
+    pièces. Retourne les ids traités. Les savepoints et critères Confirmé restent
+    inchangés ; le discriminant EXACT_GROUP évite de retraiter ces réservations
+    comme des preuves Confirmé. Aucun accès aux campagnes closes.
+    """
     rows = campaign.reviews.select_related("group", "line").iterator(chunk_size=500)
     groups, owners = defaultdict(list), defaultdict(set)
     active = campaign.metadata.get("piece_coherence_mode") == "ACTIVE"
@@ -143,7 +154,7 @@ def apply_collective_validations(campaign, *, progress=None):
             for proof in candidate.get("rows", []):
                 owners[(key[0], identifier(proof.get("Numéro pièce")))].add(frozen.line_id)
         if ((active and frozen.group.data.get("rule") == "MATCH_CONFIRMED_ATLAS")
-                or frozen.line.automatic_assignment):
+                or (frozen.line.automatic_assignment and frozen.line.automatic_assignment.get("kind") != "EXACT_GROUP")):
             targets.add(key)
     handled = set()
     for number, key in enumerate(sorted(targets), 1):

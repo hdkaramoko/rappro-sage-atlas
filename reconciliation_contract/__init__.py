@@ -14,6 +14,7 @@ VERSION = 3
 STANDARD = "STANDARD_BY_DOCUMENT"
 ODS = "ODS_ODG_BY_GROUP"
 TOLERANCE = "0.01"
+ODS_LABEL_POLICY = "sage-accounted-v1"
 EXTRA_INVENTORY = {
     "Code tiers SAGE": "sage_third_party_code",
     "Libellé ATLAS": "atlas_label",
@@ -66,8 +67,28 @@ def is_ods(document, journal=""):
     ).upper() in ("ODS", "ODG")
 
 
+def atlas_control_label(row):
+    """Choisit le libellé du contrôle Atlas sans changer la recherche de propositions.
+
+    Comptabilisé au nouveau format utilise sage_label, même vide. Envoyé SAGE
+    conserve atlas_label. L'absence du champ signale un ancien contrat et conserve
+    sa règle historique, pour ne pas réinterpréter ses clés et signatures.
+    Retourne la valeur source ; aucune conversion, écriture ou repli sur un vide.
+    """
+    if row.get("bap_status") == "Comptabilisé" and "sage_label" in row:
+        return row.get("sage_label")
+    return row.get("atlas_label")
+
+
 def control_identity(row, *, sage=False):
-    """Résout la clé standard ou ODS ; les clés incomplètes restent isolées."""
+    """Résout la clé standard ou ODS ; les clés incomplètes restent isolées.
+
+    Les ODS comptabilisés du nouveau contrat comparent Libellé SAGE Atlas au
+    Libellé pièce Sage. Envoyé SAGE et anciens contrats gardent Libellé ATLAS.
+    La sélection du libellé ne change pas la normalisation ni la clé standard.
+    La politique ODS versionnée assimile seulement les tiers absents entre eux,
+    dans la clé technique ; les sources et les anciennes campagnes sont préservées.
+    """
     project = text(row.get("project_code")).upper()
     year = row.get("fiscal_year")
     document = text(
@@ -76,11 +97,12 @@ def control_identity(row, *, sage=False):
     ods = is_ods(document, row.get("journal", ""))
     parts = [project, year]
     if ods:
+        from .ods_party import party_key
         parts += [
-            text(
+            party_key(text(
                 row.get("third_party") if sage else row.get("sage_third_party_code")
-            ).upper(),
-            label(row.get("label") if sage else row.get("atlas_label")),
+            ).upper()),
+            label(row.get("label") if sage else atlas_control_label(row)),
         ]
     else:
         parts += [document]
@@ -167,13 +189,20 @@ def compare(atlas_amounts, sage_amounts, *, reasons=(), tolerance=TOLERANCE):
 def snapshot(
     identity, atlas, entries, *, amount_field, tolerance=TOLERANCE, reasons=()
 ):
-    """Photographie les preuves et leur diagnostic, avec signature métier stable."""
+    """Photographie les preuves et leur diagnostic, avec signature métier stable.
+
+    Un nouveau source Comptabilisé ODS sans Libellé SAGE explicite reste à revoir,
+    même si Libellé ATLAS est renseigné. Les anciens snapshots restent compatibles.
+    """
     why = list(reasons)
     if not all(v not in (None, "") for v in identity["parts"]):
         why.append("Clé de résolution incomplète")
     if amount_field not in ("total_sage_charges", "total_project_charges"):
         why.append("Sémantique du montant Atlas non confirmée")
     for row in atlas:
+        if (identity["strategy"] == ODS and row.get("bap_status") == "Comptabilisé"
+                and "sage_label" in row and not label(row.get("sage_label"))):
+            why.append("Libellé SAGE Atlas absent pour le contrôle ODS/ODG")
         if not year_of(row.get("accounting_date")) or year_of(
             row.get("accounting_date")
         ) != row.get("fiscal_year"):

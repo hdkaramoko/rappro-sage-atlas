@@ -6,12 +6,23 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Subquery
 from reconciliation_contract import ODS, control_identity, digest, money, snapshot
+from reconciliation_contract.ods_party import party_context
 
 from .models import CampaignInventory, ControlContribution, MultipleControl
 
 
 def validate_header(header):
-    """Refuse un contrat v3 sans politique de calcul explicite ou tolérance valide."""
+    """Valide les unités et seuils d'un en-tête v3, sans écriture.
+
+    Le seuil de contrôle reste indépendant du matching. La politique résiduelle
+    optionnelle est strictement limitée aux deux règles reconnues ; son absence
+    garde le repli historique. ValidationError si unité, règle ou seuil invalide.
+    """
+    from reconciliation_contract.matching_policy import rule_tolerance
+    try:
+        rule_tolerance("MATCH_BAP", header.get("matching_tolerances"))
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
     if header.get("controls_available") is not True:
         raise ValidationError("Le contrat v3 exige les contrôles de multiples")
     if header.get("sage_amount_currency") != "EUR":
@@ -23,8 +34,14 @@ def validate_header(header):
         raise ValidationError("Tolérance de contrôle invalide")
 
 
+@party_context()
 def import_control(campaign, data, *, inventory=None, previous_by_key=None, persist=True):
-    """Recalcule les totaux et vérifie les preuves Atlas contre l'inventaire complet."""
+    """Vérifie les preuves/totaux contre l'inventaire et retourne le contrôle importé.
+
+    Le BAP optionnel de présentation n'altère pas la comparaison financière.
+    Les signatures restent celles du contenu réellement transmis. Les autres
+    champs sont vérifiés intégralement ; ValidationError annule l'import parent.
+    """
     if not isinstance(data, dict):
         raise ValidationError("Contrôle absent ou mal formé")
     try:
@@ -48,9 +65,10 @@ def import_control(campaign, data, *, inventory=None, previous_by_key=None, pers
         from reconciliation_contract.atlas_context import ATLAS_CONTEXT
 
         expected = [
-            {k: v for k, v in row.items() if k not in ATLAS_CONTEXT.values()} for row in expected
+            {k: v for k, v in row.items() if k not in (*ATLAS_CONTEXT.values(), "display_bap")} for row in expected
         ]
-        if sorted(expected, key=digest) != sorted(data["atlas"], key=digest):
+        comparable = [{k: v for k, v in row.items() if k != "display_bap"} for row in data["atlas"]]
+        if sorted(expected, key=digest) != sorted(comparable, key=digest):
             raise ValueError("Composition Atlas du contrôle différente de l’inventaire")
         for entry in data["entries"]:
             if control_identity(entry, sage=True) != identity:
@@ -72,7 +90,7 @@ def import_control(campaign, data, *, inventory=None, previous_by_key=None, pers
                 raise ValueError("Complétude de référence SAGE incohérente")
         computed = snapshot(
             identity,
-            expected,
+            data["atlas"],
             data["entries"],
             amount_field=campaign.metadata.get("amount_field"),
             tolerance=campaign.metadata["tolerance"],

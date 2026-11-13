@@ -80,6 +80,21 @@ class Scenarios(unittest.TestCase):
             self.path, directory=self.folder, progress=progress or (lambda *a, **k: None)
         )
 
+    def test_department_snapshot_survives_staging_and_idempotence(self):
+        """Le rattachement enrichi suit la copie privée et la publication atomique une seule fois."""
+        root = Path(__file__).resolve().parents[2]
+        program = "from examples.ods_bap_filters_fixture import generate; import sys; generate(sys.argv[1], project_departments={'P': {'source':'Sante','consolidated':'SANTE','in_reference':True}})"
+        subprocess.run([sys.executable, "-c", program, str(self.folder)], cwd=root,
+                       check=True, capture_output=True, timeout=60)
+        self.path = self.folder / "ods-bap.jsonl"
+        self.assertEqual(self.load(), 1)
+        current = Campaign.objects.get(is_current=True)
+        self.assertEqual(current.departments.get(project_code="P").consolidated, "SANTE")
+        count = Campaign.objects.count()
+        self.assertEqual(self.load(), 1)
+        self.assertEqual(Campaign.objects.count(), count)
+        self.assertEqual(current.departments.count(), 1)
+
     def test_batches_readers_and_validation_carry(self):
         """Plus de 500 lignes : lecteurs disponibles et validation conservée après bascule."""
         import_bundle(self.path)

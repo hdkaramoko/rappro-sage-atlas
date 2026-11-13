@@ -12,8 +12,12 @@ from reconciliation.transformations.atlas import transform_atlas
 from reconciliation.transformations.sage import transform_sage
 
 
-def generate(folder):
-    """Écrit uniquement un JSONL fictif de huit lignes Atlas et huit Sage ; ne touche aucune base."""
+def generate(folder, *, project_departments=None):
+    """Écrit un JSONL fictif de huit lignes par source, sans accès à une base.
+
+    project_departments ajoute facultativement les rattachements de test à
+    l'en-tête ; sources, matching et décisions restent identiques.
+    """
     left, right = [], []
     for number, amount in enumerate(("-310", "-170", "-410"), 1):
         doc = f"ODG-TEST-{number}"
@@ -40,7 +44,8 @@ def generate(folder):
     atlas, sage = transform_atlas(pd.DataFrame(left)), transform_sage(pd.DataFrame(right))
     result = match_reconciliations(atlas, sage, MatchingConfig(enable_fuzzy=False, enable_without_label=False))
     return export_review_bundle(atlas, sage, result, Path(folder) / "ods-bap.jsonl", year=2026,
-        controls=build_controls(atlas, sage, result), include_sage_inventory=True)
+        controls=build_controls(atlas, sage, result), include_sage_inventory=True,
+        project_departments=project_departments)
 
 
 if __name__ == "__main__":

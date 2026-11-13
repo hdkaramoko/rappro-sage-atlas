@@ -17,6 +17,7 @@ from django.db import connection
 from django.utils import timezone
 
 STAGED = (
+    "reconciliation_campaigndepartment",
     "reconciliation_campaigninventory",
     "reconciliation_campaigngroup",
     "reconciliation_multiplecontrol",
@@ -43,7 +44,7 @@ CAMPAIGN = "reconciliation_campaign"
 REVISION = "reconciliation_importrevision"
 BATCH = 500
 LABELS = dict(
-    zip(STAGED, ("Inventaire", "Preuves des groupes", "Contrôles des multiples",
+    zip(STAGED, ("Départements des projets", "Inventaire", "Preuves des groupes", "Contrôles des multiples",
                  "Inventaire Sage", "Contrôles globaux", "Groupes de cadrage", "Synthèses de cadrage"), strict=True)
 )
 

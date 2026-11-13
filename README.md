@@ -1,5 +1,9 @@
 # Rapprochement Atlas / Sage X3
 
+L'[enrichissement des départements](docs/enrichissement_departements_projets_atlas.md)
+ajoute deux référentiels Excel configurables, deux inventaires de projets et le
+filtre Département transcodifié, sans changer les règles de rapprochement.
+
 Le [volet A BAP / tolérance](docs/volet_a_bap_tolerance.md) décrit l'affichage des
 références, l'ordre des règles et les seuls seuils résiduels portés à 0,05 €.
 
@@ -21,7 +25,7 @@ uv sync
 uv run pytest
 uv run python -m reconciliation.main --atlas "data/JDD.xlsx" --sage "data/LISTPJT4.csv"
 uv run python -m reconciliation.main --atlas "data/JDD.xlsx" --sage "data/LISTPJT4.csv" --output "output/rapprochement.xlsx"
-uv run python -m reconciliation.main --atlas "data/inputs/JDD.xlsx" --sage "data/inputs/ZLISTPJT.csv" --year 2026 --review-output "data/outputs/campagne_ddmm2026.jsonl"
+uv run python -m reconciliation.main --atlas "data/inputs/JDD.xlsx" --sage "data/inputs/ZLISTPJT.csv" --year 2026 --atlas-projects "data/inputs/ProjetAtlas.xlsx" --department-mapping "data/inputs/transcodification.xlsx" --review-output "data/outputs/campagne_ddmm2026.jsonl"
 ```
 
 La CLI affiche une synthèse ; l'API Python retourne les résultats détaillés.

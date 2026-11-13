@@ -69,7 +69,7 @@ class AmountControlUXTests(TestCase):
         self.assertContains(response, 'value="EXCLU"')
         response = self.workspace(control_state=["", "ECART"], project=["P"], q="UX-")
         self.assertEqual({row.pk for row in response.context["page"]}, {balanced.pk, review.pk, excluded.pk})
-        state_menu = response.context["filter_menus"][1]
+        state_menu = next(menu for menu in response.context["filter_menus"] if menu["name"] == "control_state")
         self.assertEqual(state_menu["selected"], [])
         self.assertEqual(self.workspace(control_state="EQUILIBRE", project="OTHER", q="UX-").context["page"].paginator.count, 1)
         self.assertEqual(self.workspace(control_state="EQUILIBRE", q="NO-SUCH-DOCUMENT").context["page"].paginator.count, 0)

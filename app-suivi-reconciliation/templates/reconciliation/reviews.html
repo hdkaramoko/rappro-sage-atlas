@@ -4,12 +4,15 @@
 {% include "components/review_tabs.html" %}
 <p class="journey-shortcuts"><a href="{% url 'reconciliation:reviews' %}">À examiner</a> · <a href="{% url 'reconciliation:reviews' %}?rule=__NO_MATCH__">Sans correspondance</a> · <a href="{% url 'reconciliation:reviews' %}?state=VALIDATED">Validées</a> · <a href="{% url 'reconciliation:reviews' %}?state=REJECTED">Refusées</a></p>
 <div class="review-filter-layout">
-<form method="get" class="filter-bar review-filters">
+<form method="get" class="filter-bar review-filters workspace-filters">
+<div class="workspace-filter-fields">
 {% for filter in filter_menus %}{% include "components/multifilter.html" %}{% endfor %}
-{% if match_status %}<input type="hidden" name="match_status" value="{{ match_status }}"><p class="muted">Filtre de correspondance d'une ancienne URL actif. Réinitialisez pour le retirer.</p>{% endif %}
 <div class="field search-field"><label for="filter-search">Recherche</label><input name="q" id="filter-search" value="{{ search }}" placeholder="Libellé, ID Atlas, BAP, tiers…"></div>
+</div>
+{% if match_status %}<input type="hidden" name="match_status" value="{{ match_status }}"><p class="muted">Filtre de correspondance d'une ancienne URL actif. Réinitialisez pour le retirer.</p>{% endif %}
+<div class="workspace-filter-footer">
 <div class="field page-size-filter"><label for="page-size">Lignes</label><select name="page_size" id="page-size"><option {% if page_size == 25 %}selected{% endif %}>25</option><option {% if page_size == 50 %}selected{% endif %}>50</option><option {% if page_size == 100 %}selected{% endif %}>100</option></select></div>
-<div class="filter-actions"><button type="submit">Appliquer</button><a href="{% url 'reconciliation:reviews' %}" class="reset-link">Réinitialiser les filtres</a></div></form>
+<div class="filter-actions"><button type="submit">Appliquer</button><a href="{% url 'reconciliation:reviews' %}" class="reset-link">Réinitialiser les filtres</a></div></div></form>
 </div>
 <div class="table-caption"><span><strong>{{ page.paginator.count|integer_fr }}</strong> lignes Envoyé SAGE</span><span class="muted">Les propositions sont présentées avant les cas sans correspondance. Totaux et écarts SAGE du groupe.</span></div>
 {% if page.paginator.count %}<section class="data-table-card"><div class="table-scroll review-scroll" tabindex="0" role="region" aria-label="Rapprochements filtrés"><table class="work-table"><thead><tr><th>Projet / ID Atlas</th><th>Libellé Atlas</th><th class="numeric">Montant Atlas</th><th>Règle moteur</th><th>Décision</th><th class="numeric">SAGE · groupe</th><th class="numeric">Écart · groupe</th><th>Statut Atlas</th><th>BAP / Tiers</th><th>Pièce dans Atlas</th><th>Date comptable</th><th class="numeric">Charges SAGE dans Atlas</th><th>Statut moteur</th><th>Composition</th><th class="sticky-action">Actions</th></tr></thead><tbody>

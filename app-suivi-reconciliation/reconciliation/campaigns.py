@@ -392,12 +392,20 @@ def import_campaign(header, stream, *, job=None, progress=None):
     Prépare les agrégats après les décisions et reports, sauf dans la copie
     privée SQLite qui les prépare après commit et statistiques, avant publication.
     La maintenance directe est enregistrée après commit et disparaît sur rollback.
+    Les départements optionnels sont validés avant écriture et historisés par
+    lots sur la campagne, sans enrichir les sources ni les permissions.
     """
     from .multiple_import import import_control_batch
     from .review_import import upsert_group
     from .sage_import import insert_sage_batch, validate_capabilities
 
     sage_enabled = validate_capabilities(header)
+    from reconciliation_contract.departments import validate_departments
+    from .models import CampaignDepartment
+    try:
+        departments = validate_departments(header)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
     stream_hash = hashlib.sha256()
     stream_hash.update((json.dumps(header, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
 
@@ -453,6 +461,9 @@ def import_campaign(header, stream, *, job=None, progress=None):
         job=job,
         file_hash=job.file_hash if job else "",
     )
+    CampaignDepartment.objects.bulk_create([
+        CampaignDepartment(campaign=campaign, project_code=code, source=row["source"], consolidated=row["consolidated"])
+        for code, row in departments.items()], batch_size=BATCH_SIZE)
     count, inventory_count, complete, proposals_started = 0, 0, False, False
     controls_started, control_count = False, 0
     batch, seen, group_keys = [], set(), set()
@@ -736,6 +747,10 @@ def import_campaign(header, stream, *, job=None, progress=None):
         raise ValidationError("Campagne interrompue : marqueur de fin absent")
     if year is not None and inventory_count == 0:
         raise ValidationError("La campagne annuelle ne contient aucune ligne Atlas")
+    if header.get("department_policy"):
+        actual = set(campaign.inventory.filter(present=True).values_list("project_code", flat=True).distinct())
+        if actual != set(departments):
+            raise ValidationError("Le périmètre des départements ne correspond pas aux projets du JDD Atlas")
     expected_reviews = campaign.inventory.filter(
         present=True, data__bap_status="Envoyé SAGE"
     ).count()

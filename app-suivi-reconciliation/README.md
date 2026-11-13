@@ -1,5 +1,9 @@
 # Validation des rapprochements Atlas / Sage
 
+Le [filtre Département](../docs/enrichissement_departements_projets_atlas.md)
+utilise les valeurs transcodifiées historisées par campagne dans les trois vues.
+Appliquer la migration `0025` puis importer un nouveau JSONL enrichi.
+
 Voir les [correctifs tiers ODS/ODG, unicité BAP et filtres](../docs/correctifs_tiers_ods_bap_filtres.md).
 Ils s'appliquent aux prochains JSONL ; aucun recalcul de la campagne courante
 n'est requis. Les filtres Type de pièce et Origine sont disponibles immédiatement.

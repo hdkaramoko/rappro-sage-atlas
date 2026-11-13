@@ -319,6 +319,23 @@ class Campaign(models.Model):
         return self.name
 
 
+class CampaignDepartment(models.Model):
+    """Rattachement organisationnel immuable d'un projet dans une campagne.
+
+    Une seule association par code et campagne, même sans département connu.
+    Aucun lien aux permissions ni au champ geography ; anciens imports sans
+    ligne associée interprétés comme Non renseigné. Écrit par lots à l'import.
+    """
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="departments")
+    project_code = models.CharField(max_length=100)
+    source = models.CharField(max_length=255, blank=True)
+    consolidated = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("campaign", "project_code"), name="campaign_department_project")]
+
+
 class CampaignInventory(models.Model):
     """Photographie Atlas ; business_version protège les actions locales concurrentes.
 

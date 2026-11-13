@@ -22,7 +22,8 @@ INVENTORY_COLUMNS = ("Code projet", "Année", "Id", "Statut BAP", "Total charges
 def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None,
                         scope="atlas-complet", source_paths=None, year=None,
                         controls=None, amount_field="total_sage_charges", tolerance="0.01",
-                        include_sage_inventory=False, excluded_prefixes=None):
+                        include_sage_inventory=False, excluded_prefixes=None, project_departments=None,
+                        department_summary=None):
     """Publie atomiquement un JSONL v2/v3 à partir des DataFrames et du résultat.
 
     Les nouveaux v3 déclarent ods_party_policy ; seuls les tiers absents des
@@ -49,6 +50,9 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     afin de ne pas transporter les résidus des agrégats flottants du matching.
     Le volet A déclare les seuils résiduels et conserve leurs bases monétaires
     exactes à côté des projections arrondies, sans changer les contrôles.
+    project_departments est une table optionnelle projet/source/consolidé,
+    validée et stockée une fois dans l'en-tête v3, sans toucher les preuves.
+    department_summary porte le bilan organisationnel facultatif.
     """
     from reconciliation_contract.sage_inventory import CAPABILITY, exclusion_policy
     from reconciliation_contract import ODS_LABEL_POLICY
@@ -58,6 +62,11 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     policy = exclusion_policy(config.SAGE_EXCLUDED_PREFIXES if excluded_prefixes is None else excluded_prefixes)
     from reconciliation.auto_validation import validate_config, proposal_metadata
     options = validate_config()
+    from reconciliation_contract.departments import POLICY as DEPARTMENT_POLICY, validate_departments
+    department_header = {} if project_departments is None else {
+        "department_policy": DEPARTMENT_POLICY, "project_departments": project_departments,
+        "department_summary": department_summary or {}}
+    validate_departments({"schema_version": 3 if controls is not None else 2, **department_header})
     from reconciliation.piece_coherence import build_piece_checks
     from reconciliation_contract.piece_coherence import identifier
     piece_checks = build_piece_checks(atlas, sage)
@@ -112,6 +121,7 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
             now = datetime.now(timezone.utc).isoformat()
             version = 3 if controls is not None else 2
             emit({"type": "campaign", "schema_version": version,
+                  **department_header,
                   **({"validation_policy": "confirmed-exact-v2", "ods_label_policy": ODS_LABEL_POLICY,
                       "matching_tolerances": MATCHING_TOLERANCES, "ods_party_policy": ODS_PARTY_POLICY} if version == 3 else {}),
                   **({"capabilities": [CAPABILITY], "sage_exclusions": policy} if include_sage_inventory else {}),

@@ -305,6 +305,12 @@
         ```
     -   Faire les migrations
 
+    -   Pour la prod
+        ```
+            kubectl apply -f k8s/prod/deployment.yaml
+            kubectl set image deployment/rappro-sage-atlas rappro-sage-atlas=ghcr.io/hdkaramoko/rappro-sage-atlas:prod-<SHA>
+            kubectl rollout status deployment/rappro-sage-atlas -n user-hdkaramoko --timeout=120s
+        ```
 
 Accorder les privileges pour des requetes
 +   Identifier le pod PostgreSQL : ```kubectl get pods -n user-hdkaramoko | grep postgresql-cnpg-555845```

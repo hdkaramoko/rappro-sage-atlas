@@ -23,7 +23,7 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                         scope="atlas-complet", source_paths=None, year=None,
                         controls=None, amount_field="total_sage_charges", tolerance="0.01",
                         include_sage_inventory=False, excluded_prefixes=None, project_departments=None,
-                        department_summary=None):
+                        department_summary=None, pole_configuration=None):
     """Publie atomiquement un JSONL v2/v3 à partir des DataFrames et du résultat.
 
     Les nouveaux v3 déclarent ods_party_policy ; seuls les tiers absents des
@@ -53,6 +53,8 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     project_departments est une table optionnelle projet/source/consolidé,
     validée et stockée une fois dans l'en-tête v3, sans toucher les preuves.
     department_summary porte le bilan organisationnel facultatif.
+    pole_configuration fige la liste suivie ; les champs pole/pole_source sont
+    alors requis dans la même table, sans enrichissement des preuves métier.
     """
     from reconciliation_contract.sage_inventory import CAPABILITY, exclusion_policy
     from reconciliation_contract import ODS_LABEL_POLICY
@@ -63,9 +65,12 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     from reconciliation.auto_validation import validate_config, proposal_metadata
     options = validate_config()
     from reconciliation_contract.departments import POLICY as DEPARTMENT_POLICY, validate_departments
+    from reconciliation_contract.departments import POLE_POLICY
+    pole_configuration = pole_configuration if pole_configuration is not None else (department_summary or {}).get("pole_configuration")
     department_header = {} if project_departments is None else {
         "department_policy": DEPARTMENT_POLICY, "project_departments": project_departments,
-        "department_summary": department_summary or {}}
+        "department_summary": {key: value for key, value in (department_summary or {}).items() if key != "pole_configuration"},
+        **({"pole_policy": POLE_POLICY, "pole_configuration": pole_configuration} if pole_configuration is not None else {})}
     validate_departments({"schema_version": 3 if controls is not None else 2, **department_header})
     from reconciliation.piece_coherence import build_piece_checks
     from reconciliation_contract.piece_coherence import identifier

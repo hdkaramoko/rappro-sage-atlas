@@ -394,6 +394,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
     La maintenance directe est enregistrée après commit et disparaît sur rollback.
     Les départements optionnels sont validés avant écriture et historisés par
     lots sur la campagne, sans enrichir les sources ni les permissions.
+    Le pôle et sa source sont conservés dans la même photographie ; l'absence
+    historique de ces champs prend Hors DP sans rejouer les décisions.
     """
     from .multiple_import import import_control_batch
     from .review_import import upsert_group
@@ -462,7 +464,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
         file_hash=job.file_hash if job else "",
     )
     CampaignDepartment.objects.bulk_create([
-        CampaignDepartment(campaign=campaign, project_code=code, source=row["source"], consolidated=row["consolidated"])
+        CampaignDepartment(campaign=campaign, project_code=code, source=row["source"], consolidated=row["consolidated"],
+                           pole=row.get("pole", "Hors DP"), pole_source=row.get("pole_source", ""))
         for code, row in departments.items()], batch_size=BATCH_SIZE)
     count, inventory_count, complete, proposals_started = 0, 0, False, False
     controls_started, control_count = False, 0

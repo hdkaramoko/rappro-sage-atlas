@@ -1,5 +1,24 @@
 """Schémas sources et paramètres de lecture centralisés."""
 
+# Liste métier validée ; conserver ces dénominations dans les campagnes générées.
+# None bloque les nouvelles campagnes enrichies ; [] signifie explicitement
+# qu'aucun pôle n'est suivi. Les anciennes commandes sans référentiel restent valides.
+POLES_SUIVIS = [
+    "DP Angola",
+    "DP Comores",
+    "DP Côte d'Ivoire",
+    "DP Ethiopie",
+    "DP Guinée",
+    "DP Haïti",
+    "DP Jordanie/Liban",
+    "DP Madagascar",
+    "DP République Démocratique du Congo",
+    "DP Rwanda",
+    "DP Tunisie/Lybie",
+    "DP Ukraine",
+]
+POLE_PAR_DEFAUT = "Hors DP"
+
 ATLAS_REQUIRED_COLUMNS = ("Id", "Code projet")
 ATLAS_TEXT_COLUMNS = (
     "Id", "Bailleur", "Code projet", "Libellé projet", "Activité",

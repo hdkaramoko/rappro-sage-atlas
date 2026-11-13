@@ -40,14 +40,16 @@ class DepartmentTests(TestCase):
         cls.folder.cleanup()
         super().tearDownClass()
 
-    def load(self, consolidated="SANTE", *, legacy=False, bad=False):
+    def load(self, consolidated="SANTE", *, legacy=False, bad=False, pole=None, pole_source=None):
         """Importe une variante re-signée du même JSONL et retourne sa campagne.
 
         legacy enlève uniquement le contexte ; bad crée un périmètre contradictoire
         pour vérifier le rollback. Les sources financières restent identiques.
+        pole ajoute une photographie de configuration explicite, indépendante
+        de celle du moteur installé ; None conserve le vieux contrat Département.
         """
         records = json.loads(json.dumps(self.records))
-        records[0]["name"] = f"Départements {consolidated} {legacy} {bad}"
+        records[0]["name"] = f"Départements {consolidated} {legacy} {bad} {pole}"
         if legacy:
             records[0].pop("department_policy")
             records[0].pop("project_departments")
@@ -56,6 +58,11 @@ class DepartmentTests(TestCase):
             records[0]["project_departments"]["P"] = {"source": consolidated, "consolidated": consolidated, "in_reference": True}
             if bad:
                 records[0]["project_departments"]["OUTSIDE"] = records[0]["project_departments"]["P"].copy()
+            if pole is not None:
+                from reconciliation_contract.departments import POLE_POLICY
+                records[0]["pole_policy"] = POLE_POLICY
+                records[0]["pole_configuration"] = {"followed": [pole] if pole != "Hors DP" else [], "fallback": "Hors DP"}
+                records[0]["project_departments"]["P"].update(pole=pole, pole_source=pole if pole_source is None else pole_source)
         lines = [json.dumps(r, ensure_ascii=False, allow_nan=False) + "\n" for r in records[:-1]]
         records[-1]["stream_sha256"] = hashlib.sha256("".join(lines).encode("utf-8")).hexdigest()
         path = Path(self.folder.name) / f"{consolidated}-{legacy}-{bad}.jsonl"
@@ -133,7 +140,7 @@ class DepartmentTests(TestCase):
         self.assertTrue(Campaign.objects.get(pk=self.campaign.pk).is_current)
 
     def test_department_filter_cost_and_pagination(self):
-        """Mille projets restent filtrés en SQL avant page, sans requête par ligne."""
+        """Mille projets restent filtrés en SQL par département/pôle, sans requête par ligne."""
         projects = [Project(code=f"DP{i:04}", label="Test") for i in range(1000)]
         Project.objects.bulk_create(projects)
         ProjectPortfolio.objects.bulk_create([ProjectPortfolio(user=self.user, project=p) for p in projects])
@@ -148,3 +155,64 @@ class DepartmentTests(TestCase):
         self.assertContains(response, "department=SANTE")
         self.assertLess(len(queries), 25)
         print(f"BENCH département : 1000 projets, {perf_counter() - start:.3f}s, {len(queries)} requêtes")
+        self.campaign.metadata["pole_policy"] = "project-poles-v1"
+        self.campaign.save(update_fields=["metadata"])
+        self.campaign.departments.filter(consolidated="SANTE").update(pole="Agriculture")
+        start = perf_counter()
+        with CaptureQueriesContext(connection) as pole_queries:
+            response = self.response("accounting", department="SANTE", pole="Agriculture", page=2)
+        self.assertEqual(response.context["page"].paginator.count, 501)
+        self.assertLess(len(pole_queries), 25)
+        print(f"BENCH département+pôle : 1000 projets, {perf_counter() - start:.3f}s, {len(pole_queries)} requêtes")
+
+    def test_pole_filters_history_and_legacy(self):
+        """Les trois vues filtrent la photographie ; changer le suivi ne réécrit ni N ni les décisions."""
+        previous = self.campaign
+        old_decisions = list(previous.reviews.order_by("pk").values_list("source", "decision"))
+        financial_fields = ("atlas", "sage", "gap", "state", "data__totals")
+        financial = list(previous.accounting_projects.filter(project_code="P").values_list(*financial_fields))
+        states = list(previous.reviews.order_by("pk").values_list("source__source_id", "decision__state", "decision__validation_source"))
+        current = self.load(pole="Agriculture", pole_source=" Agriculture ")
+        self.assertEqual(current.departments.get().pole_source, " Agriculture ")
+        self.assertEqual(list(current.accounting_projects.filter(project_code="P").values_list(*financial_fields)), financial)
+        self.assertEqual(list(current.reviews.order_by("pk").values_list("source__source_id", "decision__state", "decision__validation_source")), states)
+        for view in ("reviews", "controls", "accounting"):
+            response = self.response(view, pole="Agriculture", department="SANTE")
+            menu = next(m for m in response.context["filter_menus"] if m["name"] == "pole")
+            self.assertEqual(menu["label"], "Pôle")
+            self.assertEqual(menu["selected"], ["Agriculture"])
+            self.assertEqual(response.context["page"].paginator.count, 6 if view == "controls" else 1)
+            self.assertEqual(self.response(view, pole="Agriculture", department="SANTE", q="NO-SUCH").context["page"].paginator.count, 0)
+            self.assertEqual(self.response(view, pole=["", "Agriculture"]).context["page"].paginator.count,
+                             self.response(view).context["page"].paginator.count)
+        next_campaign = self.load(pole="Hors DP", pole_source="Agriculture")
+        self.assertEqual(current.departments.get().pole, "Agriculture")
+        self.assertEqual(next_campaign.departments.get().pole, "Hors DP")
+        self.assertEqual(list(previous.reviews.order_by("pk").values_list("source", "decision")), old_decisions)
+        legacy = self.load(legacy=True)
+        self.assertEqual(legacy.departments.count(), 0)
+        self.assertEqual(self.response("reviews", pole="Hors DP").context["page"].paginator.count, 1)
+
+    def test_pole_permissions_multiselection_and_pagination(self):
+        """Options et compteurs restent limités au portefeuille, avant pagination et en combinaison."""
+        self.campaign.metadata["pole_policy"] = "project-poles-v1"
+        self.campaign.save(update_fields=["metadata"])
+        self.campaign.departments.filter(project_code="P").update(pole="Agriculture")
+        self.campaign.departments.filter(project_code="SECRET").update(pole="POLE_SECRET")
+        for view in ("reviews", "controls", "accounting"):
+            response = self.response(view)
+            self.assertNotContains(response, "POLE_SECRET")
+            menu = next(m for m in response.context["filter_menus"] if m["name"] == "pole")
+            self.assertEqual(menu["selected"], [])
+        self.assertEqual(self.response("controls", pole="Hors DP").context["page"].paginator.count, 1)
+        self.assertEqual(self.response("controls", pole=["Hors DP", "Agriculture"]).context["page"].paginator.count, 7)
+        self.assertEqual(self.response("controls", pole="Hors DP", department="SANTE").context["page"].paginator.count, 0)
+        self.assertEqual(self.response("controls", pole="Agriculture", piece_type="ODS/ODG").context["page"].paginator.count, 1)
+        for i in range(60):
+            CampaignGlobalControl.objects.create(campaign=self.campaign, project_code="P", key=f"POLE-{i}", state="ECART",
+                data={"identity": {"strategy": "STANDARD_BY_DOCUMENT", "parts": ["P", 2026, f"TEST{i}"]}})
+        response = self.response("controls", pole="Agriculture", department="SANTE", page=2)
+        self.assertEqual(response.context["page"].paginator.count, 66)
+        self.assertEqual(len(response.context["page"]), 16)
+        self.assertContains(response, "pole=Agriculture")
+        self.assertContains(response, "department=SANTE")

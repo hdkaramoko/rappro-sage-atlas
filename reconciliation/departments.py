@@ -10,6 +10,7 @@ from openpyxl import Workbook, load_workbook
 
 from reconciliation.loaders.common import LoaderError
 from reconciliation.transformations.common import normalize_text
+from reconciliation_contract.departments import classified_pole, pole_key, validate_pole_configuration
 
 
 def label_key(value):
@@ -65,8 +66,19 @@ def project_context(atlas, sage, projects_path, mapping_path):
     manquante ou transcodification inconnue lèvent LoaderError. Un projet JDD
     absent du référentiel reste explicite et non renseigné. Retourne (table,
     bilan) ; ne modifie pas les DataFrames ni les clés de rapprochement.
+    Pôle est obligatoire dans l'Excel. La configuration POLES_SUIVIS doit être
+    explicite ; le bilan transmet sa photographie et les comptes par pôle.
+    La source brute, y compris ses espaces ou son absence, reste auditable.
     """
+    from reconciliation import config
+    pole_configuration = {"followed": config.POLES_SUIVIS, "fallback": config.POLE_PAR_DEFAUT}
+    try:
+        pole_index = validate_pole_configuration(pole_configuration)
+    except ValueError as exc:
+        raise LoaderError(str(exc)) from exc
+    pole_configuration["followed"] = list(pole_configuration["followed"])
     mappings, references = {}, {}
+    pole_sources = {}
     duplicates, totals = 0, 0
     for number, (source, target), _ in excel_rows(mapping_path, "Feuil1", ["Département leader", "Département consolidé"]):
         source, target = str(source or "").strip(), str(target or "").strip()
@@ -79,12 +91,12 @@ def project_context(atlas, sage, projects_path, mapping_path):
     if not mappings:
         raise LoaderError("Table de transcodification vide")
     unknown = set()
-    project_rows = list(excel_rows(projects_path, "Sheet1", ["Code projet", "Département leader"]))
+    project_rows = list(excel_rows(projects_path, "Sheet1", ["Code projet", "Département leader", "Pôle"]))
     normalized = normalize_text(pd.Series([row[1][0] for row in project_rows], dtype="string"), uppercase=True)
     markers = {header_key(v) for v in ("total", "totaux", "total general", "nombre de projets")}
     financial_columns = {header_key(v) for v in ("Montant total (€)", "Part EF (€)", "CA (€)",
         "Dépense budgétée (€)", "Dépenses réalisées (€)", "Prix total dépenses budgétées")}
-    for (number, (raw_code, department), values), code in zip(project_rows, normalized):
+    for (number, (raw_code, department, raw_pole), values), code in zip(project_rows, normalized):
         code = "" if pd.isna(code) else str(code)
         department = str(department or "").strip()
         # Une synthèse doit avoir un code absent ou explicitement marqué total.
@@ -99,12 +111,18 @@ def project_context(atlas, sage, projects_path, mapping_path):
             continue
         if not isinstance(raw_code, str) or not re.fullmatch(r"[A-Z0-9][A-Z0-9_.-]{0,99}", code) or not department or len(department) > 255:
             raise LoaderError(f"Projets Atlas ligne {number} : code projet ou département absent/invalide")
+        if raw_pole is not None and (not isinstance(raw_pole, str) or len(raw_pole) > 255):
+            raise LoaderError(f"Projets Atlas ligne {number} : pôle invalide")
+        source_pole = raw_pole or ""
         if code in references:
             if label_key(references[code]) != label_key(department):
                 raise LoaderError(f"Départements contradictoires pour le projet {code}")
+            if pole_key(pole_sources[code]) != pole_key(source_pole):
+                raise LoaderError(f"Pôles contradictoires pour le projet {code}")
             duplicates += 1
         else:
             references[code] = department
+            pole_sources[code] = source_pole
         if label_key(department) not in mappings:
             unknown.add(department)
     if unknown:
@@ -113,11 +131,16 @@ def project_context(atlas, sage, projects_path, mapping_path):
     sage_codes = set(sage["project_code"].dropna())
     table = {code: {"source": references.get(code, ""),
                     "consolidated": mappings.get(label_key(references.get(code)), ""),
-                    "in_reference": code in references} for code in sorted(atlas_codes)}
+                    "in_reference": code in references,
+                    "pole_source": pole_sources.get(code, ""),
+                    "pole": classified_pole(pole_sources.get(code, ""), pole_index)} for code in sorted(atlas_codes)}
     summary = {"atlas_projects": len(atlas_codes), "sage_projects": len(sage_codes),
                "intersection": len(atlas_codes & sage_codes), "sage_absent": len(sage_codes - atlas_codes),
                "atlas_without_department": sorted(atlas_codes - references.keys()),
                "reference_duplicates": duplicates, "reference_totals": totals}
+    summary["pole_configuration"] = pole_configuration
+    summary["projects_by_pole"] = dict(sorted(Counter(row["pole"] for row in table.values()).items()))
+    summary["reference_projects_with_empty_pole"] = sum(not pole_key(pole_sources.get(code, "")) for code in atlas_codes & references.keys())
     return table, summary
 
 
@@ -128,15 +151,19 @@ def project_exports(atlas, sage, table, folder, stem):
     y compris les types exclus du cadrage. Aucun total financier ajouté, afin de
     ne pas inventer de règle de devise. Retourne les deux chemins. Les chaînes
     sont forcées en texte pour éviter les formules Excel ; OSError est propagée.
+    Les colonnes Pôle et Pôle source sont ajoutées en fin d'inventaire Atlas,
+    sans déplacer les colonnes historiques ; le gabarit des portefeuilles reste
+    distinct et inchangé. Les anciennes tables sans pôle utilisent Hors DP.
     """
     atlas_counts = Counter(atlas["project_code"].dropna())
     sage_counts = Counter(sage["project_code"].dropna())
     outputs = []
     specifications = [
         (f"projets_jdd_atlas_{stem}.xlsx",
-         ["Code projet", "Département leader (source)", "Département consolidé", "Présent dans le référentiel", "Lignes JDD", "Diagnostic"],
+         ["Code projet", "Département leader (source)", "Département consolidé", "Présent dans le référentiel", "Lignes JDD", "Diagnostic", "Pôle", "Pôle source"],
          [(code, table[code]["source"], table[code]["consolidated"], "Oui" if table[code]["in_reference"] else "Non",
-           atlas_counts[code], "" if table[code]["in_reference"] else "Projet absent du référentiel") for code in sorted(atlas_counts)]),
+           atlas_counts[code], "" if table[code]["in_reference"] else "Projet absent du référentiel",
+           table[code].get("pole", "Hors DP"), table[code].get("pole_source", "")) for code in sorted(atlas_counts)]),
         (f"projets_sage_absents_jdd_{stem}.xlsx", ["Code projet", "Nombre d'écritures Sage"],
          [(code, sage_counts[code]) for code in sorted(sage_counts.keys() - atlas_counts.keys())])]
     for name, headers, rows in specifications:

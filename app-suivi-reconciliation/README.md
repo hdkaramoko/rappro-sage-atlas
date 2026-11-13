@@ -1,5 +1,8 @@
 # Validation des rapprochements Atlas / Sage
 
+L'[ajout du Pôle](../docs/poles_atlas.md) nécessite la migration 0026 et un nouveau
+JSONL enrichi. Les anciennes campagnes restent consultables avec Pôle = Hors DP.
+
 Le [filtre Département](../docs/enrichissement_departements_projets_atlas.md)
 utilise les valeurs transcodifiées historisées par campagne dans les trois vues.
 Appliquer la migration `0025` puis importer un nouveau JSONL enrichi.

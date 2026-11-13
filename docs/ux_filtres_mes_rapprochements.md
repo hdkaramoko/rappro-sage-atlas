@@ -6,8 +6,8 @@ Contrôle des montants utilisait un formulaire flex sans adaptation comparable.
 
 Les deux templates utilisent désormais le même conteneur responsive :
 
-- espace disponible d'au moins 1 000 px : cinq menus de même proportion et une
-  recherche de 2,8 parts, sur une seule ligne ;
+- espace disponible d'au moins 1 000 px : six menus de même proportion et une
+  recherche de trois parts depuis l'[ajout du Pôle](poles_atlas.md), sur une seule ligne ;
 - espace intermédiaire : trois ou deux colonnes, recherche sur toute la largeur ;
 - espace disponible inférieur ou égal à 400 px : une colonne ;
 - Lignes et actions placés dans un pied de formulaire distinct ;

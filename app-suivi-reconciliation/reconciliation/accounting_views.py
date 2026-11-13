@@ -69,13 +69,16 @@ def accounting_list(request):
     La campagne est implicite ; les URL historiques ne changent pas la sélection.
     Département utilise le rattachement transcodifié historisé, dans le même
     périmètre autorisé ; tableaux et compteurs partagent ce filtre SQL.
+    Le filtre Pôle partage le mécanisme et conserve Hors DP pour l'historique.
     """
     campaign, availability = selected_campaign(request)
     rows = AccountingProject.objects.filter(campaign=campaign,
         project_code__in=projects_for(request.user).values("code"), data__prepared=True)
     projects = list(rows.order_by("project_code").values_list("project_code", flat=True))
-    from .departments import department_filter
+    from .departments import department_filter, pole_filter
+    organization_scope = rows
     rows, department_menu = department_filter(rows, campaign, request, has_projects=bool(projects))
+    rows, pole_menu = pole_filter(rows, campaign, request, has_projects=bool(projects), scope=organization_scope)
     selected = selections(request.GET, "project", projects)
     states = selections(request.GET, "state", [key for key, _ in STATES])
     search = request.GET.get("q", "").strip()
@@ -94,6 +97,7 @@ def accounting_list(request):
         "page": page, "search": search, "statistics": statistics,
         "filter_menus": [filter_menu("project", "Projet", [(p, p) for p in projects], selected),
                          department_menu,
+                         pole_menu,
                          filter_menu("state", "État du cadrage", STATES, states)],
         "page_range": page.paginator.get_elided_page_range(page.number)})
 

@@ -57,14 +57,17 @@ def control_workspace(request):
     Origine et Type de pièce valent Toutes par défaut. Le type filtre côté
     serveur avant pagination, sans modifier les calculs ni étendre les droits.
     Département utilise les valeurs transcodifiées de la photographie campagne.
+    Pôle utilise le même rattachement historisé, sans étendre les permissions.
     """
     campaign = Campaign.objects.filter(is_current=True).first()
     rows = global_controls_for(request.user).filter(campaign=campaign)
     projects = list(rows.order_by("project_code").values_list("project_code", flat=True).distinct())
     kinds = list(with_piece_type(rows).order_by("filter_piece_type").values_list("filter_piece_type", flat=True).distinct())
     chosen_types = selections(request.GET, "piece_type", kinds)
-    from .departments import department_filter
+    from .departments import department_filter, pole_filter
+    organization_scope = rows
     rows, department_menu = department_filter(rows, campaign, request, has_projects=bool(projects))
+    rows, pole_menu = pole_filter(rows, campaign, request, has_projects=bool(projects), scope=organization_scope)
     if chosen_types:
         rows = with_piece_type(rows).filter(filter_piece_type__in=chosen_types)
     selected = selections(request.GET, "project", projects)
@@ -116,6 +119,7 @@ def control_workspace(request):
         "page": page, "search": search,
         "filter_menus": [filter_menu("project", "Projet", [(p, p) for p in projects], selected),
                          department_menu,
+                         pole_menu,
                          filter_menu("control_state", "État du contrôle", states, chosen),
                          filter_menu("piece_type", "Type de pièce", [(kind, "Type inconnu" if kind == "NA" else kind) for kind in kinds], chosen_types),
                          filter_menu("origin", "Origine", origins, origin)],

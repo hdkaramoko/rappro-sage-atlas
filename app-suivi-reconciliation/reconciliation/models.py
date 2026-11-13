@@ -325,12 +325,16 @@ class CampaignDepartment(models.Model):
     Une seule association par code et campagne, même sans département connu.
     Aucun lien aux permissions ni au champ geography ; anciens imports sans
     ligne associée interprétés comme Non renseigné. Écrit par lots à l'import.
+    Le pôle source/classifié est photographié ici ; Hors DP couvre les anciens
+    imports et valeurs non suivies, indépendamment des configurations futures.
     """
 
     campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="departments")
     project_code = models.CharField(max_length=100)
     source = models.CharField(max_length=255, blank=True)
     consolidated = models.CharField(max_length=255, blank=True)
+    pole = models.CharField(max_length=255, default="Hors DP")
+    pole_source = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=("campaign", "project_code"), name="campaign_department_project")]

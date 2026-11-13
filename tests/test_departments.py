@@ -27,10 +27,21 @@ def workbook(path, sheet, rows):
 
 
 @pytest.fixture
+def pole_configuration(monkeypatch):
+    """Définit une liste suivie fictive uniquement dans le processus des tests."""
+    monkeypatch.setattr("reconciliation.config.POLES_SUIVIS", ["Agriculture"])
+
+
+@pytest.fixture(autouse=True)
+def configured_poles(pole_configuration):
+    """Conserve les tests du référentiel départemental avec une configuration explicite."""
+
+
+@pytest.fixture
 def inputs(tmp_path):
     """Prépare deux référentiels fictifs et des populations partiellement communes."""
     projects = workbook(tmp_path / "projects.xlsx", "Sheet1", [
-        [" Code PROJET ", "Departement leader", "Département associé", "Montant total (€)"],
+        [" Code PROJET ", "Departement leader", "Département associé", "Montant total (€)", "Pôle"],
         [" p1 ", "Santé", "Autre", 50], ["P1", "Santé", None, 50],
         ["001", "Développement durable", None, 40], [None, None, None, None],
         ["TOTAL", None, None, 140], [None, None, None, "140.00"]])
@@ -49,8 +60,9 @@ def test_reference_and_set_exports(inputs, tmp_path):
     table, summary = project_context(*inputs)
     assert table["001"]["consolidated"] == "DEV_DURABLE"
     assert table["P1"]["source"] == "Santé"
-    assert table["ABSENT"] == {"source": "", "consolidated": "", "in_reference": False}
-    assert summary == {"atlas_projects": 3, "sage_projects": 2, "intersection": 1, "sage_absent": 1,
+    assert table["ABSENT"] == {"source": "", "consolidated": "", "in_reference": False, "pole": "Hors DP", "pole_source": ""}
+    assert {key: summary[key] for key in ("atlas_projects", "sage_projects", "intersection", "sage_absent",
+                                        "atlas_without_department", "reference_duplicates", "reference_totals")} == {"atlas_projects": 3, "sage_projects": 2, "intersection": 1, "sage_absent": 1,
                        "atlas_without_department": ["ABSENT"], "reference_duplicates": 1, "reference_totals": 2}
     before = atlas.copy(deep=True)
     paths = project_exports(atlas, sage, table, tmp_path, "test")
@@ -73,8 +85,8 @@ def test_invalid_references_fail_explicitly(inputs, kind):
                 ["Santé", "AUTRE" if kind == "mapping_conflict" else None]]
         workbook(mapping, "Feuil1", rows)
     else:
-        headers = ["Code projet", "Département leader"]
-        row = ["P1", "Santé"]
+        headers = ["Code projet", "Département leader", "Pôle"]
+        row = ["P1", "Santé", None]
         extra = []
         if kind == "header":
             headers[0] = "Autre"
@@ -100,7 +112,7 @@ def test_invalid_references_fail_explicitly(inputs, kind):
 def test_unicode_mapping_and_real_last_project(inputs):
     """Unicode décomposé et espaces correspondent, sans supprimer le dernier vrai projet."""
     atlas, sage, projects, mapping = inputs
-    workbook(projects, "Sheet1", [["Code projet", "Département leader"], ["P1", "Sante\u0301"], ["001", " Santé "]])
+    workbook(projects, "Sheet1", [["Code projet", "Département leader", "Pôle"], ["P1", "Sante\u0301", None], ["001", " Santé ", None]])
     table, summary = project_context(atlas, sage, projects, mapping)
     assert table["001"]["consolidated"] == "SANTE"
     assert table["P1"]["source"] == "Sante\u0301"
@@ -137,7 +149,7 @@ def test_cli_arguments_remain_optional_but_paired():
 def test_cli_unknown_department_publishes_nothing(inputs, tmp_path):
     """Une référence invalide échoue avant matching et conserve le JSONL existant."""
     atlas, sage, projects, mapping = inputs
-    workbook(projects, "Sheet1", [["Code projet", "Département leader"], ["P1", "INCONNU"]])
+    workbook(projects, "Sheet1", [["Code projet", "Département leader", "Pôle"], ["P1", "INCONNU", None]])
     output = tmp_path / "campaign.jsonl"
     output.write_text("previous", encoding="utf-8")
     summary = {"load_summary": {"valid_sheets": None, "rows_read": 4, "duplicates_removed": 0, "rows_final": 4},
@@ -169,3 +181,59 @@ def test_cli_enriched_publishes_three_outputs(inputs, tmp_path):
     assert header["project_departments"]["P1"]["consolidated"] == "SANTE"
     assert len(list(tmp_path.glob("projets_*.xlsx"))) == 2
     assert not list(tmp_path.glob(".departments-*"))
+
+
+@pytest.mark.parametrize("source,expected", [("Agriculture", "Agriculture"), (" Agriculture  ", "Agriculture"),
+    ("Autre pôle", "Hors DP"), (None, "Hors DP"), ("  ", "Hors DP")])
+def test_pole_classification_and_source_audit(inputs, source, expected):
+    """Un suivi conserve son nom exact ; les autres cas restent Hors DP avec source brute."""
+    atlas, sage, projects, mapping = inputs
+    workbook(projects, "Sheet1", [["Code projet", "Département leader", "Pôle"], ["P1", "Santé", source]])
+    table, summary = project_context(atlas, sage, projects, mapping)
+    assert table["P1"]["pole"] == expected
+    assert table["P1"]["pole_source"] == (source or "")
+    assert table["ABSENT"]["pole"] == "Hors DP"
+    assert table["ABSENT"]["in_reference"] is False
+    assert sum(summary["projects_by_pole"].values()) == 3
+
+
+def test_pole_required_and_duplicate_conflict(inputs):
+    """Pôle associé ne remplace pas Pôle ; deux rattachements différents sont refusés."""
+    atlas, sage, projects, mapping = inputs
+    workbook(projects, "Sheet1", [["Code projet", "Département leader", "Pôle associé"], ["P1", "Santé", "Agriculture"]])
+    with pytest.raises(LoaderError, match="Pôle"):
+        project_context(*inputs)
+    workbook(projects, "Sheet1", [["Code projet", "Département leader", "Pôle"],
+        ["P1", "Santé", "Agriculture"], ["P1", "Santé", "Autre"]])
+    with pytest.raises(LoaderError, match="Pôles contradictoires"):
+        project_context(*inputs)
+    workbook(projects, "Sheet1", [["Code projet", "Département leader", "Pôle"],
+        ["P1", "Santé", "Agriculture"], ["P1", "Santé", " Agriculture "]])
+    assert project_context(*inputs)[1]["reference_duplicates"] == 1
+
+
+def test_unconfigured_poles_fail_instead_of_inventing(inputs, monkeypatch):
+    """None demande de configurer ; une liste vide explicitement choisie classe tout Hors DP."""
+    monkeypatch.setattr("reconciliation.config.POLES_SUIVIS", None)
+    with pytest.raises(LoaderError, match="POLES_SUIVIS"):
+        project_context(*inputs)
+    monkeypatch.setattr("reconciliation.config.POLES_SUIVIS", [])
+    table, summary = project_context(*inputs)
+    assert all(row["pole"] == "Hors DP" for row in table.values())
+
+
+def test_pole_contract_and_business_non_regression(tmp_path):
+    """La nouvelle politique signe les métadonnées sans changer aucun enregistrement métier."""
+    from reconciliation_contract.departments import POLE_POLICY
+    original = {"P": {"source": "Santé", "consolidated": "SANTE", "in_reference": True}}
+    before = [json.loads(s) for s in generate(tmp_path, project_departments=original).read_text(encoding="utf-8").splitlines()]
+    enriched = {"P": {**original["P"], "pole": "Agriculture", "pole_source": " Agriculture "}}
+    path = generate(tmp_path, project_departments=enriched,
+                    pole_configuration={"followed": ["Agriculture"], "fallback": "Hors DP"})
+    after = [json.loads(s) for s in path.read_text(encoding="utf-8").splitlines()]
+    assert after[0]["pole_policy"] == POLE_POLICY
+    assert before[1:-1] == after[1:-1]
+    validate_departments(after[0])
+    after[0]["project_departments"]["P"]["pole"] = "Inventé"
+    with pytest.raises(ValueError, match="contradictoire"):
+        validate_departments(after[0])

@@ -211,15 +211,16 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
 .workspace-filter-fields>.search-field {grid-column:1/-1}
 .workspace-filter-fields input {min-width:0}
 .workspace-filter-fields summary {overflow-wrap:anywhere}
+.workspace-filter-fields>.multi-filter>summary {padding:10px 8px;font-size:12px}
 .workspace-filter-fields .multi-filter fieldset {margin:0;min-width:0;width:min(280px,calc(100cqi - 34px));max-width:calc(100cqi - 34px)}
 .workspace-filter-fields .multi-filter label {overflow-wrap:anywhere}
 .workspace-filter-fields .multi-filter input[type=checkbox] {flex:0 0 auto}
 .workspace-filter-footer {display:flex;align-items:end;justify-content:flex-end;flex-wrap:wrap;gap:12px 20px;border-top:1px solid #edf0f5;margin-top:12px;padding-top:12px}
 .workspace-filter-footer>.page-size-filter {width:auto;flex:0 1 6rem;min-width:0;margin-right:auto}
 .workspace-filters .workspace-filter-footer>.filter-actions {border:0;padding:0;align-items:center;gap:18px;flex-wrap:wrap;min-width:0}
-/* Cinq menus de même proportion ; la recherche dispose de presque trois parts. */
+/* Six menus de même proportion ; la recherche conserve trois parts sur desktop. */
 @container (min-width:1000px) {
-  .workspace-filter-fields {grid-template-columns:repeat(5,minmax(0,1fr)) minmax(0,2.8fr)}
+  .workspace-filter-fields {grid-template-columns:repeat(6,minmax(0,1fr)) minmax(0,3fr)}
   .workspace-filter-fields>.search-field {grid-column:auto}
 }
 @container (min-width:701px) and (max-width:999px) {

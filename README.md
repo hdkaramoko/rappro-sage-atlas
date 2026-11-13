@@ -1,5 +1,9 @@
 # Rapprochement Atlas / Sage X3
 
+Le [Pôle Atlas](docs/poles_atlas.md) complète le Département : configuration des
+pôles suivis, classification Hors DP et filtres historisés. Les 12 pôles métier
+validés sont renseignés dans `POLES_SUIVIS`.
+
 L'[enrichissement des départements](docs/enrichissement_departements_projets_atlas.md)
 ajoute deux référentiels Excel configurables, deux inventaires de projets et le
 filtre Département transcodifié, sans changer les règles de rapprochement.

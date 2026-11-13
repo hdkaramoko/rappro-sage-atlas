@@ -55,6 +55,7 @@ def review_list(request):
     Le filtre suit l'ordre partagé de la cascade, sans trier ses libellés.
     Département filtre le rattachement transcodifié de la campagne courante,
     dans le seul portefeuille autorisé, avant compte et pagination.
+    Pôle réutilise ce circuit sur le périmètre visible, avec Hors DP historique.
     """
     if request.GET.get("view") == "controls":
         from .global_views import control_workspace
@@ -64,9 +65,10 @@ def review_list(request):
     scope = items
     projects = list(scope.order_by("transaction__project__code").values_list("transaction__project__code", flat=True).distinct())
     rules = rule_choices(list(scope.order_by("group__rule").values_list("group__rule", flat=True).distinct()))
-    from .departments import department_filter
+    from .departments import department_filter, pole_filter
     campaign = Campaign.objects.filter(is_current=True).first()
     items, department_menu = department_filter(items, campaign, request, "transaction__project__code", has_projects=bool(projects))
+    items, pole_menu = pole_filter(items, campaign, request, "transaction__project__code", has_projects=bool(projects), scope=scope)
     selected_projects = selections(request.GET, "project", projects)
     states = [("DRAFT", "À examiner"), ("VALIDATED", "Validé"), ("REJECTED", "Refusé")]
     state = selections(request.GET, "state", [key for key, _ in states], ("DRAFT",))
@@ -149,6 +151,7 @@ def review_list(request):
             "page_size": size,
             "filter_menus": [filter_menu("project", "Projet", [(p, p) for p in projects], selected_projects),
                              department_menu,
+                             pole_menu,
                              filter_menu("rule", "Règle", rules, ["__NO_MATCH__" if r == "UNMATCHED" else r for r in rule]),
                              filter_menu("state", "Décision", states, state),
                              filter_menu("validation_source", "Origine", [("AUTO", "Automatique"), ("MANUAL", "Manuelle")], origins)],

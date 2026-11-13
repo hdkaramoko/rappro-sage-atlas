@@ -1,5 +1,9 @@
 # Départements organisationnels des projets Atlas
 
+Depuis le [lot Pôle](poles_atlas.md), les nouvelles générations enrichies exigent
+aussi la colonne Pôle et une configuration explicite `POLES_SUIVIS` ; les anciens
+JSONL départementaux restent importables sans changement.
+
 ## Usage
 
 Depuis la racine du dépôt, après mise à jour du moteur :

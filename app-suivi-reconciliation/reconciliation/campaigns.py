@@ -8,6 +8,7 @@ des valeurs mutables de ReconciliationTransaction ou ReviewGroup.
 import hashlib
 import json
 from decimal import Decimal, InvalidOperation
+from itertools import islice
 
 from django.core.exceptions import ValidationError
 from django.core.serializers.json import DjangoJSONEncoder
@@ -17,6 +18,7 @@ from reconciliation_contract.atlas_context import ATLAS_CONTEXT, context_number
 from reconciliation_contract.ods_party import POLICY as ODS_PARTY_POLICY, party_context
 
 from imports_app.services import build_business_key
+from projects.models import Project
 
 from .models import (
     Campaign,
@@ -42,6 +44,34 @@ INVENTORY = {
 LABELS = {**{value: key for key, value in {**INVENTORY, **ATLAS_CONTEXT}.items()},
           "sage_label": "Libellé SAGE dans Atlas"}
 BATCH_SIZE = 500
+
+
+def synchronize_inventory_projects(campaign):
+    """Complète Project depuis l'inventaire chargé et retourne le cache par code.
+
+    Lit uniquement les codes Atlas normalisés distincts, par lots bornés, puis
+    crée les absents avec le libellé de repli existant. Ne modifie ni projets
+    existants ni portefeuilles. L'appel appartient à la transaction d'import :
+    toute erreur ultérieure annule aussi ces créations. Une violation d'unicité
+    est propagée, sans ignorer d'autres erreurs SQLite ou PostgreSQL.
+    """
+    codes = campaign.inventory.filter(present=True).order_by("project_code").values_list(
+        "project_code", flat=True
+    ).distinct().iterator(chunk_size=BATCH_SIZE)
+    projects = {}
+    while batch := list(islice(codes, BATCH_SIZE)):
+        existing = Project.objects.in_bulk(batch, field_name="code")
+        missing = [code for code in batch if code not in existing]
+        if missing:
+            Project.objects.bulk_create(
+                [Project(code=code, label="Projet importé") for code in missing],
+                batch_size=BATCH_SIZE,
+            )
+            # Relire garantit des identités persistées sans dépendre du support
+            # de RETURNING par le moteur et évite les lectures par proposition.
+            existing.update(Project.objects.in_bulk(missing, field_name="code"))
+        projects.update(existing)
+    return projects
 
 
 def json_data(value):
@@ -396,6 +426,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
     lots sur la campagne, sans enrichir les sources ni les permissions.
     Le pôle et sa source sont conservés dans la même photographie ; l'absence
     historique de ces champs prend Hors DP sans rejouer les décisions.
+    Après chargement de l'inventaire Atlas et avant les propositions, complète
+    le référentiel Project par lots ; toute erreur du flux annule ces créations.
     """
     from .multiple_import import import_control_batch
     from .review_import import upsert_group
@@ -473,11 +505,18 @@ def import_campaign(header, stream, *, job=None, progress=None):
     control_batch = []
     reviews_batch = []
     projects = {}
+    inventory_projects_synchronized = False
     sage_batch, sage_count, sage_started = [], 0, False
     for number, text in enumerate(stream, 2):
         if complete:
             raise ValidationError("Données après la fin du fichier")
         payload = json.loads(text)
+        if not inventory_projects_synchronized and payload.get("type") != "inventory":
+            if batch:
+                insert_inventory(campaign, batch)
+                batch = []
+            projects = synchronize_inventory_projects(campaign)
+            inventory_projects_synchronized = True
         if "complete" not in payload:
             stream_hash.update((json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
         if sage_batch and payload.get("type") != "sage_inventory":

@@ -46,6 +46,9 @@ Les accès reposent sur le portefeuille de projets de chaque utilisateur.
 
 ## Démarrage
 
+Les nouveaux imports JSONL complètent le référentiel avec tous les projets Atlas,
+y compris sans proposition. Voir le [correctif du référentiel et sa recette](../docs/correctif_referentiel_projets_import_jsonl.md).
+
 Depuis `scriptsRappro/app-suivi-reconciliation` :
 
 ```powershell

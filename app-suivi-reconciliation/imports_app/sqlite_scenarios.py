@@ -80,11 +80,35 @@ class Scenarios(unittest.TestCase):
             self.path, directory=self.folder, progress=progress or (lambda *a, **k: None)
         )
 
+    def test_inventory_only_projects_survive_publication(self):
+        """Transfère tous les projets Atlas de la copie privée sans créer de portefeuille."""
+        records = [json.loads(row) for row in self.path.read_text(encoding="utf-8").splitlines()]
+        extra = [atlas(code, **{"Code projet": code, "Statut BAP": "Comptabilisé"})
+                 for code in ("Q", "R")]
+        records[2:2] = [{"type": "inventory", "atlas": row} for row in extra]
+        records[-1]["inventory_count"] = 3
+        self.path.write_text("\n".join(json.dumps(row) for row in records), encoding="utf-8")
+        self.assertEqual(self.load(), 1)
+        self.assertSetEqual(set(Project.objects.values_list("code", flat=True)), {"P", "Q", "R"})
+        current = Campaign.objects.get(is_current=True)
+        self.assertEqual(current.inventory.count(), 3)
+        self.assertEqual(current.accounting_projects.count(), 3)
+        self.assertEqual(current.reviews.count(), 1)
+        self.assertFalse(ProjectPortfolio.objects.exists())
+        # Un nouvel import conserve les identités et les métadonnées déjà publiées.
+        Project.objects.filter(code="Q").update(is_active=False, label="Conservé")
+        records[0]["name"] = "Deuxième campagne"
+        self.path.write_text("\n".join(json.dumps(row) for row in records), encoding="utf-8")
+        self.assertEqual(self.load(), 1)
+        self.assertEqual(Project.objects.count(), 3)
+        self.assertFalse(Project.objects.get(code="Q").is_active)
+        self.assertEqual(Project.objects.get(code="Q").label, "Conservé")
+
     def test_department_snapshot_survives_staging_and_idempotence(self):
-        """Département et pôle suivent la copie privée et la publication atomique une seule fois."""
+        """Vérifie département/pôle via la fixture de l'environnement moteur et le staging."""
         root = Path(__file__).resolve().parents[2]
         program = "from examples.ods_bap_filters_fixture import generate; import sys; generate(sys.argv[1], project_departments={'P': {'source':'Sante','consolidated':'SANTE','in_reference':True,'pole':'Agriculture','pole_source':' Agriculture '}},pole_configuration={'followed':['Agriculture'],'fallback':'Hors DP'})"
-        subprocess.run([sys.executable, "-c", program, str(self.folder)], cwd=root,
+        subprocess.run([str(root / ".venv/Scripts/python.exe"), "-c", program, str(self.folder)], cwd=root,
                        check=True, capture_output=True, timeout=60)
         self.path = self.folder / "ods-bap.jsonl"
         self.assertEqual(self.load(), 1)
@@ -162,15 +186,21 @@ class Scenarios(unittest.TestCase):
         self.assertEqual(LineReview.objects.get().comment, "decision recente")
 
     def test_publication_failure_rolls_back_and_retry_cleans_staging(self):
-        """Une panne en pleine publication laisse la photographie courante intacte."""
+        """Une panne de publication annule aussi les nouveaux projets ; la reprise les crée."""
         from . import sqlite_staging
 
         import_bundle(self.path)
         first = Campaign.objects.get(is_current=True).pk
         self.path = self.bundle(2)
+        records = [json.loads(row) for row in self.path.read_text(encoding="utf-8").splitlines()]
+        records.insert(1, {"type": "inventory", "atlas": atlas("Q", **{
+            "Code projet": "Q", "Statut BAP": "Comptabilisé"})})
+        records[-1]["inventory_count"] += 1
+        self.path.write_text("\n".join(json.dumps(row) for row in records), encoding="utf-8")
         original = sqlite_staging.merge_projection
 
         def fail(db, table, boundary):
+            """Simule une panne après transfert de Project, dans la transaction de publication."""
             original(db, table, boundary)
             if table == "reconciliation_linereview":
                 raise RuntimeError("panne simulée")
@@ -180,8 +210,10 @@ class Scenarios(unittest.TestCase):
                 self.load()
         self.assertEqual(Campaign.objects.get(is_current=True).pk, first)
         self.assertEqual(LineReview.objects.count(), 1)
+        self.assertFalse(Project.objects.filter(code="Q").exists())
         self.load()
         self.assertEqual(LineReview.objects.count(), 2)
+        self.assertTrue(Project.objects.filter(code="Q").exists())
         self.assertFalse(Campaign.all_objects.filter(published=False).exists())
 
     def test_truncated_file_does_not_change_live_database(self):

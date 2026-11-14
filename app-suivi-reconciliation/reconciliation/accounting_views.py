@@ -70,6 +70,9 @@ def accounting_list(request):
     Département utilise le rattachement transcodifié historisé, dans le même
     périmètre autorisé ; tableaux et compteurs partagent ce filtre SQL.
     Le filtre Pôle partage le mécanisme et conserve Hors DP pour l'historique.
+    Les quatre sommes de consultation portent sur ce même périmètre après tous
+    les filtres et avant pagination ; une absence empêche un faux total complet.
+    Leur effectif est réutilisé par le paginateur, sans seconde requête COUNT.
     """
     campaign, availability = selected_campaign(request)
     rows = AccountingProject.objects.filter(campaign=campaign,
@@ -89,12 +92,16 @@ def accounting_list(request):
     if search:
         rows = rows.filter(Q(project_code__icontains=search) | Q(project_code__in=projects_for(request.user).filter(label__icontains=search).values("code")))
     statistics = list(rows.values("state").annotate(count=Count("pk"), gap=Sum("gap")).order_by("state"))
+    from .accounting_totals import filtered_totals
+    totals = filtered_totals(rows)
     rows = rows.annotate(priority=Case(When(state="NON_CADRE", then=Value(0)), When(state="INSUFFISANT", then=Value(1)),
         default=Value(2), output_field=IntegerField())).order_by("priority", "project_code", "pk")
-    page = Paginator(rows, 40).get_page(request.GET.get("page"))
+    paginator = Paginator(rows, 40)
+    paginator.count = totals["count"]
+    page = paginator.get_page(request.GET.get("page"))
     return render(request, "reconciliation/accounting_list.html", {"campaign": campaign,
         "availability": availability, "legacy_campaign": "campaign" in request.GET,
-        "page": page, "search": search, "statistics": statistics,
+        "page": page, "search": search, "statistics": statistics, "totals": totals,
         "filter_menus": [filter_menu("project", "Projet", [(p, p) for p in projects], selected),
                          department_menu,
                          pole_menu,

@@ -291,6 +291,12 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
 .accounting-table {width:100%}
 .accounting-table .numeric {text-align:right;font-variant-numeric:tabular-nums}
 .accounting-table td:first-child {max-width:340px;overflow-wrap:anywhere;white-space:normal}
+.accounting-table .accounting-totals th,.accounting-table .accounting-totals td {background:#edf2fa;color:#253650;font-weight:650;border-bottom:1px solid #c8d3e8;vertical-align:top}
+.accounting-table .accounting-totals th {position:static;white-space:normal;text-transform:none;letter-spacing:normal;font-size:12px;min-width:175px}
+.accounting-table .accounting-totals .cell-sub {font-weight:400;color:#475467;white-space:normal}
+.accounting-table tbody tr.accounting-totals:hover td {background:#edf2fa}
+.accounting-table .accounting-secondary {display:table-cell}
+.accounting-table-scroll:focus-visible {outline:3px solid #4268bd;outline-offset:-3px}
 .accounting-detail .badge {white-space:normal}
 .accounting-table-filter {display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:16px 0}
 .accounting-table-filter .field {min-width:190px}

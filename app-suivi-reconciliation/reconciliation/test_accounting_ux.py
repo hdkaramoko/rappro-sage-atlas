@@ -55,15 +55,15 @@ class AccountingUXTests(TestCase):
         return campaign
 
     def test_latest_ready_published_accessible_campaign_and_legacy_parameter(self):
-        """Une campagne cachée ou inaccessible ne supplante pas la dernière prête ; les vieux paramètres sont ignorés."""
+        """Sélectionne la dernière campagne prête sans bandeau ; ignore les anciens paramètres."""
         latest = self.campaign_with_summary("Photographie prête")
         self.campaign_with_summary("Préparation privée", published=False)
         self.campaign_with_summary("Campagne interdite", project="OUTSIDE")
         response = self.client.get(reverse("reconciliation:accounting-list"), {"campaign": self.campaign.pk})
         self.assertEqual(response.context["campaign"].pk, latest.pk)
         self.assertNotContains(response, 'name="campaign"')
-        self.assertContains(response, "Photographie prête")
-        self.assertContains(response, latest.created_at.strftime("%Y"))
+        self.assertNotContains(response, "Photographie prête")
+        self.assertEqual(response.context["campaign"].created_at, latest.created_at)
         self.assertContains(response, "paramètre de campagne est ignoré")
         self.assertNotContains(response, "Campagne interdite")
         self.assertEqual(self.detail().status_code, 200)

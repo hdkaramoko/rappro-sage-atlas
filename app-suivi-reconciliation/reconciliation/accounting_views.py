@@ -24,6 +24,7 @@ def selected_campaign(request):
     La disponibilité est contrôlée sur les codes source autorisés par deux tests
     SQL d'absence de synthèse préparée, sans charger inventaires ni agrégats.
     Aucun calcul, écriture ou nouveau marqueur de disponibilité n'est introduit.
+    Les métadonnées de la campagne sont préchargées pour le filtre Département.
     """
     published = Campaign.objects.order_by("-created_at", "-pk")
     if not published.exists():
@@ -34,7 +35,7 @@ def selected_campaign(request):
         Exists(CampaignInventory.objects.filter(campaign_id=OuterRef("pk"), project_code__in=allowed, present=True)) |
         Exists(CampaignSageEntry.objects.filter(campaign_id=OuterRef("pk"), project_code__in=allowed)))
     seen = False
-    for campaign in accessible.only("id", "name", "fiscal_year", "created_at", "is_current").iterator(chunk_size=20):
+    for campaign in accessible.only("id", "name", "fiscal_year", "created_at", "is_current", "metadata").iterator(chunk_size=20):
         seen = True
         ready = AccountingProject.objects.filter(campaign=campaign, project_code__in=allowed, data__prepared=True)
         if not ready.exists():
@@ -66,11 +67,21 @@ def accounting_list(request):
     Les agrégats préparés sont lus en SQL ; une campagne non préparée rend un
     message explicite, jamais de faux zéros. Aucun inventaire chargé par page.
     La campagne est implicite ; les URL historiques ne changent pas la sélection.
+    Département utilise le rattachement transcodifié historisé, dans le même
+    périmètre autorisé ; tableaux et compteurs partagent ce filtre SQL.
+    Le filtre Pôle partage le mécanisme et conserve Hors DP pour l'historique.
+    Les quatre sommes de consultation portent sur ce même périmètre après tous
+    les filtres et avant pagination ; une absence empêche un faux total complet.
+    Leur effectif est réutilisé par le paginateur, sans seconde requête COUNT.
     """
     campaign, availability = selected_campaign(request)
     rows = AccountingProject.objects.filter(campaign=campaign,
         project_code__in=projects_for(request.user).values("code"), data__prepared=True)
     projects = list(rows.order_by("project_code").values_list("project_code", flat=True))
+    from .departments import department_filter, pole_filter
+    organization_scope = rows
+    rows, department_menu = department_filter(rows, campaign, request, has_projects=bool(projects))
+    rows, pole_menu = pole_filter(rows, campaign, request, has_projects=bool(projects), scope=organization_scope)
     selected = selections(request.GET, "project", projects)
     states = selections(request.GET, "state", [key for key, _ in STATES])
     search = request.GET.get("q", "").strip()
@@ -81,13 +92,19 @@ def accounting_list(request):
     if search:
         rows = rows.filter(Q(project_code__icontains=search) | Q(project_code__in=projects_for(request.user).filter(label__icontains=search).values("code")))
     statistics = list(rows.values("state").annotate(count=Count("pk"), gap=Sum("gap")).order_by("state"))
+    from .accounting_totals import filtered_totals
+    totals = filtered_totals(rows)
     rows = rows.annotate(priority=Case(When(state="NON_CADRE", then=Value(0)), When(state="INSUFFISANT", then=Value(1)),
         default=Value(2), output_field=IntegerField())).order_by("priority", "project_code", "pk")
-    page = Paginator(rows, 40).get_page(request.GET.get("page"))
+    paginator = Paginator(rows, 40)
+    paginator.count = totals["count"]
+    page = paginator.get_page(request.GET.get("page"))
     return render(request, "reconciliation/accounting_list.html", {"campaign": campaign,
         "availability": availability, "legacy_campaign": "campaign" in request.GET,
-        "page": page, "search": search, "statistics": statistics,
+        "page": page, "search": search, "statistics": statistics, "totals": totals,
         "filter_menus": [filter_menu("project", "Projet", [(p, p) for p in projects], selected),
+                         department_menu,
+                         pole_menu,
                          filter_menu("state", "État du cadrage", STATES, states)],
         "page_range": page.paginator.get_elided_page_range(page.number)})
 

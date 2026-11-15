@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% load review_ui static %}{% block title %}Comptabilisés incomplets{% endblock %}{% block content %}
+<header class="page-heading"><div><h1>Mes rapprochements</h1><p>Traitez séparément les informations Sage absentes dans les sources Comptabilisé.</p></div></header>
+{% include "components/review_tabs.html" %}{% include "components/control_channels.html" %}
+<h2>Comptabilisés incomplets</h2>
+{% if not campaign %}<p class="notice" role="status">Aucune campagne courante disponible.</p>{% endif %}
+<form method="get" class="filter-bar workspace-filters control-workspace-filters incomplete-workspace-filters"><input type="hidden" name="view" value="controls"><input type="hidden" name="channel" value="incomplete"><div class="workspace-filter-fields">
+{% for filter in filter_menus %}{% include "components/multifilter.html" %}{% endfor %}
+<div class="field search-field"><label for="incomplete-search">Code ou nom du projet</label><input id="incomplete-search" name="q" value="{{ search }}"></div></div><div class="workspace-filter-footer"><div class="filter-actions"><button>Appliquer</button><a href="{% url 'reconciliation:reviews' %}?view=controls&amp;channel=incomplete">Réinitialiser</a></div></div></form>
+<p><strong>{{ page.paginator.count }}</strong> projet{{ page.paginator.count|pluralize }} dans ce périmètre</p>
+<section class="data-table-card"><div class="table-scroll" role="region" aria-label="Projets avec Comptabilisés incomplets" tabindex="0"><table class="work-table incomplete-projects-table"><thead><tr><th scope="col">Projet</th><th scope="col" class="numeric">{{ count_label }}</th><th scope="col">Action</th></tr></thead><tbody>
+{% for item in page %}<tr><td>{{ item.project_code }}<small class="cell-sub">{{ item.label }}</small></td><td class="numeric">{{ item.line_count }}</td><td><a href="{% url 'reconciliation:incomplete-project' item.project_code %}?{% for value in resolution_values %}resolution={{ value }}&amp;{% endfor %}return={{ request.get_full_path|urlencode }}#incomplete-lines">Examiner</a></td></tr>
+{% empty %}<tr><td colspan="3">Aucun projet pour ces filtres. Les projets entièrement traités restent consultables avec « Résolus » ou « Toutes » dans le filtre Traitement.</td></tr>{% endfor %}
+</tbody></table></div>{% include "components/pagination.html" %}</section>
+<script src="{% static 'js/multifilter.js' %}" defer></script>{% endblock %}

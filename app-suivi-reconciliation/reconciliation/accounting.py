@@ -43,6 +43,8 @@ def refresh_project(campaign, project):
     Retourne AccountingProject. Toute erreur annule la projection précédente.
     Les appels métier fournissent une campagne déjà verrouillée ; ce verrou
     garantit également la cohérence d'une préparation explicite concurrente.
+    Un montant source absent reste absent ; un lien manuel courant peut rendre
+    le retenu calculable sans effacer les autres blocages ni inventer l'initial.
     """
     from .business import source_amount, retained_amount
     from .accounting_scope import ensure_controls, sage_scope, restore_unprojected
@@ -71,7 +73,7 @@ def refresh_project(campaign, project):
         issues.add("Conflits d'identité Atlas dans l'extraction : total non fiable")
     line_sources = {str(line): source.get("source_id") for line, source in
         CampaignReview.objects.filter(campaign=campaign, project__code=project).values_list("line_id", "source").iterator(chunk_size=500)}
-    inventories = list(campaign.inventory.filter(project_code=project, present=True).select_related("adjustment").iterator(chunk_size=500))
+    inventories = list(campaign.inventory.filter(project_code=project, present=True).select_related("adjustment", "inventory_match").iterator(chunk_size=500))
     for row in inventories:
         # Réutiliser l'objet campagne évite de redécoder ses métadonnées par ligne.
         row.campaign = campaign
@@ -173,13 +175,18 @@ def refresh_project(campaign, project):
                                "sage": str(retained_sage) if not item["missing"] else None},
                     **({"oda": oda} if oda else {})}))
         AccountingGroup.objects.bulk_create(group_rows, batch_size=100)
+    unresolved_missing_accounted = False
     for inventory in inventories:
         status = inventory.data.get("bap_status")
         if status not in ("Comptabilisé", "Envoyé SAGE"):
             continue
         original, retained = source_amount(inventory), retained_amount(inventory)
         original_missing = original is None
-        if status == "Comptabilisé" and (original is None or retained is None):
+        from .incomplete_accounting import current_manual_link, missing_mask
+        resolved_manual = (current_manual_link(inventory)
+                           if missing_mask(inventory.data, inventory.fiscal_year) else None)
+        if status == "Comptabilisé" and (retained is None or original is None and not resolved_manual):
+            unresolved_missing_accounted = True
             issues.add("Montant Atlas source ou retenu absent")
         if status == "Comptabilisé" and campaign.metadata.get("amount_field") not in ("total_sage_charges", "total_project_charges"):
             issues.add("Sémantique du montant Atlas non confirmée")
@@ -237,7 +244,7 @@ def refresh_project(campaign, project):
             post["gap"] = None
         types.append(post)
     totals = {k: str(v) for k, v in sums.items()}
-    if missing_atlas or "accounted_initial" in missing_status:
+    if missing_atlas or unresolved_missing_accounted:
         totals["atlas"] = None
     if scope_issues or quality.get("sage", {}).get("invalid_accounting_dates", 0):
         totals["sage"] = None

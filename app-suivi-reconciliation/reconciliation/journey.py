@@ -42,6 +42,7 @@ def safe_return(value, fallback=None):
     Refuse hôte, schéma, chemins inconnus et redirections externes. Préserve la
     query string complète, donc multisélections et pagination. Aucune écriture.
     Les listes et détails du cadrage autonome sont également des retours permis.
+    Le détail projet des Comptabilisés incomplets préserve aussi son contexte.
     """
     fallback = fallback or reverse("reconciliation:reviews")
     try:
@@ -57,7 +58,7 @@ def safe_return(value, fallback=None):
     except Resolver404:
         return fallback
     return value if target.namespace == "reconciliation" and target.url_name in (
-        "reviews", "review-detail", "global-control-detail", "accounting-list", "accounting-detail") else fallback
+        "reviews", "review-detail", "global-control-detail", "accounting-list", "accounting-detail", "incomplete-project") else fallback
 
 
 def line_actions(line, inventory):

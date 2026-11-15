@@ -22,6 +22,8 @@ def business_inputs(campaign, keys, atlas, allocations, contributions, snapshots
     les versions mutables de revue lorsqu'une campagne est historique.
     Une projection manuelle ODS adapte uniquement le libellé technique sélectionné
     par le contrat (SAGE pour les nouvelles sources comptabilisées, ATLAS historique).
+    Une association incomplète fournit sa date Sage dans la seule projection,
+    jamais dans la photographie Atlas persistée.
     """
     business_keys = {c.line.transaction.business_key for c in contributions}
     inventories = list(CampaignInventory.objects.filter(campaign=campaign, present=True).filter(
@@ -102,6 +104,9 @@ def business_inputs(campaign, keys, atlas, allocations, contributions, snapshots
                     source["sage_label" if "sage_label" in source else "atlas_label"] = identity["parts"][3]
                 else:
                     source["sage_document_number"] = identity["parts"][2]
+                from .incomplete_accounting import missing_mask
+                if missing_mask(inventory.data, inventory.fiscal_year):
+                    source["accounting_date"] = entries[0].entry.data["entry"]["date"]
                 atlas[key].append(source)
             else:
                 allocations[key].append({"line_key": f"inventory:{inventory.pk}", "amount": str(amount),

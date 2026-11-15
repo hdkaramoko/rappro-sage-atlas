@@ -123,6 +123,7 @@ def initialize_controls(campaign, *, progress=None) -> None:
     Appelé après auto-validations et reports existants ; une erreur annule la
     publication entière. Les recalculs futurs utilisent campaign_controls sans
     remplacer ces preuves initiales ni réécrire une campagne antérieure.
+    Les compteurs de diagnostic sont chargés par lot, sans recherche de candidats.
     """
     batch, count = [], 0
     for data in campaign_controls(campaign):
@@ -131,9 +132,17 @@ def initialize_controls(campaign, *, progress=None) -> None:
                      current_state=data["state"], has_pending=False))
         count += 1
         if len(batch) == 500:
+            from .incomplete_accounting import control_counts
+            counts = control_counts(campaign, [row.key for row in batch])
+            for row in batch:
+                row.sage_incomplete_count = counts.get(row.key, 0)
             CampaignGlobalControl.objects.bulk_create(batch, batch_size=500)
             batch.clear()
             if progress:
                 progress("Contrôles globaux préparés", count)
     if batch:
+        from .incomplete_accounting import control_counts
+        counts = control_counts(campaign, [row.key for row in batch])
+        for row in batch:
+            row.sage_incomplete_count = counts.get(row.key, 0)
         CampaignGlobalControl.objects.bulk_create(batch, batch_size=500)

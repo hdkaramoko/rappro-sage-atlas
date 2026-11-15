@@ -143,8 +143,14 @@ def campaign_detail(request, pk):
 @login_required
 @require_GET
 def campaign_review(request, pk):
-    """Affiche une revue historique, ses preuves et événements sans modification."""
+    """Affiche une revue autorisée, ses preuves et son contexte BAP de campagne.
+
+    Lecture seule ; l'historique ne vient jamais d'une campagne ultérieure.
+    Retourne HTML ou 404 hors portefeuille, sans modifier la décision conservée.
+    """
     row = get_object_or_404(reviews_for(request.user), pk=pk)
+    from .bap_history import snapshot_history
+    bap_history = snapshot_history(row)
     source_labels = {
         "source_id": "Id Atlas",
         "project_code": "Projet",
@@ -177,6 +183,7 @@ def campaign_review(request, pk):
         "reconciliation/campaign_review.html",
         {
             "snapshot": row,
+            "bap_history": bap_history,
             "piece_check": row.group.data.get("piece_coherence"),
             "piece_active": row.campaign.metadata.get("piece_coherence_mode") == "ACTIVE",
             "piece_assignment": row.decision.get("automatic_assignment"),

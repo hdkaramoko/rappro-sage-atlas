@@ -33,14 +33,18 @@ def inventory_detail(request, pk):
     pour rendre ses erreurs visibles. Aucun champ d'un autre mode n'est traité.
     Le BAP affiché vient uniquement de l'inventaire ou de la photographie Atlas
     de cette campagne ; la recherche montre la référence native de Sage.
+    Les incomplets affichent référence, écarts exacts et indices sur 25 candidats,
+    sans remplacer le montant source absent ni créer de décision lors d'un GET.
     """
     inventory = get_object_or_404(inventory_for(request.user).select_related(
         "campaign", "adjustment", "inventory_match__actor", "adjustment__actor"), pk=pk)
     initial = {"version": inventory.business_version}
     adjustment = getattr(inventory, "adjustment", None)
+    from .incomplete_accounting import missing_labels, comparison_amount
+    diagnostic = missing_labels(inventory)
     pending = inventory.business_events.filter(kind="CARRY_PENDING").first() if inventory.business_version == 0 else None
     correction_initial = {**initial, "reason": adjustment.reason if adjustment and adjustment.active else "AMOUNT",
-                          "amount": adjustment.amount if adjustment and adjustment.active else source_amount(inventory)}
+                          "amount": comparison_amount(inventory)}
     if pending and pending.after.get("adjustment"):
         correction_initial.update(pending.after["adjustment"])
     action = request.POST.get("action", "") if request.method == "POST" else ""
@@ -116,12 +120,20 @@ def inventory_detail(request, pk):
     line = line_for(inventory)
     from .presentation import inventory_baps
     inventory.atlas_bap = inventory_baps([inventory], inventory.campaign)[inventory.pk]
+    if page and diagnostic:
+        from .incomplete_candidates import candidate_clues
+        reference = comparison_amount(inventory)
+        for entry in page.object_list:
+            entry.clues = candidate_clues(inventory, entry, inventory.atlas_bap)
+            amount = money(entry.data["entry"].get("amount"))
+            entry.reference_gap = reference - amount if reference is not None and amount is not None else None
     from .review import effective, is_current
     confirmed = bool(line and line.state == "VALIDATED" and is_current(line) or
                      not line and link and link.active and link.adjustment_version == (adjustment.version if adjustment else 0))
     original, retained = source_amount(inventory), retained_amount(inventory)
     return render(request, "reconciliation/inventory_detail.html", {
         "inventory": inventory, "source_amount": source_amount(inventory), "retained": retained_amount(inventory),
+        "sage_missing_labels": diagnostic, "search_reference": comparison_amount(inventory),
         "correction_gap": retained - original if retained is not None and original is not None else None,
         "correction": correction, "operation": operation, "search": search, "page": page,
         "preview": preview, "search_error": search_error, "adjustment": adjustment, "link": link,

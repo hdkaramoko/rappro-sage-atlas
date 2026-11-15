@@ -53,6 +53,7 @@ def proposal(rows, key="group", **changes):
 
 class CampaignTests(TestCase):
     def test_batched_snapshots_and_project_cache(self):
+        """Les propositions réutilisent le cache créé par lots depuis l'inventaire."""
         from unittest.mock import patch
 
         from django.db import connection

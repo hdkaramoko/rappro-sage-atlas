@@ -179,6 +179,7 @@ def insert_inventory(campaign, rows):
     puis insère les photographies et leurs clés standard/composites indexées.
     La portée ODS sans libellé sert au contrôle d'unicité bilatérale du lot 1.
     Retourne None ; ValidationError sur identité répétée annule l'import parent.
+    Matérialise aussi le diagnostic source des informations Sage manquantes.
     """
     from reconciliation_contract import control_identity
     from reconciliation_contract import digest as control_digest
@@ -193,6 +194,7 @@ def insert_inventory(campaign, rows):
                 campaign_id=campaign.previous_id, business_key__in=keys
             )
         }
+    from .incomplete_accounting import missing_mask
     records = []
     for data, key in zip(rows, keys, strict=True):
         old = previous.get(key)
@@ -218,6 +220,7 @@ def insert_inventory(campaign, rows):
                 source_id=data["source_id"],
                 fiscal_year=data["fiscal_year"],
                 data=data,
+                sage_missing_mask=missing_mask(data, data["fiscal_year"]),
                 control_key=control_digest(control_identity(data))
                 if campaign.metadata.get("schema_version") == 3
                 else "",

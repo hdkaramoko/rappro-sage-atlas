@@ -358,6 +358,7 @@ class CampaignInventory(models.Model):
     change = models.CharField(max_length=16, default="NEW")
     differences = models.JSONField(default=dict)
     business_version = models.PositiveIntegerField(default=0)
+    sage_missing_mask = models.PositiveSmallIntegerField(default=0, editable=False)
 
     class Meta:
         constraints = [
@@ -366,7 +367,8 @@ class CampaignInventory(models.Model):
             )
         ]
         indexes = [models.Index(fields=("campaign", "change")),
-                   models.Index(fields=("campaign", "ods_scope"), name="atlas_campaign_ods_idx")]
+                   models.Index(fields=("campaign", "ods_scope"), name="atlas_campaign_ods_idx"),
+                   models.Index(fields=("campaign", "control_key", "sage_missing_mask"), name="atlas_missing_sage_idx")]
 
 
 class CampaignGroup(models.Model):
@@ -523,6 +525,7 @@ class CampaignGlobalControl(models.Model):
     current_version = models.PositiveIntegerField(default=0)
     current_state = models.CharField(max_length=16, null=True, editable=False)
     has_pending = models.BooleanField(null=True, editable=False)
+    sage_incomplete_count = models.PositiveIntegerField(default=0, editable=False)
 
     def save(self, *args, **kwargs):
         """Actualise l'état indexé depuis le résultat déjà calculé, sans lancer le moteur.
@@ -543,7 +546,8 @@ class CampaignGlobalControl(models.Model):
         constraints = [models.UniqueConstraint(fields=("campaign", "key"), name="campaign_global_key")]
         indexes = [models.Index(fields=("campaign", "project_code", "state"), name="global_campaign_state_idx"),
                    models.Index(fields=("campaign", "project_code", "current_state", "has_pending"), name="global_current_filter_idx"),
-                   models.Index(fields=("campaign", "project_code", "id"), name="global_current_page_idx")]
+                   models.Index(fields=("campaign", "project_code", "id"), name="global_current_page_idx"),
+                   models.Index(fields=("campaign", "-sage_incomplete_count", "project_code", "id"), name="global_missing_sage_idx")]
 
 
 class ReviewControlContext(models.Model):

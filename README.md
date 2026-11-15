@@ -1,5 +1,13 @@
 # Rapprochement Atlas / Sage X3
 
+Le [Pôle Atlas](docs/poles_atlas.md) complète le Département : configuration des
+pôles suivis, classification Hors DP et filtres historisés. Les 12 pôles métier
+validés sont renseignés dans `POLES_SUIVIS`.
+
+L'[enrichissement des départements](docs/enrichissement_departements_projets_atlas.md)
+ajoute deux référentiels Excel configurables, deux inventaires de projets et le
+filtre Département transcodifié, sans changer les règles de rapprochement.
+
 Le [volet A BAP / tolérance](docs/volet_a_bap_tolerance.md) décrit l'affichage des
 références, l'ordre des règles et les seuls seuils résiduels portés à 0,05 €.
 
@@ -21,10 +29,12 @@ uv sync
 uv run pytest
 uv run python -m reconciliation.main --atlas "data/JDD.xlsx" --sage "data/LISTPJT4.csv"
 uv run python -m reconciliation.main --atlas "data/JDD.xlsx" --sage "data/LISTPJT4.csv" --output "output/rapprochement.xlsx"
-uv run python -m reconciliation.main --atlas "data/inputs/JDD.xlsx" --sage "data/inputs/ZLISTPJT.csv" --year 2026 --review-output "data/outputs/campagne_ddmm2026.jsonl"
+uv run python -m reconciliation.main --atlas "data/inputs/JDD.xlsx" --sage "data/inputs/ZLISTPJT.csv" --year 2026 --atlas-projects "data/inputs/ProjetAtlas.xlsx" --department-mapping "data/inputs/transcodification.xlsx" --bap-extract "data/inputs/ExtractionBap.xlsx" --review-output "data/outputs/campagne_ddmm2026.jsonl"
 ```
 
 La CLI affiche une synthèse ; l'API Python retourne les résultats détaillés.
+`--bap-extract` est facultatif : il ajoute uniquement les dates et auteurs du BAP
+à la campagne, sans changer les rapprochements. Voir [l'historique BAP](docs/historique_bap_atlas.md).
 `--year` filtre Atlas sur `Année` et SAGE sur l'année de `Date comptable`.
 Voir le [guide du filtre annuel et des portefeuilles](docs/filtre_annuel_et_portefeuilles.md).
 Avec `--output`, elle produit un classeur avec les feuilles `Résultats`, `Tentatives`

@@ -3,9 +3,11 @@ from django.views.generic import RedirectView
 
 from . import accounting_views, business_views, campaign_views, global_views, multiple_views, review_views
 from .database_export import database_export
+from . import incomplete_views
 
 app_name = "reconciliation"
 urlpatterns = [
+    path("validation/comptabilises-incomplets/projet/<str:project_code>/", incomplete_views.project_detail, name="incomplete-project"),
     path("cadrage/", accounting_views.accounting_list, name="accounting-list"),
     path("cadrage/projet/<int:pk>/", accounting_views.accounting_detail, name="accounting-detail"),
     path("validation/controles/<int:pk>/", global_views.global_control_detail, name="global-control-detail"),

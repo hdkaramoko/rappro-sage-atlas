@@ -1,0 +1,4 @@
+<nav class="analysis-channels" aria-label="Parcours du contrôle des montants">
+<a href="{% url 'reconciliation:reviews' %}?view=controls&amp;channel=incomplete" {% if control_channel == 'incomplete' %}aria-current="page"{% endif %}>Comptabilisés incomplets</a>
+<a href="{% url 'reconciliation:reviews' %}?view=controls" {% if control_channel != 'incomplete' %}aria-current="page"{% endif %}>Contrôles financiers</a>
+</nav>

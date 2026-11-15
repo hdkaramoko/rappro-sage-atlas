@@ -10,6 +10,32 @@ register.filter("euros", money)
 
 
 @register.filter
+def bap_datetime_fr(value):
+    """Formate une date ISO source en français, sans conversion de fuseau.
+
+    L'heure n'apparaît que si significative ; None ou date invalide donnent —.
+    Les secondes/fractions sont conservées si présentes. Aucun effet de bord.
+    """
+    from datetime import datetime
+    if not value:
+        return "—"
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return "—"
+    result = parsed.strftime("%d/%m/%Y")
+    if parsed.hour or parsed.minute or parsed.second or parsed.microsecond:
+        result += " à " + parsed.strftime("%H:%M")
+        if parsed.second or parsed.microsecond:
+            result += parsed.strftime(":%S")
+        if parsed.microsecond:
+            result += "." + f"{parsed.microsecond:06d}".rstrip("0")
+    if parsed.tzinfo is not None:
+        result += " " + parsed.strftime("%z")
+    return result
+
+
+@register.filter
 def accounting_label(value):
     """Traduit un état de cadrage stocké ; retourne un libellé explicite si non calculable."""
     return {"CADRE": "Cadré", "NON_CADRE": "Non cadré", "INSUFFISANT": "Données insuffisantes"}.get(value, "Données insuffisantes")

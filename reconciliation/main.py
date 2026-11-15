@@ -30,6 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     Les deux référentiels optionnels sont indissociables et exigent review-output.
     L'enrichissement est validé avant matching ; les inventaires sont préparés
     avec le JSONL puis publiés, JSONL en dernier comme marqueur de réussite.
+    bap-extract apporte un contexte BAP facultatif, sans modifier les sources.
     """
     parser = argparse.ArgumentParser(description="Rapprocher les extractions Atlas et Sage")
     parser.add_argument("--atlas", required=True, help="Chemin du JDD .xlsx")
@@ -43,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--campaign-name", help="Nom de la campagne de validation")
     parser.add_argument("--atlas-projects", help="Référentiel projets Atlas .xlsx (Sheet1)")
     parser.add_argument("--department-mapping", help="Transcodification des départements .xlsx (Feuil1)")
+    parser.add_argument("--bap-extract", help="Historique BAP Atlas facultatif .xlsx (Sheet1)")
     parser.add_argument("--accounted-amount-field", choices=("total_sage_charges", "total_project_charges"),
                         default="total_sage_charges",
                         help="Montant individuel des Comptabilisé (défaut : total_sage_charges, confirmé métier)")
@@ -54,6 +56,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--atlas-projects et --department-mapping doivent être fournis ensemble")
     if args.atlas_projects and (not args.review_output or args.legacy_review_output):
         parser.error("L'enrichissement départemental exige --review-output avec inventaire Sage complet")
+    if args.bap_extract and not args.review_output:
+        parser.error("--bap-extract exige --review-output pour transporter l'historique BAP")
     from reconciliation_contract import money
     if money(args.multiple_tolerance) is None or money(args.multiple_tolerance) < 0:
         parser.error("--multiple-tolerance doit être un montant positif ou nul")
@@ -75,6 +79,8 @@ def run(args, stack):
     Les départements restent un contexte séparé du matching. Les sources Excel
     ne sont jamais écrasées ; chaque remplacement de sortie est atomique, le
     JSONL étant publié en dernier. Aucun accès à la base applicative.
+    L'extraction BAP est lue et indexée une fois avant matching, indépendamment
+    du référentiel de projets ; son bilan ne contient aucun nom d'auteur.
     """
     validate_output_paths(args)
     frames = {}
@@ -99,6 +105,11 @@ def run(args, stack):
         print(f"- {transformed['rows_transformed']} lignes transformées")
         print(f"- {transformed['missing_project_codes']} codes projet manquants")
         frames[name] = frame
+    bap_history, bap_summary = None, None
+    if args.bap_extract:
+        from reconciliation.bap_history import history_context
+        bap_history, bap_summary = history_context(args.bap_extract, frames["Atlas"])
+        logging.info("Bilan historique BAP : %s", bap_summary)
     departments, department_summary, staging = None, None, None
     if args.atlas_projects:
         from reconciliation.departments import project_context
@@ -137,9 +148,11 @@ def run(args, stack):
                                        include_sage_inventory=not args.legacy_review_output,
                                        tolerance=args.multiple_tolerance,
                                        project_departments=departments, department_summary=department_summary,
+                                       bap_history=bap_history, bap_history_summary=bap_summary,
                                        source_paths={"Atlas": args.atlas, "SAGE": args.sage,
                                            **({"Projets Atlas": args.atlas_projects, "Transcodification": args.department_mapping}
-                                              if args.atlas_projects else {})})
+                                              if args.atlas_projects else {}),
+                                           **({"Historique BAP": args.bap_extract} if args.bap_extract else {})})
         except (ValueError, OSError) as exc:
             raise ExportError(str(exc)) from exc
         if not staging:
@@ -171,10 +184,10 @@ def run(args, stack):
 def validate_output_paths(args):
     """Refuse toute collision entre sources et sorties avant lecture/écriture.
 
-    Inclut les référentiels, le journal implicite et les deux inventaires
+    Inclut les référentiels, l'extraction BAP, le journal implicite et les deux inventaires
     organisationnels. Lève ExportError ; ne crée aucun fichier ou dossier.
     """
-    sources = {Path(p).resolve() for p in (args.atlas, args.sage, args.atlas_projects, args.department_mapping) if p}
+    sources = {Path(p).resolve() for p in (args.atlas, args.sage, args.atlas_projects, args.department_mapping, args.bap_extract) if p}
     trace = args.trace or (str(Path(args.output).with_suffix(".tentatives.jsonl")) if args.output else None)
     outputs = [Path(p).resolve() for p in (args.output, args.review_output, trace) if p]
     if args.atlas_projects:

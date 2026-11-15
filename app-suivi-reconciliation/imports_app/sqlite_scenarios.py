@@ -105,9 +105,9 @@ class Scenarios(unittest.TestCase):
         self.assertEqual(Project.objects.get(code="Q").label, "Conservé")
 
     def test_department_snapshot_survives_staging_and_idempotence(self):
-        """Vérifie département/pôle via la fixture de l'environnement moteur et le staging."""
+        """Vérifie département, pôle et historique BAP via la fixture moteur et le staging."""
         root = Path(__file__).resolve().parents[2]
-        program = "from examples.ods_bap_filters_fixture import generate; import sys; generate(sys.argv[1], project_departments={'P': {'source':'Sante','consolidated':'SANTE','in_reference':True,'pole':'Agriculture','pole_source':' Agriculture '}},pole_configuration={'followed':['Agriculture'],'fallback':'Hors DP'})"
+        program = "from examples.ods_bap_filters_fixture import generate; import sys; generate(sys.argv[1], project_departments={'P': {'source':'Sante','consolidated':'SANTE','in_reference':True,'pole':'Agriculture','pole_source':' Agriculture '}},pole_configuration={'followed':['Agriculture'],'fallback':'Hors DP'},bap_history=[{'project_code':'P','bap_sage_number':'BAP-TARGET','bap_created_at':'2026-01-02T15:30:00','bap_created_by':'Auteur test','bap_modified_at':None,'bap_modified_by':None}])"
         subprocess.run([str(root / ".venv/Scripts/python.exe"), "-c", program, str(self.folder)], cwd=root,
                        check=True, capture_output=True, timeout=60)
         self.path = self.folder / "ods-bap.jsonl"
@@ -116,6 +116,8 @@ class Scenarios(unittest.TestCase):
         self.assertEqual(current.departments.get(project_code="P").consolidated, "SANTE")
         self.assertEqual(current.departments.get(project_code="P").pole, "Agriculture")
         self.assertEqual(current.departments.get(project_code="P").pole_source, " Agriculture ")
+        self.assertEqual(current.bap_history.get().bap_created_at, "2026-01-02T15:30:00")
+        self.assertEqual(current.bap_history.get().bap_created_by, "Auteur test")
         count = Campaign.objects.count()
         self.assertEqual(self.load(), 1)
         self.assertEqual(Campaign.objects.count(), count)

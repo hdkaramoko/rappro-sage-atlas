@@ -429,6 +429,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
     lots sur la campagne, sans enrichir les sources ni les permissions.
     Le pôle et sa source sont conservés dans la même photographie ; l'absence
     historique de ces champs prend Hors DP sans rejouer les décisions.
+    L'historique BAP optionnel est stocké à part après l'inventaire : ses champs
+    ne déclenchent ni différences Atlas, ni invalidation des décisions reportées.
     Après chargement de l'inventaire Atlas et avant les propositions, complète
     le référentiel Project par lots ; toute erreur du flux annule ces créations.
     """
@@ -437,6 +439,11 @@ def import_campaign(header, stream, *, job=None, progress=None):
     from .sage_import import insert_sage_batch, validate_capabilities
 
     sage_enabled = validate_capabilities(header)
+    from reconciliation_contract.bap_history import POLICY as BAP_POLICY, bap_key
+    from .bap_history import insert_batch as insert_bap_batch
+    bap_enabled = header.get("bap_history_policy") is not None
+    if bap_enabled and (header["bap_history_policy"] != BAP_POLICY or header.get("schema_version") != 3):
+        raise ValidationError("Politique d'historique BAP non prise en charge")
     from reconciliation_contract.departments import validate_departments
     from .models import CampaignDepartment
     try:
@@ -510,10 +517,14 @@ def import_campaign(header, stream, *, job=None, progress=None):
     projects = {}
     inventory_projects_synchronized = False
     sage_batch, sage_count, sage_started = [], 0, False
+    bap_batch, bap_targets, bap_count, bap_started = [], set(), 0, False
     for number, text in enumerate(stream, 2):
         if complete:
             raise ValidationError("Données après la fin du fichier")
         payload = json.loads(text)
+        if bap_batch and payload.get("type") != "bap_history":
+            insert_bap_batch(campaign, bap_batch, bap_targets)
+            bap_batch = []
         if not inventory_projects_synchronized and payload.get("type") != "inventory":
             if batch:
                 insert_inventory(campaign, batch)
@@ -526,6 +537,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
             insert_sage_batch(campaign, sage_batch)
             sage_batch = []
         if "complete" in payload:
+            if bap_enabled and (type(payload.get("bap_history_count")) is not int or payload["bap_history_count"] != bap_count):
+                raise ValidationError("Compteur d'historique BAP incohérent")
             if sage_enabled and (
                 type(payload.get("sage_inventory_count")) is not int
                 or payload["sage_inventory_count"] != sage_count
@@ -562,6 +575,13 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 if payload.get("control_statuses") != actual:
                     raise ValidationError("Compteurs de diagnostics incohérents")
             complete = True
+        elif payload.get("type") == "bap_history" and bap_enabled and not sage_started and not proposals_started:
+            bap_started = True
+            bap_batch.append(payload.get("data"))
+            bap_count += 1
+            if len(bap_batch) == BATCH_SIZE:
+                insert_bap_batch(campaign, bap_batch, bap_targets)
+                bap_batch = []
         elif payload.get("type") == "control" and v3:
             if batch:
                 insert_inventory(campaign, batch)
@@ -584,11 +604,13 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 insert_sage_batch(campaign, sage_batch)
                 sage_batch = []
                 progress("Inventaire Sage préparé", sage_count)
-        elif payload.get("type") == "inventory" and not proposals_started and not sage_started:
+        elif payload.get("type") == "inventory" and not proposals_started and not sage_started and not bap_started:
             data = normalize_inventory(payload.get("atlas"), extended=v3, ods_label_policy=ods_label_policy)
             if year is not None and data["fiscal_year"] != year:
                 raise ValidationError("L'inventaire contient une ligne hors de l'année de campagne")
             batch.append(data)
+            if bap_enabled and (bap := bap_key(data.get("display_bap", ""))):
+                bap_targets.add((data["project_code"], bap))
             inventory_count += 1
             if len(batch) == BATCH_SIZE:
                 insert_inventory(campaign, batch)

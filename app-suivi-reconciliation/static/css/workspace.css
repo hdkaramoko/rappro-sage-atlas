@@ -360,3 +360,10 @@ input[type=file]::file-selector-button {border:1px solid #cfdaee;background:#fff
 .atlas-lines-table,.sage-control-table{min-width:720px}
 .atlas-lines-table td,.sage-control-table td{overflow-wrap:anywhere;max-width:360px}
 #atlas-lines,#sage-lines{scroll-margin-top:24px}
+.bap-history {border-top:1px solid var(--line);margin-top:16px;padding-top:12px}
+.bap-history h3 {font-size:13px;margin:0 0 10px;color:var(--text)}
+.bap-history-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 20px;margin:0}
+.bap-history-grid>div {min-width:0}.bap-history-grid dd {overflow-wrap:anywhere}
+.bap-history-grid dt {font-size:11px;color:var(--muted)}
+.work-table .bap-date-cell {font-size:11px;white-space:nowrap}
+@media(max-width:760px){.bap-history-grid {grid-template-columns:minmax(0,1fr)}}

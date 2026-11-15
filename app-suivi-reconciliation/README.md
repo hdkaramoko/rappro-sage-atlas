@@ -1,5 +1,9 @@
 # Validation des rapprochements Atlas / Sage
 
+L'[historique BAP Atlas](../docs/historique_bap_atlas.md) ajoute dates et auteurs
+informatifs par campagne. Appliquer la migration 0028 puis générer/importer un
+nouveau JSONL avec l'option facultative `--bap-extract` documentée dans le README racine.
+
 L'[ajout du Pôle](../docs/poles_atlas.md) nécessite la migration 0026 et un nouveau
 JSONL enrichi. Les anciennes campagnes restent consultables avec Pôle = Hors DP.
 

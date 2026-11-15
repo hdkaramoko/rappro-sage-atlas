@@ -23,7 +23,7 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                         scope="atlas-complet", source_paths=None, year=None,
                         controls=None, amount_field="total_sage_charges", tolerance="0.01",
                         include_sage_inventory=False, excluded_prefixes=None, project_departments=None,
-                        department_summary=None, pole_configuration=None):
+                        department_summary=None, pole_configuration=None, bap_history=None, bap_history_summary=None):
     """Publie atomiquement un JSONL v2/v3 à partir des DataFrames et du résultat.
 
     Les nouveaux v3 déclarent ods_party_policy ; seuls les tiers absents des
@@ -55,6 +55,8 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     department_summary porte le bilan organisationnel facultatif.
     pole_configuration fige la liste suivie ; les champs pole/pole_source sont
     alors requis dans la même table, sans enrichissement des preuves métier.
+    bap_history ajoute des contextes dédupliqués après l'inventaire Atlas en v3 ;
+    le compteur final et l'empreinte couvrent ces enregistrements facultatifs.
     """
     from reconciliation_contract.sage_inventory import CAPABILITY, exclusion_policy
     from reconciliation_contract import ODS_LABEL_POLICY
@@ -64,6 +66,9 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
     policy = exclusion_policy(config.SAGE_EXCLUDED_PREFIXES if excluded_prefixes is None else excluded_prefixes)
     from reconciliation.auto_validation import validate_config, proposal_metadata
     options = validate_config()
+    from reconciliation_contract.bap_history import POLICY as BAP_HISTORY_POLICY, validate_record as validate_bap_history
+    if bap_history is not None and controls is None:
+        raise ValueError("L'historique BAP exige une campagne v3")
     from reconciliation_contract.departments import POLICY as DEPARTMENT_POLICY, validate_departments
     from reconciliation_contract.departments import POLE_POLICY
     pole_configuration = pole_configuration if pole_configuration is not None else (department_summary or {}).get("pole_configuration")
@@ -127,6 +132,8 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
             version = 3 if controls is not None else 2
             emit({"type": "campaign", "schema_version": version,
                   **department_header,
+                  **({"bap_history_policy": BAP_HISTORY_POLICY, "bap_history_summary": bap_history_summary or {}}
+                     if bap_history is not None else {}),
                   **({"validation_policy": "confirmed-exact-v2", "ods_label_policy": ODS_LABEL_POLICY,
                       "matching_tolerances": MATCHING_TOLERANCES, "ods_party_policy": ODS_PARTY_POLICY} if version == 3 else {}),
                   **({"capabilities": [CAPABILITY], "sage_exclusions": policy} if include_sage_inventory else {}),
@@ -150,6 +157,17 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                 columns = (*INVENTORY_COLUMNS, *ATLAS_CONTEXT)
                 for values in canonical[list(columns)].itertuples(index=False, name=None):
                     emit({"type": "inventory", "atlas": dict(zip(columns, values))})
+            bap_count = 0
+            if bap_history is not None:
+                seen_baps = set()
+                for history in bap_history:
+                    validate_bap_history(history)
+                    key = (history["project_code"], history["bap_sage_number"])
+                    if key in seen_baps:
+                        raise ValueError("Historique BAP répété")
+                    seen_baps.add(key)
+                    emit({"type": "bap_history", "data": history})
+                    bap_count += 1
             sage_count = 0
             if include_sage_inventory:
                 from reconciliation.sage_inventory import inventory_records
@@ -236,6 +254,7 @@ def export_review_bundle(atlas, sage, result, output_path, *, campaign_name=None
                     control_count += 1
                     statuses[control['status']] += 1
             emit({"complete": count, "inventory_count": len(canonical),
+                  **({"bap_history_count": bap_count} if bap_history is not None else {}),
                   **({"sage_inventory_count": sage_count, "stream_sha256": stream_hash.hexdigest()} if include_sage_inventory else {}),
                   **({"control_count": control_count, "control_statuses": dict(statuses)} if version == 3 else {})})
             if version == 3:

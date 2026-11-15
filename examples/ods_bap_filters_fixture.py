@@ -12,12 +12,14 @@ from reconciliation.transformations.atlas import transform_atlas
 from reconciliation.transformations.sage import transform_sage
 
 
-def generate(folder, *, project_departments=None, pole_configuration=None):
+def generate(folder, *, project_departments=None, pole_configuration=None, bap_history=None):
     """Écrit un JSONL fictif de huit lignes par source, sans accès à une base.
 
     project_departments ajoute facultativement les rattachements de test à
     l'en-tête ; sources, matching et décisions restent identiques.
     pole_configuration accompagne les champs pôle optionnels pour leur contrôle.
+    bap_history ajoute uniquement le contexte informatif de campagne.
+    Retourne le chemin JSONL ; ValueError/OSError de l'export sont propagées.
     """
     left, right = [], []
     for number, amount in enumerate(("-310", "-170", "-410"), 1):
@@ -46,7 +48,7 @@ def generate(folder, *, project_departments=None, pole_configuration=None):
     result = match_reconciliations(atlas, sage, MatchingConfig(enable_fuzzy=False, enable_without_label=False))
     return export_review_bundle(atlas, sage, result, Path(folder) / "ods-bap.jsonl", year=2026,
         controls=build_controls(atlas, sage, result), include_sage_inventory=True,
-        project_departments=project_departments, pole_configuration=pole_configuration)
+        project_departments=project_departments, pole_configuration=pole_configuration, bap_history=bap_history)
 
 
 if __name__ == "__main__":

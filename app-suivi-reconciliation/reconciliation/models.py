@@ -340,6 +340,28 @@ class CampaignDepartment(models.Model):
         constraints = [models.UniqueConstraint(fields=("campaign", "project_code"), name="campaign_department_project")]
 
 
+class CampaignBapHistory(models.Model):
+    """Contexte source immuable par campagne, projet et numéro BAP Sage.
+
+    Dates ISO textuelles pour préserver les horodatages naïfs ; aucun fuseau
+    ajouté. Lecture seulement dans l'interface, hors signatures métier et droits.
+    Une seule ligne par BAP partagé, insertion et publication par lots.
+    """
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="bap_history")
+    project_code = models.CharField(max_length=100)
+    bap_sage_number = models.CharField(max_length=100)
+    bap_created_at = models.CharField(max_length=40, null=True, blank=True)
+    bap_created_by = models.CharField(max_length=255, null=True, blank=True)
+    bap_modified_at = models.CharField(max_length=40, null=True, blank=True)
+    bap_modified_by = models.CharField(max_length=255, null=True, blank=True)
+
+    class Meta:
+        """Empêche deux historiques pour un même couple projet/BAP dans une campagne."""
+
+        constraints = [models.UniqueConstraint(fields=("campaign", "project_code", "bap_sage_number"), name="campaign_bap_history_unique")]
+
+
 class CampaignInventory(models.Model):
     """Photographie Atlas ; business_version protège les actions locales concurrentes.
 

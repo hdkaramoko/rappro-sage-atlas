@@ -56,6 +56,7 @@ def review_list(request):
     Département filtre le rattachement transcodifié de la campagne courante,
     dans le seul portefeuille autorisé, avant compte et pagination.
     Pôle réutilise ce circuit sur le périmètre visible, avec Hors DP historique.
+    L'historique BAP est joint pour la seule page, hors tri et filtres métier.
     Le canal Comptabilisés incomplets délègue à une file projet distincte, sans
     modifier les lignes ni les décisions du parcours Envoyé SAGE.
     """
@@ -121,6 +122,8 @@ def review_list(request):
         request.GET.get("page")
     )
     rows = list(page.object_list)
+    from .bap_history import attach_history
+    attach_history(rows)
     groups = {
         row["group_id"]: row
         for row in LineReview.objects.filter(group_id__in={line.group_id for line in rows})
@@ -175,10 +178,14 @@ def review_detail(request, pk):
     HTML/redirection, affiche les ValidationError et masque les lignes hors droits.
     Les champs calculés depuis la sélection sont signalés au service, qui recharge
     les preuves et recalcule leurs charges Decimal avant toute écriture.
+    L'historique BAP de cette campagne est lu indépendamment de la décision,
+    sans intégrer ses champs au formulaire.
     """
     line = get_object_or_404(visible(request.user), pk=pk)
     return_url = safe_return(request.GET.get("return", ""))
     decorate(line)
+    from .bap_history import attach_history
+    attach_history([line])
     inventory = CampaignInventory.objects.filter(campaign_id=line.campaign_id, business_key=line.transaction.business_key,
         present=True).select_related("adjustment").first() if line.campaign_id else None
     actions = line_actions(line, inventory)

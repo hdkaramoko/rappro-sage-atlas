@@ -29,10 +29,12 @@ uv sync
 uv run pytest
 uv run python -m reconciliation.main --atlas "data/JDD.xlsx" --sage "data/LISTPJT4.csv"
 uv run python -m reconciliation.main --atlas "data/JDD.xlsx" --sage "data/LISTPJT4.csv" --output "output/rapprochement.xlsx"
-uv run python -m reconciliation.main --atlas "data/inputs/JDD.xlsx" --sage "data/inputs/ZLISTPJT.csv" --year 2026 --atlas-projects "data/inputs/ProjetAtlas.xlsx" --department-mapping "data/inputs/transcodification.xlsx" --review-output "data/outputs/campagne_ddmm2026.jsonl"
+uv run python -m reconciliation.main --atlas "data/inputs/JDD.xlsx" --sage "data/inputs/ZLISTPJT.csv" --year 2026 --atlas-projects "data/inputs/ProjetAtlas.xlsx" --department-mapping "data/inputs/transcodification.xlsx" --bap-extract "data/inputs/ExtractionBap.xlsx" --review-output "data/outputs/campagne_ddmm2026.jsonl"
 ```
 
 La CLI affiche une synthèse ; l'API Python retourne les résultats détaillés.
+`--bap-extract` est facultatif : il ajoute uniquement les dates et auteurs du BAP
+à la campagne, sans changer les rapprochements. Voir [l'historique BAP](docs/historique_bap_atlas.md).
 `--year` filtre Atlas sur `Année` et SAGE sur l'année de `Date comptable`.
 Voir le [guide du filtre annuel et des portefeuilles](docs/filtre_annuel_et_portefeuilles.md).
 Avec `--output`, elle produit un classeur avec les feuilles `Résultats`, `Tentatives`

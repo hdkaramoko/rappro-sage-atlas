@@ -1,0 +1,8 @@
+{% load review_ui %}
+<section class="bap-history" aria-label="Historique du BAP">
+<h3>Historique du BAP</h3><dl class="bap-history-grid">
+<div><dt>Créé le</dt><dd>{{ bap_history.bap_created_at|bap_datetime_fr }}</dd></div>
+<div><dt>Établi par</dt><dd>{{ bap_history.bap_created_by|default:"Non renseigné" }}</dd></div>
+<div><dt>Modifié le</dt><dd>{{ bap_history.bap_modified_at|bap_datetime_fr }}</dd></div>
+<div><dt>Modifié par</dt><dd>{{ bap_history.bap_modified_by|default:"Non renseigné" }}</dd></div>
+</dl></section>

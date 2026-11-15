@@ -56,8 +56,13 @@ def review_list(request):
     Département filtre le rattachement transcodifié de la campagne courante,
     dans le seul portefeuille autorisé, avant compte et pagination.
     Pôle réutilise ce circuit sur le périmètre visible, avec Hors DP historique.
+    Le canal Comptabilisés incomplets délègue à une file projet distincte, sans
+    modifier les lignes ni les décisions du parcours Envoyé SAGE.
     """
     if request.GET.get("view") == "controls":
+        if request.GET.get("channel") == "incomplete":
+            from .incomplete_views import project_list
+            return project_list(request)
         from .global_views import control_workspace
         return control_workspace(request)
     items = visible(request.user)

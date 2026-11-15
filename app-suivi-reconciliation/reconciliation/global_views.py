@@ -50,7 +50,7 @@ def control_workspace(request):
     Une proposition non confirmée reste une alerte distincte de l'état courant.
     ODS/ODG conserve la clé composite existante. Retour HTML, aucune écriture.
     Pagination sur les seuls identifiants avant chargement des JSON et tri stable
-    sur diagnostic matérialisé/projet/identifiant, sans calcul par ligne ni N+1.
+    sur projet/identifiant, sans calcul par ligne ni N+1.
     Origine utilise en SQL les compteurs de sources et confirmations du résultat
     courant, jamais les montants. Sans inventaire Sage complet, l'origine reste
     inconnue ; Toutes conserve ces groupes ainsi que les sources exclues.
@@ -58,8 +58,8 @@ def control_workspace(request):
     serveur avant pagination, sans modifier les calculs ni étendre les droits.
     Département utilise les valeurs transcodifiées de la photographie campagne.
     Pôle utilise le même rattachement historisé, sans étendre les permissions.
-    Les diagnostics Comptabilisé incomplet utilisent les colonnes matérialisées,
-    avec priorité avant les anomalies ordinaires et filtre Toutes/Oui/Non.
+    Les diagnostics sources orientent vers le canal projet dédié. Les anciens
+    paramètres sage_missing restent acceptés pour les URL financières historiques.
     """
     campaign = Campaign.objects.filter(is_current=True).first()
     rows = global_controls_for(request.user).filter(campaign=campaign)
@@ -110,7 +110,6 @@ def control_workspace(request):
                 condition |= atlas_present & sage_present
             rows = rows.filter(condition)
     search = request.GET.get("q", "").strip()
-    incomplete_choices = [("yes", "Oui"), ("no", "Non")]
     incomplete = selections(request.GET, "sage_missing", ["yes", "no"])
     if incomplete == ["yes"]:
         rows = rows.filter(sage_incomplete_count__gt=0)
@@ -118,20 +117,19 @@ def control_workspace(request):
         rows = rows.filter(sage_incomplete_count=0)
     if search:
         rows = rows.filter(Q(project_code__icontains=search) | Q(result__identity__parts__2__icontains=search))
-    rows = rows.order_by("-sage_incomplete_count", "project_code", "pk")
+    rows = rows.order_by("project_code", "pk")
     page = Paginator(rows.values_list("pk", flat=True), 50).get_page(request.GET.get("page"))
     identifiers = list(page.object_list)
     controls = {row.pk: row for row in global_controls_for(request.user).filter(pk__in=identifiers)}
     page.object_list = [controls[pk] for pk in identifiers if pk in controls]
-    return render(request, "reconciliation/global_controls.html", {"active_view": "controls", "campaign": campaign,
+    return render(request, "reconciliation/global_controls.html", {"active_view": "controls", "control_channel": "financial", "campaign": campaign,
         "page": page, "search": search,
         "filter_menus": [filter_menu("project", "Projet", [(p, p) for p in projects], selected),
                          department_menu,
                          pole_menu,
                          filter_menu("control_state", "État du contrôle", states, chosen),
                          filter_menu("piece_type", "Type de pièce", [(kind, "Type inconnu" if kind == "NA" else kind) for kind in kinds], chosen_types),
-                         filter_menu("origin", "Origine", origins, origin),
-                         filter_menu("sage_missing", "Informations Sage manquantes", incomplete_choices, incomplete)],
+                         filter_menu("origin", "Origine", origins, origin)],
         "page_range": page.paginator.get_elided_page_range(page.number)})
 
 

@@ -301,7 +301,7 @@ class IncompleteAccountingTests(IncompleteFixture, TestCase):
         )
 
     def test_priority_filters_detail_and_no_get_writes(self):
-        """Le contrôle incomplet précède les écarts ordinaires ; le filtre n'explore pas le JSON."""
+        """La V2 sépare le lien projet des contrôles financiers, sans écriture en GET."""
         project = Project.objects.create(code="000-FIRST", label="Anomalie ordinaire")
         ProjectPortfolio.objects.create(user=self.user, project=project)
         data = {
@@ -324,8 +324,9 @@ class IncompleteAccountingTests(IncompleteFixture, TestCase):
         )
         url = reverse("reconciliation:reviews")
         response = self.client.get(url, {"view": "controls"})
-        first = response.context["page"][0]
-        self.assertEqual(first.sage_incomplete_count, 1)
+        self.assertEqual(response.context["page"][0].project_code, "000-FIRST")
+        first = next(row for row in response.context["page"] if row.sage_incomplete_count)
+        self.assertContains(response, reverse("reconciliation:incomplete-project", args=[first.project_code]))
         self.assertContains(response, "Informations Sage manquantes dans Atlas")
         for choice, count in (("yes", 1), ("no", 2)):
             filtered = self.client.get(url, {"view": "controls", "sage_missing": choice})

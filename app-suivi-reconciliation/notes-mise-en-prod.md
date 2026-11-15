@@ -390,12 +390,23 @@ Accorder les privileges pour des requetes
     ```
 
 +   Etape 2 : Attribution de variables pour la suite
+    -   Identifier le user django : 
+    ```
+    kubectl exec -n "$NS" deployment/"$DEPLOY" -- uv run python app-suivi-reconciliation/manage.py shell -c "from django.db import connection; print(connection.settings_dict['USER'])"
+    ```
+
+    -   Identifier les éléments de connexion de l'application
+        ```
+        kubectl exec -n "$NS" deployment/"$DEPLOY" -- uv run python app-suivi-reconciliation/manage.py shell -c "from django.db import connection; print(connection.settings_dict)"
+        ```
+
+    -   Création des variables
     ```
     export NS=user-hdkaramoko
     export DEPLOY=rappro-sage-atlas-dev
     export PG_POD=postgresql-cnpg-555845-1
     export DB_NAME=app
-    export DB_USER=postgres
+    export DB_USER=app
     ```
 
 +   Etape 3 : Sauvegarde de la base dans un répertoire
@@ -443,7 +454,12 @@ Accorder les privileges pour des requetes
         ```
     -   Attribution du schéma à l'utilisateur de l'application (permet d'éviter les erreurs de permission)
         ```
-        ALTER SCHEMA public OWNER TO postgres;
+        ALTER SCHEMA public OWNER TO app;
+        GRANT USAGE, CREATE ON SCHEMA public TO app;
+        ```
+    -   Permettre que l'utilisateur depuis kubernetes aiet accès à la base
+        ```
+        GRANT USAGE, CREATE ON SCHEMA public TO "user-hdkaramoko";
         ```
     -   Vérifier que c'est au bon utilisateur django
         ```
@@ -453,13 +469,17 @@ Accorder les privileges pour des requetes
         ```
         \q
         ```
+    -   Dans pgAdmin
+        ```
+        clic droit sur le server postgresql-cnpg-555845 > propriétés > bdd de maintenace = app > vérifier username et mdp
+        ```
 
 +   Etape 7: Relancer django et appliquer les migrations
     -   Syntaxe pour relancer le replica : 
         ```
         kubectl scale deployment "$DEPLOY" --replicas=1 -n "$NS"
         ```
-    -   L'accès à l'application devriat être interdit à ce stade aux users
+    -   L'accès à l'application devriait être interdit à ce stade aux users
     -   Vérifier que le prod est déployé
         ```
         kubectl get pods -n "$NS"
@@ -472,9 +492,19 @@ Accorder les privileges pour des requetes
         ```
         kubectl exec -n "$NS" deployment/"$DEPLOY" -- uv run python app-suivi-reconciliation/manage.py showmigrations
         ```
+   -   Le mode maintenance étant activé, il faut le désactiver
+        1. Regarder l'aide sur la fonction de maintenance :
+            ```
+            kubectl exec -n user-hdkaramoko   deployment/rappro-sage-atlas-dev -- uv run python app-suivi-reconciliation/manage.py help | grep -i maintenance
+            uv run python app-suivi-reconciliation/manage.py help maintenance_normal # Dans vscode
+            ```
+        2. Désactiver la maintenance
+            ```
+            kubectl exec -it -n user-hdkaramoko deployment/rappro-sage-atlas-dev -- uv run python app-suivi-reconciliation/manage.py maintenance_normal --reason "Fin de migration PostgreSQL - réouverture de l'application"
+            ```
     -   Recréer le superuser
         ```
-        kubectl exec -n "$NS" deployment/"$DEPLOY" -- uv run python app-suivi-reconciliation/manage.py createsuperuser
+        kubectl exec -it -n "$NS" deployment/"$DEPLOY" -- uv run python app-suivi-reconciliation/manage.py createsuperuser
         ```
     -   Vérifier la structure PostgreSQL : 
         ```

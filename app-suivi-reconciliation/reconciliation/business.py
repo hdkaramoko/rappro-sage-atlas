@@ -41,10 +41,16 @@ def retained_amount(inventory: CampaignInventory) -> Decimal | None:
     Une correction active AMOUNT fournit son Decimal à deux décimales ; DUPLICATE
     retient zéro comme exclusion explicite. Une annulation rend la valeur source.
     Peut charger la relation adjustment si elle n'est pas préchargée ; aucune écriture.
+    Un Comptabilisé incomplet confirmé utilise le montant de sa décision courante.
     """
     adjustment = getattr(inventory, "adjustment", None)
     if adjustment and adjustment.active:
         return Decimal(0) if adjustment.reason == AtlasAdjustment.Reason.DUPLICATE else adjustment.amount
+    from .incomplete_accounting import current_manual_link, missing_mask
+    if missing_mask(inventory.data, inventory.fiscal_year):
+        link = current_manual_link(inventory)
+        if link:
+            return link.amount
     return source_amount(inventory)
 
 
@@ -113,11 +119,14 @@ def recalculate(campaign: Campaign, keys: set[str]) -> dict:
     Le circuit d'import suspend ce hook pendant ses auto-validations initiales.
     Les synthèses de cadrage déjà préparées sont ensuite actualisées pour les
     seuls projets touchés ; aucune ancienne campagne n'est reconstruite.
+    Les compteurs de diagnostic des seules clés touchées sont synchronisés.
     """
     if IMPORTING.get() or CAPABILITY not in campaign.metadata.get("capabilities", []) or not keys:
         return {}
     from .global_control import campaign_controls
     rows = {c.key: c for c in campaign.global_controls.select_for_update().filter(key__in=keys).order_by("key")}
+    from .incomplete_accounting import control_counts
+    counts = control_counts(campaign, keys)
     result = {}
     projects = {row.project_code for row in rows.values()}
     for data in campaign_controls(campaign, keys=sorted(keys)):
@@ -131,6 +140,9 @@ def recalculate(campaign: Campaign, keys: set[str]) -> dict:
             row.current_updated_at = timezone.now()
             row.current_version += 1
             row.save(update_fields=["current_data", "current_updated_at", "current_version"])
+        if row.sage_incomplete_count != counts.get(row.key, 0):
+            row.sage_incomplete_count = counts.get(row.key, 0)
+            row.save(update_fields=["sage_incomplete_count"])
         result[row.key] = data["signature"]
     from .accounting import refresh_project
     from .accounting_models import AccountingProject
@@ -252,6 +264,7 @@ def correct_inventory(pk: int, user, *, reason: str = "", amount=None, comment: 
     touchée est invalidée sans remplacer son état/auteur. Retourne CampaignInventory.
     Droits, versions et UUID protègent les modifications ; toute erreur annule
     écritures, recalcul et événement dans la même transaction.
+    Un incomplet exige une justification ; son signe de référence projet est conservé.
     """
     inventory = _locked_inventory(pk, user)
     value = money(amount)
@@ -261,6 +274,10 @@ def correct_inventory(pk: int, user, *, reason: str = "", amount=None, comment: 
     if done:
         return inventory
     adjustment = getattr(inventory, "adjustment", None)
+    from .incomplete_accounting import missing_mask
+    incomplete = missing_mask(inventory.data, inventory.fiscal_year)
+    if incomplete and not cancel and not comment.strip():
+        raise ValidationError("Justifiez distinctement la correction de cette ligne incomplète.")
     if not cancel:
         if reason not in AtlasAdjustment.Reason.values:
             raise ValidationError("Choisissez un motif de correction.")
@@ -268,6 +285,8 @@ def correct_inventory(pk: int, user, *, reason: str = "", amount=None, comment: 
             if value is None or value.as_tuple().exponent < -2:
                 raise ValidationError("Le montant corrigé doit être un montant EUR fini à deux décimales.")
             original = source_amount(inventory)
+            if original is None and incomplete:
+                original = money(inventory.data.get("total_project_charges"))
             if original is not None and original * value < 0:
                 raise ValidationError("Le montant corrigé doit conserver le signe du montant source.")
         else:
@@ -308,6 +327,8 @@ def search_sage(inventory: CampaignInventory, user, filters: dict | None = None)
     lorsque la devise d'opération Sage diffère. Lève PermissionDenied hors droits,
     ValidationError pour un ancien fichier/source incompatible ; aucune écriture.
     La devise d'origine Atlas ne restreint pas cette recherche en charges EUR.
+    Les incomplets sont classés par preuves BAP/tiers/libellé puis montant/signe,
+    sans filtrage implicite d'égalité et sans validation automatique.
     """
     from .campaign_views import projects_for
     if not user.is_authenticated or not user.is_active or not projects_for(user).filter(code=inventory.project_code).exists():
@@ -329,6 +350,10 @@ def search_sage(inventory: CampaignInventory, user, filters: dict | None = None)
         if value is None:
             raise ValidationError("Montant recherché invalide.")
         rows = rows.filter(amount=value)
+    from .incomplete_accounting import missing_mask, comparison_amount
+    if missing_mask(inventory.data, inventory.fiscal_year):
+        from .incomplete_candidates import ranked_candidates
+        return ranked_candidates(rows, inventory, comparison_amount(inventory))
     from django.db.models import Case, When, Value, IntegerField
     return rows.annotate(relevance=Case(When(amount=retained_amount(inventory), then=Value(0)), default=Value(1), output_field=IntegerField())).order_by("relevance", "document", "pk")
 
@@ -339,6 +364,7 @@ def selection_summary(inventory, user, entry_ids) -> dict:
     Les identifiants doivent être distincts, éligibles et univoques dans la campagne.
     Retourne entrées, sommes Decimal EUR et écart. ValidationError interdit les
     sélections hors périmètre, collisions ou montants manquants. Aucun effet de bord.
+    La référence projet d'un incomplet reste distincte du montant source absent.
     """
     try:
         ids = [int(value) for value in entry_ids]
@@ -359,19 +385,22 @@ def selection_summary(inventory, user, entry_ids) -> dict:
     if any(v < 0 for v in amounts) and any(v > 0 for v in amounts):
         raise ValidationError("Une compensation charge/avoir ne peut pas être affectée automatiquement.")
     total, retained = sum(amounts, Decimal(0)), retained_amount(inventory)
+    from .incomplete_accounting import comparison_amount
+    reference = comparison_amount(inventory)
     capacities, alerts = [], []
     for control in inventory.campaign.global_controls.filter(key__in={e.control_key for e in entries}):
         data = control.current_data or control.data
-        accounted, sent, reference = (money(data[k]) for k in ("accounted_total", "confirmed_sent_total", "sage_total"))
-        available = reference - accounted - sent if all(v is not None for v in (accounted, sent, reference)) else None
+        accounted, sent, capacity_reference = (money(data[k]) for k in ("accounted_total", "confirmed_sent_total", "sage_total"))
+        available = capacity_reference - accounted - sent if all(v is not None for v in (accounted, sent, capacity_reference)) else None
         capacities.append({"document": next(e.document for e in entries if e.control_key == control.key),
                            "accounted": accounted, "confirmed": sent, "available": available})
         if data["state"] in ("INDETERMINE", "EXCLU"):
             alerts.append("Un contrôle de la sélection est à revoir ou exclu ; aucune confirmation trompeuse ne sera autorisée.")
-    if retained is None or abs(retained - total) > money(inventory.campaign.metadata["tolerance"]):
+    if reference is None or abs(reference - total) > money(inventory.campaign.metadata["tolerance"]):
         alerts.append("La sélection ne correspond pas au montant retenu : corrigez-la avant confirmation.")
     return {"entries": entries, "sage_total": total, "retained": retained,
-            "gap": retained - total if retained is not None else None, "capacities": capacities, "alerts": sorted(set(alerts))}
+            "reference": reference, "gap": reference - total if reference is not None else None,
+            "capacities": capacities, "alerts": sorted(set(alerts))}
 
 
 def _mirror_link(inventory, link, user, *, cancel=False):
@@ -439,6 +468,8 @@ def confirm_inventory_link(pk: int, user, *, entry_ids, comment: str, expected_v
     une décision antérieure exige replace_existing explicite et un commentaire.
     Retourne l'inventaire actualisé ; tout refus annule allocations, décision,
     recalcul et audit. Une répétition du même UUID est idempotente.
+    Un incomplet compare explicitement la référence de revue ; aucune donnée source
+    n'est complétée et tout écart hors tolérance exige une correction séparée.
     """
     inventory = _locked_inventory(pk, user)
     ids = sorted(str(v) for v in entry_ids)
@@ -452,7 +483,7 @@ def confirm_inventory_link(pk: int, user, *, entry_ids, comment: str, expected_v
     if adjustment and adjustment.active and adjustment.reason == AtlasAdjustment.Reason.DUPLICATE:
         raise ValidationError("Une ligne exclue comme doublon ne peut pas consommer une écriture Sage.")
     summary = selection_summary(inventory, user, ids)
-    retained, total = summary["retained"], summary["sage_total"]
+    retained, total = summary["reference"], summary["sage_total"]
     tolerance = money(inventory.campaign.metadata.get("tolerance", "0.01"))
     if retained is None or abs(retained - total) > tolerance or retained * total < 0:
         raise ValidationError("La sélection doit expliquer le montant retenu. Une affectation partielle non démontrée reste à revoir.")

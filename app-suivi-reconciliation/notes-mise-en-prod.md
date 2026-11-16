@@ -266,20 +266,20 @@
     -   Django prévoit une fonction d'export des données d'une BDD. Pour cela, il faut recabler sqlite et faire la syntaxe suivante 
     -   Syntaxe : 
         ```
-            uv run python app-suivi-reconciliation/manage.py dumpdata \
-            --natural-foreign \
-            --natural-primary \
-            --all \
-            --exclude=contenttypes \
-            --exclude=auth.Permission \
-            --exclude=sessions \
-            --output=app-suivi-reconciliation/data_export.json.gz
+        uv run python app-suivi-reconciliation/manage.py dumpdata \
+        --natural-foreign \
+        --natural-primary \
+        --all \
+        --exclude=contenttypes \
+        --exclude=auth.Permission \
+        --exclude=sessions \
+        --output=app-suivi-reconciliation/data_export.json.gz
         ```
     -   Il peut arriver que cette commande ne fonctionne pas. Dans ce cas, premier réflexe, c'est de regarder les migrations. Certaines non appliquées
     -   Cabler à nouveau la BDD sur l'instance postgres
     -   Exécuter la commande suivante qui va charger les données exportées vers la nouvelle base:
         ```
-            uv run python app-suivi-reconciliation/manage.py loaddata app-suivi-reconciliation/data_export.json.gz
+        uv run python app-suivi-reconciliation/manage.py loaddata app-suivi-reconciliation/data_export.json.gz
         ```
     -   Ainsi, toutes les données de la base sqlite sont transférées vers la nouvelle base
 +   Réinitialiser les séquences
@@ -288,28 +288,28 @@
     -   On le fait pour toutes les applications déclarées dans le projet django
     -   La syntaxe :
         ```
-            uv run python app-suivi-reconciliation/manage.py sqlsequencereset accounts
-            uv run python app-suivi-reconciliation/manage.py sqlsequencereset projects
-            uv run python app-suivi-reconciliation/manage.py sqlsequencereset reconciliation
-            uv run python app-suivi-reconciliation/manage.py sqlsequencereset imports_app
-            uv run python app-suivi-reconciliation/manage.py sqlsequencereset dashboard
+        uv run python app-suivi-reconciliation/manage.py sqlsequencereset accounts
+        uv run python app-suivi-reconciliation/manage.py sqlsequencereset projects
+        uv run python app-suivi-reconciliation/manage.py sqlsequencereset reconciliation
+        uv run python app-suivi-reconciliation/manage.py sqlsequencereset imports_app
+        uv run python app-suivi-reconciliation/manage.py sqlsequencereset dashboard
         ```
 +   Modification du manifest de déploiement
     -   Rajout des éléments de connexion de la DB au manifest
     -   Initialiser postgresql avec la syntaxe de migration : ```uv run python app-suivi-reconciliation/manage.py migrate```
     -   Appliquer le nouveau déploiement du pod - attention, il faut récupérer le sha de l'ancien
         ```
-            kubectl apply -f k8s/dev/deployment.yaml
-            kubectl set image deployment/rappro-sage-atlas-dev rappro-sage-atlas-dev=ghcr.io/hdkaramoko/rappro-sage-atlas:dev-<SHA>
-            kubectl rollout status deployment/rappro-sage-atlas-dev -n user-hdkaramoko --timeout=120s
+        kubectl apply -f k8s/dev/deployment.yaml
+        kubectl set image deployment/rappro-sage-atlas-dev rappro-sage-atlas-dev=ghcr.io/hdkaramoko/rappro-sage-atlas:dev-<SHA>
+        kubectl rollout status deployment/rappro-sage-atlas-dev -n user-hdkaramoko --timeout=120s
         ```
     -   Faire les migrations
 
     -   Pour la prod
         ```
-            kubectl apply -f k8s/prod/deployment.yaml
-            kubectl set image deployment/rappro-sage-atlas rappro-sage-atlas=ghcr.io/hdkaramoko/rappro-sage-atlas:prod-<SHA>
-            kubectl rollout status deployment/rappro-sage-atlas -n user-hdkaramoko --timeout=120s
+        kubectl apply -f k8s/prod/deployment.yaml
+        kubectl set image deployment/rappro-sage-atlas rappro-sage-atlas=ghcr.io/hdkaramoko/rappro-sage-atlas:prod-<SHA>
+        kubectl rollout status deployment/rappro-sage-atlas -n user-hdkaramoko --timeout=120s
         ```
 
 Accorder les privileges pour des requetes
@@ -381,3 +381,133 @@ Accorder les privileges pour des requetes
         GRANT ALL ON TABLE public.reconciliation_reviewevent TO "user-hdkaramoko";
         GRANT ALL ON TABLE public.reconciliation_reviewgroup TO "user-hdkaramoko";
     ```
+
+## Etape 4 : Suppression de la BDD et renouvèlement (sur version de dev)
++   Etape 1 : Identification de la base de donnée concernée
+    ```
+    kubectl get pods -n user-hdkaramoko     # Pour identifier tous les pods du namespace
+    kubectl get clusters.postgresql.cnpg.io -n user-hdkaramoko  # Pour identifier tous les pods utilisant le service postgres
+    ```
+
++   Etape 2 : Attribution de variables pour la suite
+    -   Identifier le user django : 
+    ```
+    kubectl exec -n "$NS" deployment/"$DEPLOY" -- uv run python app-suivi-reconciliation/manage.py shell -c "from django.db import connection; print(connection.settings_dict['USER'])"
+    ```
+
+    -   Identifier les éléments de connexion de l'application
+        ```
+        kubectl exec -n "$NS" deployment/"$DEPLOY" -- uv run python app-suivi-reconciliation/manage.py shell -c "from django.db import connection; print(connection.settings_dict)"
+        ```
+
+    -   Création des variables
+    ```
+    export NS=user-hdkaramoko
+    export DEPLOY=rappro-sage-atlas-dev
+    export PG_POD=postgresql-cnpg-555845-1
+    export DB_NAME=app
+    export DB_USER=app
+    ```
+
++   Etape 3 : Sauvegarde de la base dans un répertoire
+    -   Création du répertoire : ```mkdir -p ~/work/backups```
+    -   Lancer de la sauvegarde : 
+        ```
+        kubectl exec -n "$NS" "$PG_POD" -c postgres -- pg_dump -U postgres -d "$DB_NAME" -Fc > ~/work/backups/rappro_sage_atlas_avant_reset.dump
+        ```
+    -   Vérifier le contenu de la sauvegarde :
+        ```
+        pg_restore -l ~/work/backups/rappro_sage_atlas_avant_reset.dump
+        ```
+
++   Etape 4 : Arrêter django
+    -   On empêche l'applictation de continuer à écrire dans postgres, notamment en retirant le replica
+    -   Syntaxe : ```kubectl scale deployment "$DEPLOY" --replicas=0 -n "$NS"```
+    -   On vérifie que le pods n'existe plus : ```kubectl get pods -n "$NS"```
+
++   Etape 5 : Entrer dans PostgreSQL
+    -   Syntaxe d'ouverture de la base : 
+        ```
+        kubectl exec -it -n "$NS" "$PG_POD" -c postgres -- psql -U postgres -d "$DB_NAME"
+        ```
+    -   Vérifier la base en cours et l'utilisateur
+        ```
+        SELECT current_database(), current_user;
+        ```
+    -   Vérifier que la base n'est pas en mode maintenance : réponse attendue f
+        ```
+        SELECT pg_is_in_recovery();
+        ```
+    -   Vérifier le propriétaire du schéma
+        ```
+        SELECT nspname, pg_get_userbyid(nspowner) AS owner FROM pg_namespace WHERE nspname = 'public';
+        ```
+
++   Etape 6 : Supprmimer les tables et recréer le schéma
+    -   Suppression du schéma
+        ```
+        DROP SCHEMA public CASCADE;
+        ```
+    -   Création du nouveau schéma
+        ```
+        CREATE SCHEMA public;
+        ```
+    -   Attribution du schéma à l'utilisateur de l'application (permet d'éviter les erreurs de permission)
+        ```
+        ALTER SCHEMA public OWNER TO app;
+        GRANT USAGE, CREATE ON SCHEMA public TO app;
+        ```
+    -   Permettre que l'utilisateur depuis kubernetes aiet accès à la base
+        ```
+        GRANT USAGE, CREATE ON SCHEMA public TO "user-hdkaramoko";
+        ```
+    -   Vérifier que c'est au bon utilisateur django
+        ```
+        SELECT nspname, pg_get_userbyid(nspowner) AS owner FROM pg_namespace WHERE nspname = 'public';
+        ```
+    -   Fermer postgres
+        ```
+        \q
+        ```
+    -   Dans pgAdmin
+        ```
+        clic droit sur le server postgresql-cnpg-555845 > propriétés > bdd de maintenace = app > vérifier username et mdp
+        ```
+
++   Etape 7: Relancer django et appliquer les migrations
+    -   Syntaxe pour relancer le replica : 
+        ```
+        kubectl scale deployment "$DEPLOY" --replicas=1 -n "$NS"
+        ```
+    -   L'accès à l'application devriait être interdit à ce stade aux users
+    -   Vérifier que le prod est déployé
+        ```
+        kubectl get pods -n "$NS"
+        ```
+    -   Lancer les migrations :
+        ```
+        kubectl exec -n "$NS" deployment/"$DEPLOY" -- uv run python app-suivi-reconciliation/manage.py migrate --noinput
+        ```
+    -   Vérifier l'état des migrations
+        ```
+        kubectl exec -n "$NS" deployment/"$DEPLOY" -- uv run python app-suivi-reconciliation/manage.py showmigrations
+        ```
+   -   Le mode maintenance étant activé, il faut le désactiver
+        1. Regarder l'aide sur la fonction de maintenance :
+            ```
+            kubectl exec -n user-hdkaramoko   deployment/rappro-sage-atlas-dev -- uv run python app-suivi-reconciliation/manage.py help | grep -i maintenance
+            uv run python app-suivi-reconciliation/manage.py help maintenance_normal # Dans vscode
+            ```
+        2. Désactiver la maintenance
+            ```
+            kubectl exec -it -n user-hdkaramoko deployment/rappro-sage-atlas-dev -- uv run python app-suivi-reconciliation/manage.py maintenance_normal --reason "Fin de migration PostgreSQL - réouverture de l'application"
+            ```
+    -   Recréer le superuser
+        ```
+        kubectl exec -it -n "$NS" deployment/"$DEPLOY" -- uv run python app-suivi-reconciliation/manage.py createsuperuser
+        ```
+    -   Vérifier la structure PostgreSQL : 
+        ```
+        kubectl exec -it -n "$NS" "$PG_POD" -c postgres -- psql -U postgres -d "$DB_NAME"
+        \dt public.*
+        ```

@@ -18,6 +18,7 @@ def ensure_controls(campaign, project):
 
     L'appelant détient le verrou campagne. Les lectures sont groupées par cinq cents
     clés ; aucune source ni décision n'est modifiée. Retourne None.
+    Les diagnostics sources sont repris par lot sur les contrôles reconstruits.
     """
     existing = campaign.global_controls.filter(project_code=project).values("key")
     sage = campaign.sage_inventory.filter(project_code=project).exclude(control_key__in=existing).values_list("control_key", flat=True)
@@ -29,9 +30,12 @@ def ensure_controls(campaign, project):
         records, sources, allocations = defaultdict(list), defaultdict(list), defaultdict(list)
         for key, data in campaign.sage_inventory.filter(project_code=project, control_key__in=batch).values_list("control_key", "data").iterator(chunk_size=500):
             records[key].append(data)
-        for key, data in campaign.inventory.filter(project_code=project, present=True,
-                data__bap_status="Comptabilisé", control_key__in=batch).values_list("control_key", "data").iterator(chunk_size=500):
+        missing_counts = defaultdict(int)
+        for key, data, mask in campaign.inventory.filter(project_code=project, present=True,
+                data__bap_status="Comptabilisé", control_key__in=batch).values_list("control_key", "data", "sage_missing_mask").iterator(chunk_size=500):
             sources[key].append(data)
+            if mask:
+                missing_counts[key] += 1
         initial_sources = {key: list(rows) for key, rows in sources.items()}
         reasons, provenance = business_inputs(campaign, batch, sources, allocations, [], {})
         rows = []
@@ -50,7 +54,8 @@ def ensure_controls(campaign, project):
                 current["auto_validated"] = False
                 current["signature"] = digest(current)
             rows.append(CampaignGlobalControl(campaign=campaign, key=key, project_code=project,
-                state=initial["state"], data=initial, current_data=current, current_state=current["state"]))
+                state=initial["state"], data=initial, current_data=current, current_state=current["state"],
+                sage_incomplete_count=missing_counts.get(key, 0)))
         CampaignGlobalControl.objects.bulk_create(rows, batch_size=500)
 
 

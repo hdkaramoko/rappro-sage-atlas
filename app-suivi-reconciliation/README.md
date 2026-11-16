@@ -1,5 +1,16 @@
 # Validation des rapprochements Atlas / Sage
 
+L'[historique BAP Atlas](../docs/historique_bap_atlas.md) ajoute dates et auteurs
+informatifs par campagne. Appliquer la migration 0028 puis générer/importer un
+nouveau JSONL avec l'option facultative `--bap-extract` documentée dans le README racine.
+
+L'[ajout du Pôle](../docs/poles_atlas.md) nécessite la migration 0026 et un nouveau
+JSONL enrichi. Les anciennes campagnes restent consultables avec Pôle = Hors DP.
+
+Le [filtre Département](../docs/enrichissement_departements_projets_atlas.md)
+utilise les valeurs transcodifiées historisées par campagne dans les trois vues.
+Appliquer la migration `0025` puis importer un nouveau JSONL enrichi.
+
 Voir les [correctifs tiers ODS/ODG, unicité BAP et filtres](../docs/correctifs_tiers_ods_bap_filtres.md).
 Ils s'appliquent aux prochains JSONL ; aucun recalcul de la campagne courante
 n'est requis. Les filtres Type de pièce et Origine sont disponibles immédiatement.
@@ -38,6 +49,9 @@ Application de validation par ligne Atlas des propositions du moteur de rapproch
 Les accès reposent sur le portefeuille de projets de chaque utilisateur.
 
 ## Démarrage
+
+Les nouveaux imports JSONL complètent le référentiel avec tous les projets Atlas,
+y compris sans proposition. Voir le [correctif du référentiel et sa recette](../docs/correctif_referentiel_projets_import_jsonl.md).
 
 Depuis `scriptsRappro/app-suivi-reconciliation` :
 

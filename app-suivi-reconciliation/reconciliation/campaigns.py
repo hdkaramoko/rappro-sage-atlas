@@ -8,6 +8,7 @@ des valeurs mutables de ReconciliationTransaction ou ReviewGroup.
 import hashlib
 import json
 from decimal import Decimal, InvalidOperation
+from itertools import islice
 
 from django.core.exceptions import ValidationError
 from django.core.serializers.json import DjangoJSONEncoder
@@ -17,6 +18,7 @@ from reconciliation_contract.atlas_context import ATLAS_CONTEXT, context_number
 from reconciliation_contract.ods_party import POLICY as ODS_PARTY_POLICY, party_context
 
 from imports_app.services import build_business_key
+from projects.models import Project
 
 from .models import (
     Campaign,
@@ -42,6 +44,34 @@ INVENTORY = {
 LABELS = {**{value: key for key, value in {**INVENTORY, **ATLAS_CONTEXT}.items()},
           "sage_label": "Libellé SAGE dans Atlas"}
 BATCH_SIZE = 500
+
+
+def synchronize_inventory_projects(campaign):
+    """Complète Project depuis l'inventaire chargé et retourne le cache par code.
+
+    Lit uniquement les codes Atlas normalisés distincts, par lots bornés, puis
+    crée les absents avec le libellé de repli existant. Ne modifie ni projets
+    existants ni portefeuilles. L'appel appartient à la transaction d'import :
+    toute erreur ultérieure annule aussi ces créations. Une violation d'unicité
+    est propagée, sans ignorer d'autres erreurs SQLite ou PostgreSQL.
+    """
+    codes = campaign.inventory.filter(present=True).order_by("project_code").values_list(
+        "project_code", flat=True
+    ).distinct().iterator(chunk_size=BATCH_SIZE)
+    projects = {}
+    while batch := list(islice(codes, BATCH_SIZE)):
+        existing = Project.objects.in_bulk(batch, field_name="code")
+        missing = [code for code in batch if code not in existing]
+        if missing:
+            Project.objects.bulk_create(
+                [Project(code=code, label="Projet importé") for code in missing],
+                batch_size=BATCH_SIZE,
+            )
+            # Relire garantit des identités persistées sans dépendre du support
+            # de RETURNING par le moteur et évite les lectures par proposition.
+            existing.update(Project.objects.in_bulk(missing, field_name="code"))
+        projects.update(existing)
+    return projects
 
 
 def json_data(value):
@@ -149,6 +179,7 @@ def insert_inventory(campaign, rows):
     puis insère les photographies et leurs clés standard/composites indexées.
     La portée ODS sans libellé sert au contrôle d'unicité bilatérale du lot 1.
     Retourne None ; ValidationError sur identité répétée annule l'import parent.
+    Matérialise aussi le diagnostic source des informations Sage manquantes.
     """
     from reconciliation_contract import control_identity
     from reconciliation_contract import digest as control_digest
@@ -163,6 +194,7 @@ def insert_inventory(campaign, rows):
                 campaign_id=campaign.previous_id, business_key__in=keys
             )
         }
+    from .incomplete_accounting import missing_mask
     records = []
     for data, key in zip(rows, keys, strict=True):
         old = previous.get(key)
@@ -188,6 +220,7 @@ def insert_inventory(campaign, rows):
                 source_id=data["source_id"],
                 fiscal_year=data["fiscal_year"],
                 data=data,
+                sage_missing_mask=missing_mask(data, data["fiscal_year"]),
                 control_key=control_digest(control_identity(data))
                 if campaign.metadata.get("schema_version") == 3
                 else "",
@@ -392,12 +425,31 @@ def import_campaign(header, stream, *, job=None, progress=None):
     Prépare les agrégats après les décisions et reports, sauf dans la copie
     privée SQLite qui les prépare après commit et statistiques, avant publication.
     La maintenance directe est enregistrée après commit et disparaît sur rollback.
+    Les départements optionnels sont validés avant écriture et historisés par
+    lots sur la campagne, sans enrichir les sources ni les permissions.
+    Le pôle et sa source sont conservés dans la même photographie ; l'absence
+    historique de ces champs prend Hors DP sans rejouer les décisions.
+    L'historique BAP optionnel est stocké à part après l'inventaire : ses champs
+    ne déclenchent ni différences Atlas, ni invalidation des décisions reportées.
+    Après chargement de l'inventaire Atlas et avant les propositions, complète
+    le référentiel Project par lots ; toute erreur du flux annule ces créations.
     """
     from .multiple_import import import_control_batch
     from .review_import import upsert_group
     from .sage_import import insert_sage_batch, validate_capabilities
 
     sage_enabled = validate_capabilities(header)
+    from reconciliation_contract.bap_history import POLICY as BAP_POLICY, bap_key
+    from .bap_history import insert_batch as insert_bap_batch
+    bap_enabled = header.get("bap_history_policy") is not None
+    if bap_enabled and (header["bap_history_policy"] != BAP_POLICY or header.get("schema_version") != 3):
+        raise ValidationError("Politique d'historique BAP non prise en charge")
+    from reconciliation_contract.departments import validate_departments
+    from .models import CampaignDepartment
+    try:
+        departments = validate_departments(header)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
     stream_hash = hashlib.sha256()
     stream_hash.update((json.dumps(header, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
 
@@ -453,23 +505,40 @@ def import_campaign(header, stream, *, job=None, progress=None):
         job=job,
         file_hash=job.file_hash if job else "",
     )
+    CampaignDepartment.objects.bulk_create([
+        CampaignDepartment(campaign=campaign, project_code=code, source=row["source"], consolidated=row["consolidated"],
+                           pole=row.get("pole", "Hors DP"), pole_source=row.get("pole_source", ""))
+        for code, row in departments.items()], batch_size=BATCH_SIZE)
     count, inventory_count, complete, proposals_started = 0, 0, False, False
     controls_started, control_count = False, 0
     batch, seen, group_keys = [], set(), set()
     control_batch = []
     reviews_batch = []
     projects = {}
+    inventory_projects_synchronized = False
     sage_batch, sage_count, sage_started = [], 0, False
+    bap_batch, bap_targets, bap_count, bap_started = [], set(), 0, False
     for number, text in enumerate(stream, 2):
         if complete:
             raise ValidationError("Données après la fin du fichier")
         payload = json.loads(text)
+        if bap_batch and payload.get("type") != "bap_history":
+            insert_bap_batch(campaign, bap_batch, bap_targets)
+            bap_batch = []
+        if not inventory_projects_synchronized and payload.get("type") != "inventory":
+            if batch:
+                insert_inventory(campaign, batch)
+                batch = []
+            projects = synchronize_inventory_projects(campaign)
+            inventory_projects_synchronized = True
         if "complete" not in payload:
             stream_hash.update((json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
         if sage_batch and payload.get("type") != "sage_inventory":
             insert_sage_batch(campaign, sage_batch)
             sage_batch = []
         if "complete" in payload:
+            if bap_enabled and (type(payload.get("bap_history_count")) is not int or payload["bap_history_count"] != bap_count):
+                raise ValidationError("Compteur d'historique BAP incohérent")
             if sage_enabled and (
                 type(payload.get("sage_inventory_count")) is not int
                 or payload["sage_inventory_count"] != sage_count
@@ -506,6 +575,13 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 if payload.get("control_statuses") != actual:
                     raise ValidationError("Compteurs de diagnostics incohérents")
             complete = True
+        elif payload.get("type") == "bap_history" and bap_enabled and not sage_started and not proposals_started:
+            bap_started = True
+            bap_batch.append(payload.get("data"))
+            bap_count += 1
+            if len(bap_batch) == BATCH_SIZE:
+                insert_bap_batch(campaign, bap_batch, bap_targets)
+                bap_batch = []
         elif payload.get("type") == "control" and v3:
             if batch:
                 insert_inventory(campaign, batch)
@@ -528,11 +604,13 @@ def import_campaign(header, stream, *, job=None, progress=None):
                 insert_sage_batch(campaign, sage_batch)
                 sage_batch = []
                 progress("Inventaire Sage préparé", sage_count)
-        elif payload.get("type") == "inventory" and not proposals_started and not sage_started:
+        elif payload.get("type") == "inventory" and not proposals_started and not sage_started and not bap_started:
             data = normalize_inventory(payload.get("atlas"), extended=v3, ods_label_policy=ods_label_policy)
             if year is not None and data["fiscal_year"] != year:
                 raise ValidationError("L'inventaire contient une ligne hors de l'année de campagne")
             batch.append(data)
+            if bap_enabled and (bap := bap_key(data.get("display_bap", ""))):
+                bap_targets.add((data["project_code"], bap))
             inventory_count += 1
             if len(batch) == BATCH_SIZE:
                 insert_inventory(campaign, batch)
@@ -736,6 +814,10 @@ def import_campaign(header, stream, *, job=None, progress=None):
         raise ValidationError("Campagne interrompue : marqueur de fin absent")
     if year is not None and inventory_count == 0:
         raise ValidationError("La campagne annuelle ne contient aucune ligne Atlas")
+    if header.get("department_policy"):
+        actual = set(campaign.inventory.filter(present=True).values_list("project_code", flat=True).distinct())
+        if actual != set(departments):
+            raise ValidationError("Le périmètre des départements ne correspond pas aux projets du JDD Atlas")
     expected_reviews = campaign.inventory.filter(
         present=True, data__bap_status="Envoyé SAGE"
     ).count()

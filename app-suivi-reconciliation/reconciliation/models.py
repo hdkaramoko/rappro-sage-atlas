@@ -319,6 +319,49 @@ class Campaign(models.Model):
         return self.name
 
 
+class CampaignDepartment(models.Model):
+    """Rattachement organisationnel immuable d'un projet dans une campagne.
+
+    Une seule association par code et campagne, même sans département connu.
+    Aucun lien aux permissions ni au champ geography ; anciens imports sans
+    ligne associée interprétés comme Non renseigné. Écrit par lots à l'import.
+    Le pôle source/classifié est photographié ici ; Hors DP couvre les anciens
+    imports et valeurs non suivies, indépendamment des configurations futures.
+    """
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="departments")
+    project_code = models.CharField(max_length=100)
+    source = models.CharField(max_length=255, blank=True)
+    consolidated = models.CharField(max_length=255, blank=True)
+    pole = models.CharField(max_length=255, default="Hors DP")
+    pole_source = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("campaign", "project_code"), name="campaign_department_project")]
+
+
+class CampaignBapHistory(models.Model):
+    """Contexte source immuable par campagne, projet et numéro BAP Sage.
+
+    Dates ISO textuelles pour préserver les horodatages naïfs ; aucun fuseau
+    ajouté. Lecture seulement dans l'interface, hors signatures métier et droits.
+    Une seule ligne par BAP partagé, insertion et publication par lots.
+    """
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="bap_history")
+    project_code = models.CharField(max_length=100)
+    bap_sage_number = models.CharField(max_length=100)
+    bap_created_at = models.CharField(max_length=40, null=True, blank=True)
+    bap_created_by = models.CharField(max_length=255, null=True, blank=True)
+    bap_modified_at = models.CharField(max_length=40, null=True, blank=True)
+    bap_modified_by = models.CharField(max_length=255, null=True, blank=True)
+
+    class Meta:
+        """Empêche deux historiques pour un même couple projet/BAP dans une campagne."""
+
+        constraints = [models.UniqueConstraint(fields=("campaign", "project_code", "bap_sage_number"), name="campaign_bap_history_unique")]
+
+
 class CampaignInventory(models.Model):
     """Photographie Atlas ; business_version protège les actions locales concurrentes.
 
@@ -337,6 +380,7 @@ class CampaignInventory(models.Model):
     change = models.CharField(max_length=16, default="NEW")
     differences = models.JSONField(default=dict)
     business_version = models.PositiveIntegerField(default=0)
+    sage_missing_mask = models.PositiveSmallIntegerField(default=0, editable=False)
 
     class Meta:
         constraints = [
@@ -345,7 +389,8 @@ class CampaignInventory(models.Model):
             )
         ]
         indexes = [models.Index(fields=("campaign", "change")),
-                   models.Index(fields=("campaign", "ods_scope"), name="atlas_campaign_ods_idx")]
+                   models.Index(fields=("campaign", "ods_scope"), name="atlas_campaign_ods_idx"),
+                   models.Index(fields=("campaign", "control_key", "sage_missing_mask"), name="atlas_missing_sage_idx")]
 
 
 class CampaignGroup(models.Model):
@@ -502,6 +547,7 @@ class CampaignGlobalControl(models.Model):
     current_version = models.PositiveIntegerField(default=0)
     current_state = models.CharField(max_length=16, null=True, editable=False)
     has_pending = models.BooleanField(null=True, editable=False)
+    sage_incomplete_count = models.PositiveIntegerField(default=0, editable=False)
 
     def save(self, *args, **kwargs):
         """Actualise l'état indexé depuis le résultat déjà calculé, sans lancer le moteur.
@@ -522,7 +568,8 @@ class CampaignGlobalControl(models.Model):
         constraints = [models.UniqueConstraint(fields=("campaign", "key"), name="campaign_global_key")]
         indexes = [models.Index(fields=("campaign", "project_code", "state"), name="global_campaign_state_idx"),
                    models.Index(fields=("campaign", "project_code", "current_state", "has_pending"), name="global_current_filter_idx"),
-                   models.Index(fields=("campaign", "project_code", "id"), name="global_current_page_idx")]
+                   models.Index(fields=("campaign", "project_code", "id"), name="global_current_page_idx"),
+                   models.Index(fields=("campaign", "-sage_incomplete_count", "project_code", "id"), name="global_missing_sage_idx")]
 
 
 class ReviewControlContext(models.Model):

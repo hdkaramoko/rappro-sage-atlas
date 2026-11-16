@@ -53,8 +53,17 @@ def review_list(request):
     Les anciennes URLs match_status restent acceptées, sans widget dédié.
     Les preuves sont chargées pour la seule page autorisée du portefeuille.
     Le filtre suit l'ordre partagé de la cascade, sans trier ses libellés.
+    Département filtre le rattachement transcodifié de la campagne courante,
+    dans le seul portefeuille autorisé, avant compte et pagination.
+    Pôle réutilise ce circuit sur le périmètre visible, avec Hors DP historique.
+    L'historique BAP est joint pour la seule page, hors tri et filtres métier.
+    Le canal Comptabilisés incomplets délègue à une file projet distincte, sans
+    modifier les lignes ni les décisions du parcours Envoyé SAGE.
     """
     if request.GET.get("view") == "controls":
+        if request.GET.get("channel") == "incomplete":
+            from .incomplete_views import project_list
+            return project_list(request)
         from .global_views import control_workspace
         return control_workspace(request)
     items = visible(request.user)
@@ -62,6 +71,10 @@ def review_list(request):
     scope = items
     projects = list(scope.order_by("transaction__project__code").values_list("transaction__project__code", flat=True).distinct())
     rules = rule_choices(list(scope.order_by("group__rule").values_list("group__rule", flat=True).distinct()))
+    from .departments import department_filter, pole_filter
+    campaign = Campaign.objects.filter(is_current=True).first()
+    items, department_menu = department_filter(items, campaign, request, "transaction__project__code", has_projects=bool(projects))
+    items, pole_menu = pole_filter(items, campaign, request, "transaction__project__code", has_projects=bool(projects), scope=scope)
     selected_projects = selections(request.GET, "project", projects)
     states = [("DRAFT", "À examiner"), ("VALIDATED", "Validé"), ("REJECTED", "Refusé")]
     state = selections(request.GET, "state", [key for key, _ in states], ("DRAFT",))
@@ -109,6 +122,8 @@ def review_list(request):
         request.GET.get("page")
     )
     rows = list(page.object_list)
+    from .bap_history import attach_history
+    attach_history(rows)
     groups = {
         row["group_id"]: row
         for row in LineReview.objects.filter(group_id__in={line.group_id for line in rows})
@@ -135,7 +150,7 @@ def review_list(request):
         "reconciliation/reviews.html",
         {
             "page": page,
-            "campaign": Campaign.objects.filter(is_current=True).first(),
+            "campaign": campaign,
             "project": selected_projects[0] if len(selected_projects) == 1 else "",
             "state": state,
             "rule": rule,
@@ -143,6 +158,8 @@ def review_list(request):
             "search": search,
             "page_size": size,
             "filter_menus": [filter_menu("project", "Projet", [(p, p) for p in projects], selected_projects),
+                             department_menu,
+                             pole_menu,
                              filter_menu("rule", "Règle", rules, ["__NO_MATCH__" if r == "UNMATCHED" else r for r in rule]),
                              filter_menu("state", "Décision", states, state),
                              filter_menu("validation_source", "Origine", [("AUTO", "Automatique"), ("MANUAL", "Manuelle")], origins)],
@@ -161,10 +178,14 @@ def review_detail(request, pk):
     HTML/redirection, affiche les ValidationError et masque les lignes hors droits.
     Les champs calculés depuis la sélection sont signalés au service, qui recharge
     les preuves et recalcule leurs charges Decimal avant toute écriture.
+    L'historique BAP de cette campagne est lu indépendamment de la décision,
+    sans intégrer ses champs au formulaire.
     """
     line = get_object_or_404(visible(request.user), pk=pk)
     return_url = safe_return(request.GET.get("return", ""))
     decorate(line)
+    from .bap_history import attach_history
+    attach_history([line])
     inventory = CampaignInventory.objects.filter(campaign_id=line.campaign_id, business_key=line.transaction.business_key,
         present=True).select_related("adjustment").first() if line.campaign_id else None
     actions = line_actions(line, inventory)

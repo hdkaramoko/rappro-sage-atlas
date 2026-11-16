@@ -12,11 +12,20 @@ from reconciliation.review_views import visible
 
 @login_required
 def index(request):
+    """Affiche les indicateurs du périmètre autorisé et de la campagne courante.
+
+    request fournit l'utilisateur et le projet GET facultatif ; un projet hors
+    portefeuille lève Http404. Compteurs et fraîcheur restent calculés selon les
+    règles existantes, par agrégat puis iterator de 500 décisions. Les JSON de
+    campagne courante/origine, inutiles à is_current, sont différés uniquement
+    ici pour éviter leur duplication. Aucun écrit ni changement des autres vues.
+    Retourne la réponse HTML avec projets, compteurs et taux de validation.
+    """
     projects = Project.objects.filter(is_active=True).order_by("code")
     if not request.user.is_global_admin:
         projects = projects.filter(portfolio_entries__user=request.user).distinct()
     selected_project = request.GET.get("project", "").strip()
-    items = visible(request.user)
+    items = visible(request.user).defer("campaign__metadata", "validation_origin__metadata")
     if selected_project:
         if not projects.filter(code=selected_project).exists():
             raise Http404("Projet inaccessible.")

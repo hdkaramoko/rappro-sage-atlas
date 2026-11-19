@@ -5,11 +5,14 @@ description = "Suivi des rapprochements comptables Atlas / Sage X3"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "django>=5.2,<6",
-  "openpyxl>=3.1,<4",
-  "psycopg[binary]>=3.2,<4",
-  "python-dotenv>=1.1,<2",
-  "whitenoise>=6.12,<7",
+    "pandas>=2.2,<3",
+    "openpyxl>=3.1,<4",
+    "rapidfuzz>=3.14.6",
+    "django>=6.1.1",
+    "python-dotenv>=1.2.4",
+    "gunicorn>=26.2.0",
+    "whitenoise>=6.12.0",
+    "psycopg[binary]>=3.3.6",
 ]
 
 [dependency-groups]

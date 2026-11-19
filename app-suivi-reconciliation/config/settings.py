@@ -77,7 +77,7 @@ TEMPLATES = [
 ]
 WSGI_APPLICATION = "config.wsgi.application"
 
-if os.getenv("POSTGRES_DB"):
+if os.getenv("POSTGRESQL_ADDON_DB"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",

@@ -28,10 +28,9 @@ ALLOWED_HOSTS = [
 ]
 
 CSRF_TRUSTED_ORIGINS = [
-    "https://user-hdkaramoko-807581-0.user.lab.sspcloud.fr",
-    "https://rappro-sage-atlas.lab.sspcloud.fr",
-    "https://rappro-sage-atlas-dev.lab.sspcloud.fr",
-    "https://rappro-sage-atlas-preprod.lab.sspcloud.fr",
+    origin.strip()
+    for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
 ]
 
 INSTALLED_APPS = [

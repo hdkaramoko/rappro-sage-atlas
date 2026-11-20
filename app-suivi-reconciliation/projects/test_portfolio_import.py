@@ -16,19 +16,10 @@ from .portfolio_import import import_portfolios, project_from_inventory
 
 
 class PortfolioImportTests(TestCase):
-    def test_duplicate_pairs_reject_entire_file(self):
-        """Les doublons exacts ou normalisés bloquent tout ajout et indiquent les deux lignes."""
-        for repeated in (("marie", "P1"), (" marie ", " p1 ")):
-            with (
-                self.subTest(repeated=repeated),
-                self.assertRaisesRegex(ValidationError, "Ligne 4.*doublon.*ligne 2"),
-            ):
-                import_portfolios(
-                    self.workbook([("marie", "P1"), ("marie", "P2"), repeated]), self.admin
-                )
-            self.assertFalse(ProjectPortfolio.objects.exists())
-            self.assertFalse(Project.objects.exists())
-            self.assertFalse(PortfolioImport.objects.exists())
+    def test_duplicate_pairs_are_counted(self):
+        report = import_portfolios(self.workbook([("marie", "P1"), (" marie ", " p1 ")]), self.admin)
+        self.assertEqual((report.created_count, report.duplicate_count, report.analyzed_count), (1, 1, 2))
+        self.assertEqual(report.anomalies[0]["line"], 3)
 
     def test_same_project_for_different_users_is_allowed(self):
         """L'unicité porte sur le couple, pas sur ses deux éléments séparément."""
@@ -38,17 +29,14 @@ class PortfolioImportTests(TestCase):
     def test_multicode_cells_and_old_headers_are_rejected(self):
         """Les listes de codes et la maquette plurielle ne sont plus acceptées."""
         for separator in (";", ",", "\n", "\r"):
-            with (
-                self.subTest(separator=separator),
-                self.assertRaisesRegex(ValidationError, "un seul code projet"),
-            ):
-                import_portfolios(self.workbook([("marie", f"P1{separator}P2")]), self.admin)
+            report = import_portfolios(self.workbook([("marie", f"P1{separator}P2")]), self.admin)
+            self.assertEqual(report.status, "rejected")
+            self.assertIn("un seul code projet", report.anomalies[0]["reason"])
         with self.assertRaisesRegex(ValidationError, "En-têtes attendus"):
             import_portfolios(
                 self.workbook([("marie", "P1")], headers=("username", "codes projets")),
                 self.admin,
             )
-        self.assertFalse(PortfolioImport.objects.exists())
 
     def setUp(self):
         self.admin = User.objects.create_user("admin", is_staff=True)
@@ -87,13 +75,10 @@ class PortfolioImportTests(TestCase):
         self.assertEqual(ProjectPortfolio.objects.count(), 2)
         self.assertEqual(PortfolioImport.objects.count(), 2)
 
-    def test_unknown_user_or_project_rolls_back_every_assignment(self):
-        for bad in (("inconnu", "P2"), ("marie", "ABSENT")):
-            with self.subTest(bad=bad), self.assertRaises(ValidationError):
-                import_portfolios(self.workbook([("marie", "P1"), bad]), self.admin)
-            self.assertEqual(ProjectPortfolio.objects.count(), 0)
-            self.assertEqual(Project.objects.count(), 0)
-        self.assertEqual(PortfolioImport.objects.count(), 0)
+    def test_unknown_lines_allow_valid_assignments(self):
+        report = import_portfolios(self.workbook([("marie", "P1"), ("inconnu", "P2"), ("marie", "ABSENT")]), self.admin)
+        self.assertEqual((report.created_count, report.rejected_count, report.status), (1, 2, "partial"))
+        self.assertEqual(ProjectPortfolio.objects.count(), 1)
 
     def test_admin_only_template_download_and_error_page(self):
         self.assertEqual(self.client.get(reverse("projects:portfolio-import")).status_code, 200)
@@ -166,17 +151,68 @@ class PortfolioImportTests(TestCase):
         User.objects.create_user("inactive", is_active=False)
         Project.objects.create(code="P2", label="Désactivé", is_active=False)
         for rows in (
-            [],
             [("marie", "=1+1")],
             [("marie", None)],
             [("inactive", "P1")],
             [("marie", "P2")],
         ):
-            with self.subTest(rows=rows), self.assertRaises(ValidationError):
-                import_portfolios(self.workbook(rows), self.admin)
+            with self.subTest(rows=rows):
+                report = import_portfolios(self.workbook(rows), self.admin)
+                self.assertEqual(report.status, "rejected")
+                self.assertEqual(report.created_count, 0)
         with self.assertRaises(ValidationError):
             import_portfolios(
                 self.workbook([("marie", "P1")], headers=("incorrect", "code projet")), self.admin
             )
         with self.assertRaises(ValidationError):
             import_portfolios(SimpleUploadedFile("bad.xlsx", b"not excel"), self.admin)
+
+
+    def test_blank_lines_and_export_persisted(self):
+        report = import_portfolios(self.workbook([("marie", "P1"), (None, None), ("=BAD", "P1"), ("unknown", "P1")]), self.admin)
+        self.assertEqual(report.analyzed_count, 3)
+        response = self.client.get(reverse("projects:portfolio-import"), {"report": report.pk})
+        self.assertContains(response, "Import terminé avec avertissements")
+        response = self.client.get(reverse("projects:portfolio-rejections", args=[report.pk]))
+        book = load_workbook(BytesIO(response.content))
+        rows = list(book.active.values)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[1][1], "=BAD")
+        self.assertEqual(book.active["B2"].data_type, "s")
+        book.close()
+        self.client.force_login(self.reader)
+        self.assertEqual(self.client.get(reverse("projects:portfolio-rejections", args=[report.pk])).status_code, 403)
+
+    def test_technical_error_rolls_back_projects_and_assignments(self):
+        from unittest.mock import patch
+        from django.db import DatabaseError
+        with patch.object(PortfolioImport.objects, "create", side_effect=DatabaseError("failure")):
+            with self.assertRaises(DatabaseError):
+                import_portfolios(self.workbook([("marie", "P1")]), self.admin)
+        self.assertFalse(Project.objects.exists())
+        self.assertFalse(ProjectPortfolio.objects.exists())
+        self.assertFalse(PortfolioImport.objects.exists())
+
+    def test_empty_file_is_global_error(self):
+        with self.assertRaises(ValidationError):
+            import_portfolios(self.workbook([]), self.admin)
+
+
+    def test_bulk_insert_failure_rolls_back(self):
+        from unittest.mock import patch
+        from django.db import DatabaseError
+        with patch.object(ProjectPortfolio.objects, "bulk_create", side_effect=DatabaseError("failure")):
+            response = self.client.post(reverse("projects:portfolio-import"), {
+                "workbook": self.workbook([("marie", "P1")])})
+        self.assertContains(response, "Erreur technique")
+        self.assertFalse(Project.objects.exists())
+        self.assertFalse(PortfolioImport.objects.exists())
+
+    def test_rejected_counters_and_persisted_reasons(self):
+        User.objects.create_user("inactive", is_active=False)
+        report = import_portfolios(self.workbook([
+            ("unknown", "P1"), ("inactive", "P1"), ("marie", "ABSENT"), ("marie", "")]), self.admin)
+        report.refresh_from_db()
+        self.assertEqual((report.status, report.analyzed_count, report.rejected_count), ("rejected", 4, 4))
+        self.assertEqual(report.created_count + report.existing_count, 0)
+        self.assertEqual(len(report.anomalies), 4)

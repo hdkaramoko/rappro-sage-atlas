@@ -42,7 +42,7 @@ class ProjectPortfolio(models.Model):
 
 
 class PortfolioImport(models.Model):
-    """Journal des affectations Excel réussies ; aucun mot de passe dans le fichier."""
+    """Journal des imports Excel et de leurs anomalies."""
 
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -50,6 +50,12 @@ class PortfolioImport(models.Model):
     created_count = models.PositiveIntegerField(default=0)
     existing_count = models.PositiveIntegerField(default=0)
     assignments = models.JSONField(default=list)
+    analyzed_count = models.PositiveIntegerField(default=0)
+    rejected_count = models.PositiveIntegerField(default=0)
+    duplicate_count = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=10, default="success", choices=[
+        ("success", "Succès"), ("partial", "Partiel"), ("rejected", "Rejeté")])
+    anomalies = models.JSONField(default=list)
 
     class Meta:
         ordering = ("-created_at", "-pk")

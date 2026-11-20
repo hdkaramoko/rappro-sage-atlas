@@ -2,9 +2,11 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
+from django.db import DatabaseError
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
+from django.urls import reverse
 
 from imports_app.views import administrator
 
@@ -57,14 +59,16 @@ def portfolio_import(request):
             report = import_portfolios(form.cleaned_data["workbook"], request.user)
         except ValidationError as exc:
             form.add_error(None, exc)
+        except DatabaseError:
+            form.add_error(None, "Erreur technique : aucune affectation appliquée. Relancez l’import.")
         else:
-            messages.success(
-                request,
-                f"Import terminé : {report.created_count} accès ajoutés, "
-                f"{report.existing_count} déjà présents. Aucun accès supprimé.",
-            )
-            return redirect("projects:portfolio-import")
-    page = Paginator(PortfolioImport.objects.select_related("actor"), 20).get_page(
+            return redirect(reverse("projects:portfolio-import") + f"?report={report.pk}")
+    report = None
+    anomalies_page = None
+    if request.GET.get("report"):
+        report = get_object_or_404(PortfolioImport, pk=request.GET["report"])
+        anomalies_page = Paginator(report.anomalies, 50).get_page(request.GET.get("anomalies_page"))
+    page = Paginator(PortfolioImport.objects.select_related("actor").defer("assignments", "anomalies"), 20).get_page(
         request.GET.get("page")
     )
     return render(
@@ -72,6 +76,8 @@ def portfolio_import(request):
         "projects/portfolio_import.html",
         {
             "form": form,
+            "report": report,
+            "anomalies_page": anomalies_page,
             "page": page,
             "page_range": page.paginator.get_elided_page_range(page.number),
         },
@@ -92,6 +98,30 @@ def portfolio_template(request):
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     response["Content-Disposition"] = 'attachment; filename="modele-portefeuilles.xlsx"'
+    try:
+        workbook.save(response)
+    finally:
+        workbook.close()
+    return response
+
+
+@administrator
+def portfolio_rejections(request, pk):
+    from openpyxl import Workbook
+
+    report = get_object_or_404(PortfolioImport, pk=pk)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["Ligne Excel", "username", "code projet", "motif du rejet"])
+    for row in report.anomalies:
+        if row["kind"] != "rejected":
+            continue
+        sheet.append([row["line"], row["username"], row["project"], row["reason"]])
+        # Les valeurs saisies doivent rester du texte, jamais des formules Excel.
+        for cell in sheet[sheet.max_row][1:]:
+            cell.data_type = "s"
+    response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    response["Content-Disposition"] = f'attachment; filename="rejets-portefeuilles-{report.pk}.xlsx"'
     try:
         workbook.save(response)
     finally:

@@ -42,3 +42,28 @@ spec:
 
             - name: DJANGO_ALLOWED_HOSTS
               value: "rappro-sage-atlas-preprod.lab.sspcloud.fr"
+
+            # PostgreSQL
+            - name: POSTGRESQL_ADDON_HOST
+              value: "postgresql-cnpg-911218-rw"
+
+            - name: POSTGRESQL_ADDON_PORT
+              value: "5432"
+
+            - name: POSTGRESQL_ADDON_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-cnpg-911218-app
+                  key: dbname
+
+            - name: POSTGRESQL_ADDON_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-cnpg-911218-app
+                  key: username
+
+            - name: POSTGRESQL_ADDON_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-cnpg-911218-app
+                  key: password

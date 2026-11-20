@@ -44,25 +44,25 @@ spec:
               value: "rappro-sage-atlas.lab.sspcloud.fr"
 
             # PostgreSQL
-            - name: POSTGRES_HOST
+            - name: POSTGRESQL_ADDON_HOST
               value: "postgresql-cnpg-140796-rw"
 
-            - name: POSTGRES_PORT
+            - name: POSTGRESQL_ADDON_PORT
               value: "5432"
 
-            - name: POSTGRES_DB
+            - name: POSTGRESQL_ADDON_DB
               valueFrom:
                 secretKeyRef:
                   name: postgresql-cnpg-140796-app
                   key: dbname
 
-            - name: POSTGRES_USER
+            - name: POSTGRESQL_ADDON_USER
               valueFrom:
                 secretKeyRef:
                   name: postgresql-cnpg-140796-app
                   key: username
 
-            - name: POSTGRES_PASSWORD
+            - name: POSTGRESQL_ADDON_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: postgresql-cnpg-140796-app

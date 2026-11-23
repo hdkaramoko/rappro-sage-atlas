@@ -13,6 +13,10 @@ load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "cle-locale-a-remplacer")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
+SECURE_PROXY_SSL_HEADER = (
+    "HTTP_X_FORWARDED_PROTO",
+    "https",
+)
 # Politique simple : chaque campagne SQLite complète justifie des statistiques fraîches.
 # Aucun seuil de volume arbitraire ; les actions métier ne déclenchent pas ce service.
 SQLITE_STATISTICS_AUTO = os.getenv("SQLITE_STATISTICS_AUTO", "true").lower() == "true"

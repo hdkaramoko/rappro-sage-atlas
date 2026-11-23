@@ -43,6 +43,9 @@ spec:
             - name: DJANGO_ALLOWED_HOSTS
               value: "rappro-sage-atlas-preprod.lab.sspcloud.fr"
 
+            - name: CSRF_TRUSTED_ORIGINS
+              value: "https://rappro-sage-atlas-preprod.lab.sspcloud.fr"
+
             # PostgreSQL
             - name: POSTGRESQL_ADDON_HOST
               value: "postgresql-cnpg-911218-rw"

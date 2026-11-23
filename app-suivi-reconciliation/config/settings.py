@@ -3,7 +3,7 @@
 import os
 import sys
 from pathlib import Path
-
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -76,18 +76,40 @@ TEMPLATES = [
 ]
 WSGI_APPLICATION = "config.wsgi.application"
 
-if os.getenv("POSTGRESQL_ADDON_DB"):
+# Section DATA BASE
+
+
+def get_db_env(name):
+    return (
+        os.getenv(f"POSTGRESQL_ADDON_{name}")
+        or os.getenv(f"POSTGRES_{name}")
+    )
+
+
+db_host = get_db_env("HOST")
+db_name = get_db_env("DB")
+db_user = get_db_env("USER")
+db_password = get_db_env("PASSWORD")
+db_port = get_db_env("PORT") or "5432"
+
+if all([db_host, db_name, db_user, db_password]):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.environ["POSTGRESQL_ADDON_DB"],
-            "USER": os.getenv("POSTGRESQL_ADDON_USER", "postgres"),
-            "PASSWORD": os.getenv("POSTGRESQL_ADDON_PASSWORD", ""),
-            "HOST": os.getenv("POSTGRESQL_ADDON_HOST", "localhost"),
-            "PORT": os.getenv("POSTGRESQL_ADDON_PORT", "5432"),
+            "NAME": db_name,
+            "USER": db_user,
+            "PASSWORD": db_password,
+            "HOST": db_host,
+            "PORT": db_port,
         }
     }
 else:
+    if os.getenv("DJANGO_ENV", "development").lower() != "development":
+        raise ImproperlyConfigured(
+            "Configuration PostgreSQL incomplète. "
+            "Démarrage refusé pour éviter un fallback SQLite."
+        )
+
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
@@ -95,6 +117,7 @@ else:
             "OPTIONS": {"timeout": 30},
         }
     }
+
 
 AUTH_PASSWORD_VALIDATORS = (
     []

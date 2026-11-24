@@ -6,5 +6,7 @@ app_name = "imports"
 urlpatterns = [
     path("", views.index, name="index"),
     path("<uuid:pk>/", views.detail, name="detail"),
+    path("<uuid:pk>/reprendre/", views.resume, name="resume"),
+    path("<uuid:pk>/abandonner/", views.abandon, name="abandon"),
     path("<uuid:pk>/fichiers/<str:artifact>/", views.download, name="download"),
 ]

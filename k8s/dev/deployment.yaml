@@ -6,6 +6,8 @@ metadata:
 
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
 
   selector:
     matchLabels:
@@ -17,6 +19,23 @@ spec:
         app: rappro-sage-atlas-dev
 
     spec:
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      volumes:
+        - name: matching-imports
+          persistentVolumeClaim:
+            claimName: rappro-imports-dev
+      initContainers:
+        - name: prepare-import-directory
+          image: ghcr.io/hdkaramoko/rappro-sage-atlas:dev-<sha>
+          command: ["/app/.venv/bin/python", "-c", "from pathlib import Path; Path('/var/lib/rappro/imports/tmp').mkdir(parents=True, exist_ok=True)"]
+          volumeMounts:
+            - name: matching-imports
+              mountPath: /var/lib/rappro/imports
       imagePullSecrets:
         - name: ghcr-secret
         
@@ -24,6 +43,10 @@ spec:
         - name: rappro-sage-atlas-dev
           image: ghcr.io/hdkaramoko/rappro-sage-atlas:dev-<sha>
           imagePullPolicy: Always
+          command: ["/app/.venv/bin/gunicorn", "--chdir", "/app/app-suivi-reconciliation", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "600"]
+          volumeMounts:
+            - name: matching-imports
+              mountPath: /var/lib/rappro/imports
 
           resources:
             requests:
@@ -36,7 +59,21 @@ spec:
           ports:
             - containerPort: 8000
 
-          env:
+          env: &matching-environment
+            - name: MATCHING_JOB_ROOT
+              value: /var/lib/rappro/imports
+            - name: FILE_UPLOAD_TEMP_DIR
+              value: /var/lib/rappro/imports/tmp
+            - name: MATCHING_JOB_RUNNER
+              value: supervised
+            - name: DJANGO_ENV
+              value: dev
+            - name: MATCHING_IMPORT_BATCH_SIZE
+              value: "500"
+            - name: MATCHING_MAX_ATTEMPTS
+              value: "3"
+            - name: MATCHING_RETENTION_DAYS
+              value: "30"
             - name: DJANGO_DEBUG
               value: "False"
 
@@ -70,3 +107,20 @@ spec:
                 secretKeyRef:
                   name: postgresql-cnpg-555845-app
                   key: password
+
+        # Sidecar supervisé : même pod et même PVC RWO que Gunicorn.
+        - name: matching-worker
+          image: ghcr.io/hdkaramoko/rappro-sage-atlas:dev-<sha>
+          imagePullPolicy: Always
+          command: ["/app/.venv/bin/python", "/app/app-suivi-reconciliation/manage.py", "matching_worker"]
+          env: *matching-environment
+          volumeMounts:
+            - name: matching-imports
+              mountPath: /var/lib/rappro/imports
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"

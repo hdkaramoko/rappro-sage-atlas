@@ -1,0 +1,13 @@
+# Taille initiale à confirmer selon quotas, rétention et artefacts.
+# StorageClass volontairement omise : utilise la classe par défaut du cluster.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rappro-imports-dev
+  namespace: user-hdkaramoko
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi

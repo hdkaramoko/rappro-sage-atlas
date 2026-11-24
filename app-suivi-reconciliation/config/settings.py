@@ -74,6 +74,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "imports_app.context_processors.import_status",
             ]
         },
     }
@@ -153,7 +154,15 @@ SESSION_COOKIE_AGE = 600
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 
-MATCHING_JOB_ROOT = BASE_DIR / "var" / "matching"
+MATCHING_JOB_ROOT = Path(os.getenv("MATCHING_JOB_ROOT", str(BASE_DIR / "var" / "matching")))
+MATCHING_JOB_RUNNER = os.getenv("MATCHING_JOB_RUNNER", "local")
+if MATCHING_JOB_RUNNER not in {"local", "supervised"}:
+    raise ImproperlyConfigured("MATCHING_JOB_RUNNER doit être local ou supervised")
+MATCHING_IMPORT_BATCH_SIZE = int(os.getenv("MATCHING_IMPORT_BATCH_SIZE", "500"))
+MATCHING_MAX_ATTEMPTS = int(os.getenv("MATCHING_MAX_ATTEMPTS", "3"))
+MATCHING_HEARTBEAT_TIMEOUT = int(os.getenv("MATCHING_HEARTBEAT_TIMEOUT", "120"))
+MATCHING_RETENTION_DAYS = int(os.getenv("MATCHING_RETENTION_DAYS", "30"))
+FILE_UPLOAD_TEMP_DIR = os.getenv("FILE_UPLOAD_TEMP_DIR") or None
 MATCHING_MAX_FILE_BYTES = 5 * 1024**3
 FILE_UPLOAD_HANDLERS = ["imports_app.upload_handlers.HashedTemporaryFileUploadHandler"]
 

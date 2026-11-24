@@ -46,7 +46,7 @@ LABELS = {**{value: key for key, value in {**INVENTORY, **ATLAS_CONTEXT}.items()
 BATCH_SIZE = 500
 
 
-def synchronize_inventory_projects(campaign):
+def synchronize_inventory_projects(campaign, *, cache_limit=None):
     """Complète Project depuis l'inventaire chargé et retourne le cache par code.
 
     Lit uniquement les codes Atlas normalisés distincts, par lots bornés, puis
@@ -70,6 +70,8 @@ def synchronize_inventory_projects(campaign):
             # Relire garantit des identités persistées sans dépendre du support
             # de RETURNING par le moteur et évite les lectures par proposition.
             existing.update(Project.objects.in_bulk(missing, field_name="code"))
+        if cache_limit and len(projects) + len(existing) > cache_limit:
+            projects.clear()
         projects.update(existing)
     return projects
 
@@ -403,7 +405,7 @@ def add_absences(campaign):
 
 @party_context()
 @suspend_indexing()
-def import_campaign(header, stream, *, job=None, progress=None):
+def import_campaign(header, stream, *, job=None, progress=None, prepared=None):
     """Importe `header` et l'itérateur JSONL `stream` dans la transaction parente.
 
     Valide ordre, compteurs et contrôles v2/v3. La capacité sage_inventory_v1
@@ -496,7 +498,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
     previous = Campaign.objects.filter(scope=scope, fiscal_year=year).first()
     if previous is None and active and not active.inventory_complete:
         previous = active  # Reprise du travail antérieur, sans comparaison d'inventaires.
-    campaign = Campaign.objects.create(
+    campaign = prepared or Campaign.objects.create(
         name=name.strip(),
         scope=scope,
         fiscal_year=year,
@@ -505,10 +507,19 @@ def import_campaign(header, stream, *, job=None, progress=None):
         job=job,
         file_hash=job.file_hash if job else "",
     )
-    CampaignDepartment.objects.bulk_create([
+    if prepared:
+        # Les décisions sont relues sous les verrous de publication, jamais figées
+        # pendant le staging. Une autre campagne ne peut changer entre les deux.
+        if campaign.previous_id is None and previous and not previous.inventory_complete:
+            campaign.previous = previous
+            campaign.save(update_fields=["previous"])
+        elif campaign.previous_id != (previous.pk if previous else None):
+            raise ValidationError("La campagne précédente a changé ; abandonnez cet import et recréez-le.")
+    else:
+        CampaignDepartment.objects.bulk_create([
         CampaignDepartment(campaign=campaign, project_code=code, source=row["source"], consolidated=row["consolidated"],
                            pole=row.get("pole", "Hors DP"), pole_source=row.get("pole_source", ""))
-        for code, row in departments.items()], batch_size=BATCH_SIZE)
+            for code, row in departments.items()], batch_size=BATCH_SIZE)
     count, inventory_count, complete, proposals_started = 0, 0, False, False
     controls_started, control_count = False, 0
     batch, seen, group_keys = [], set(), set()
@@ -518,6 +529,19 @@ def import_campaign(header, stream, *, job=None, progress=None):
     inventory_projects_synchronized = False
     sage_batch, sage_count, sage_started = [], 0, False
     bap_batch, bap_targets, bap_count, bap_started = [], set(), 0, False
+    if prepared:
+        from imports_app.resumable import PersistentSet
+        seen = PersistentSet(job, "publish_lines")
+        group_keys = PersistentSet(job, "publish_groups")
+        bap_targets = PersistentSet(job, "bap_targets", readonly=True)
+
+        # Le parseur et toutes ses validations restent communs aux deux chemins.
+        # Les photographies sources sont déjà durables : aucune réinsertion.
+        insert_inventory = lambda *args: None
+        insert_sage_batch = lambda *args: None
+        insert_bap_batch = lambda *args: None
+    else:
+        insert_inventory = globals()["insert_inventory"]
     for number, text in enumerate(stream, 2):
         if complete:
             raise ValidationError("Données après la fin du fichier")
@@ -529,7 +553,7 @@ def import_campaign(header, stream, *, job=None, progress=None):
             if batch:
                 insert_inventory(campaign, batch)
                 batch = []
-            projects = synchronize_inventory_projects(campaign)
+            projects = synchronize_inventory_projects(campaign, cache_limit=1000 if prepared else None)
             inventory_projects_synchronized = True
         if "complete" not in payload:
             stream_hash.update((json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
@@ -836,7 +860,8 @@ def import_campaign(header, stream, *, job=None, progress=None):
         active.is_current = False
         active.save(update_fields=["is_current"])
     campaign.is_current = True
-    campaign.save(update_fields=["is_current"])
+    campaign.published = True
+    campaign.save(update_fields=["is_current", "published"])
     from .auto_validation import apply_automatic_validations
 
     progress("Validation automatique en cours", count)

@@ -511,3 +511,51 @@ Accorder les privileges pour des requetes
         kubectl exec -it -n "$NS" "$PG_POD" -c postgres -- psql -U postgres -d "$DB_NAME"
         \dt public.*
         ```
+
+## Etape 5 : Suppression des données de l'application et rechargement
++   Identification du pods PostgreSQL
+    -   Identification : ```kubectl get clusters.postgresql.cnpg.io -n user-hdkaramoko```
+    -   Création des variables pour la suite :
+        ```
+        export NS=user-hdkaramoko
+        export DEPLOY=rappro-sage-atlas-dev
+        export PG_POD=postgresql-cnpg-555845-1
+        export DB_NAME=app
+        export DB_USER=app
+        ```
++   Sauvegarde de la base
+    -   Création du dossier pour keep les sauvegarde : ```mkdir -p ~/work/backups```
+    -   Création du fichier de sauvegarde : ```kubectl exec -n "$NS" "$PG_POD" -c postgres -- pg_dump -U postgres -d "$DB_NAME" -Fc > ~/work/backups/rappro_sage_atlas_dev_ddmmaaaa.dump```
+    -   Vérifier le contenu : ```pg_restore -l ~/work/backups/rappro_sage_atlas_dev_ddmmaaaa.dump```
+
++   Mise à l'arrêt de l'application
+    -   Commande d'arrêt (suppression du replica) : ```kubectl scale deployment "$DEPLOY" --replicas=0 -n "$NS"```
+
++   Connexion à Postgres avec un utilisateur avec les bons droits
+    -   Commande d'entrée dans postgres : ```kubectl exec -it -n "$NS" "$PG_POD" -c postgres -- psql -U postgres -d "$DB_NAME"```
+    -   Vérifier qu'on a la bonne base : ```SELECT current_database(), current_user;```
+    -   Vérifier le proprio du schéma (app): 
+        ```
+        SELECT
+            nspname,
+            pg_get_userbyid(nspowner) AS owner
+        FROM pg_namespace
+        WHERE nspname = 'public';            
+        ```
+
++   Supprimer les tables et recréer le schéma
+    -   Supprimer le schéma : ```DROP SCHEMA public CASCADE;```
+    -   Recréer le schéma : ```CREATE SCHEMA public;```
+    -   Attribuer ce schéma à l'utilisateur DJANGO : ```ALTER SCHEMA public OWNER TO nom_utilisateur_django;```
+    -   Quitter : ```\q```
+
++   Relancer django et appliquer les migrations
+    -   Relancer le replica : ```kubectl scale deployment "$DEPLOY" --replicas=1 -n "$NS"```
+    -   Relancer lesz migrations : ```kubectl exec -n "$NS" deployment/"$DEPLOY" -- uv run python app-suivi-reconciliation/manage.py migrate --noinput```
+
++   Recréer le superuser
+    -   Superuser : ```kubectl exec -it -n "$NS" deployment/"$DEPLOY" -- uv run python app-suivi-reconciliation/manage.py createsuperuser```
+
++   Vérifier la structure de postgres
+    -   Rentrer dans postgres : ```kubectl exec -it -n "$NS" "$PG_POD" -c postgres -- psql -U postgres -d "$DB_NAME"```
+    -   Liste des tables : ```\dt public.*```

@@ -1,6 +1,11 @@
 # Imports JSONL volumineux sur PostgreSQL
 
-Le formulaire conserve le fichier, enregistre un traitement puis lance
+Le guide actuel de reprise et de déploiement est
+[Imports reprenables sur Onyxia](imports_reprenables_onyxia.md). Il précise les
+checkpoints PostgreSQL, le worker supervisé, le PVC et la finalisation encore
+monolithique. Les mesures datées ci-dessous décrivent l'ancien chemin.
+
+En mode local, le formulaire conserve le fichier, enregistre un traitement puis lance
 `run_matching_job` dans un processus indépendant de Gunicorn. Le transfert HTTP
 doit se terminer avant l'affichage du suivi ; le chargement métier s'effectue
 ensuite en arrière-plan.
@@ -38,10 +43,12 @@ photographies progressivement, et le traitement collectif conserve des
 identifiants plutôt que toutes les preuves en mémoire. Les contrôles métier et
 le report des décisions restent appliqués.
 
-La transaction PostgreSQL englobe toute la campagne : une erreur tardive annule
-également les lots déjà insérés. Elle peut retenir les verrous des lignes
-concernées pendant le traitement. Les phases et compteurs sont suivis dans
-`progress.json` et `import.log`, sans attendre le commit de la transaction.
+Pour les jobs v2/v3, les inventaires PostgreSQL sont validés par lots dans une
+campagne privée, avec leur checkpoint en base. La transaction finale englobe
+encore les projections et les traitements métier ; une erreur à ce stade annule
+la finalisation, mais conserve les inventaires préparés. Elle peut retenir les
+verrous métier longtemps. Les compteurs durables et le heartbeat sont en base ;
+`progress.json` et `import.log` complètent les mesures.
 Les exceptions complètes sont conservées dans `worker.log`.
 
 ## Relancer après une interruption
@@ -53,9 +60,12 @@ de fichiers. Depuis le même environnement et avec la même configuration :
 python manage.py run_matching_job <uuid-du-traitement> --resume
 ```
 
-Cette commande recommence un traitement actif interrompu depuis le début ; elle
-ne reprend pas au dernier lot. Un traitement marqué `FAILED` doit être soumis
-à nouveau. Le même fichier déjà publié est détecté comme doublon.
+Pour les nouveaux jobs PostgreSQL v2/v3, cette commande reprend au checkpoint des
+sources. La finalisation métier est rejouée intégralement si elle n'a pas été
+publiée. Les jobs `RETRYABLE` et `INTERRUPTED` peuvent être repris ; un traitement
+`FAILED` pour contrat invalide doit être soumis à nouveau après correction.
+Les anciens jobs sans checkpoint, v1 et l'import direct restent atomiques.
+Le même fichier déjà publié est détecté comme doublon.
 
 Pour un fichier déjà présent sur le serveur, on peut éviter le transfert HTTP :
 

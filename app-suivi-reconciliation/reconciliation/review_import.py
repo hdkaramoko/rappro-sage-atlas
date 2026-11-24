@@ -22,6 +22,8 @@ def upsert_group(payload, number, seen, *, projects=None):
     if project is None:
         project, _ = Project.objects.get_or_create(code=code, defaults={"label": "Projet importé"})
         if projects is not None:
+            if len(projects) >= 1000:
+                projects.clear()
             projects[code] = project
     group, _ = ReviewGroup.objects.select_for_update().get_or_create(
         key=payload["key"],

@@ -559,3 +559,24 @@ Accorder les privileges pour des requetes
 +   Vérifier la structure de postgres
     -   Rentrer dans postgres : ```kubectl exec -it -n "$NS" "$PG_POD" -c postgres -- psql -U postgres -d "$DB_NAME"```
     -   Liste des tables : ```\dt public.*```
+
+
+## Récapitulatif syntaxes
++   Déploiement kubernetes
+    ```
+    SHA=$(git rev-parse HEAD)
+    IMAGE="ghcr.io/hdkaramoko/rappro-sage-atlas:dev-${SHA}"
+    kubectl set image deployment/rappro-sage-atlas-dev rappro-sage-atlas-dev="$IMAGE" matching-worker="$IMAGE" prepare-import-directory="$IMAGE"
+
+    ```
+
++   Vérifier le déploiement
+    ```
+    kubectl rollout status deployment/rappro-sage-atlas-dev
+    ```
+
++   Afficher les logs
+    ```
+    kubectl -n "$NS" logs deployment/"$DEPLOY" -c "$DEPLOY" -f --tail=100
+    kubectl -n "$NS" logs deployment/"$DEPLOY" -c matching-worker -f --tail=100
+    ```

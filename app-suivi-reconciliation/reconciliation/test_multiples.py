@@ -243,6 +243,62 @@ class MultipleTests(TestCase):
         self.assertEqual(result.group.match_status, "MATCHED")
         self.assertTrue(result.multiple_diagnostic["derogation"])
 
+    def test_manual_selection_revision_releases_only_its_contributions(self):
+        """Réviser une sélection validée conserve les pairs, le motif et l'historique."""
+        from .revision import reopen_review
+
+        # Une contribution de pair à zéro conserve la capacité nécessaire à la
+        # sélection entière de A, tout en vérifiant qu'elle n'est pas supprimée.
+        self.validate("B", values={key: {"mode": "SET", "value": value} for key, value in {
+            "status": "Comptabilisé", "amount": "0", "document": "D", "date": "2026-01-01",
+        }.items()})
+        line = LineReview.objects.get(transaction__source_id="A")
+        refs = list(candidates_for(line))
+        line = self.validate(manual_refs=refs, manual_confirm=True, multiple_confirm=True)
+        peers = list(ControlContribution.objects.exclude(line=line).values_list("pk", "amount", "entries"))
+        event_ids = list(line.events.values_list("pk", flat=True))
+        version, group_version = line.version, line.group.version
+
+        reopened = reopen_review(
+            line.pk, self.user, version=version, group_version=group_version,
+            source=signature(line), comment="  Révision de la sélection  ",
+        )
+
+        self.assertEqual(reopened.state, "DRAFT")
+        self.assertEqual(reopened.version, version + 1)
+        self.assertEqual(reopened.group.version, group_version + 1)
+        self.assertEqual(reopened.manual_assignment, line.manual_assignment)
+        self.assertFalse(ControlContribution.objects.filter(line=line).exists())
+        self.assertEqual(list(ControlContribution.objects.exclude(line=line).values_list("pk", "amount", "entries")), peers)
+        self.assertTrue(all(reopened.events.filter(pk=pk).exists() for pk in event_ids))
+        event = reopened.events.first()
+        self.assertEqual(event.snapshot["before"]["state"], "VALIDATED")
+        self.assertEqual(event.snapshot["before"]["manual_assignment"], line.manual_assignment)
+        self.assertEqual(event.snapshot["comment"], "Révision de la sélection")
+        # La confirmation de réouverture ne dispense pas de confirmer à nouveau
+        # une validation, ni de justifier une nouvelle affectation.
+        with self.assertRaisesMessage(ValidationError, "affectation manuelle"):
+            self.validate(multiple_confirm=True)
+        with self.assertRaises(ValidationError):
+            self.validate(manual_confirm=True, multiple_confirm=True, comment="")
+        self.assertFalse(ControlContribution.objects.filter(line=line).exists())
+
+    def test_manual_selection_revision_rejects_stale_version_and_empty_reason(self):
+        """Une révision refusée ne libère pas les écritures déjà réservées."""
+        from .revision import reopen_review
+
+        line = LineReview.objects.get(transaction__source_id="A")
+        line = self.validate(manual_refs=list(candidates_for(line)), manual_confirm=True, multiple_confirm=True)
+        contributions = list(ControlContribution.objects.filter(line=line).values_list("pk", "amount", "entries"))
+        events = line.events.count()
+        for version, reason in ((line.version - 1, "Motif"), (line.version, "  ")):
+            with self.subTest(version=version, reason=reason), self.assertRaises(ValidationError):
+                reopen_review(line.pk, self.user, version=version, group_version=line.group.version,
+                              source=signature(line), comment=reason)
+        current = LineReview.objects.get(pk=line.pk)
+        self.assertEqual((current.state, current.version, current.events.count()), ("VALIDATED", line.version, events))
+        self.assertEqual(list(ControlContribution.objects.filter(line=line).values_list("pk", "amount", "entries")), contributions)
+
     def test_validate_button_cannot_override_selected_entry_capacity(self):
         """Le POST Valider ne permet pas de dépasser la capacité en sélectionnant une écriture entière."""
         self.validate("A")

@@ -1,0 +1,43 @@
+name: Resilient JSONL imports (PostgreSQL)
+
+on:
+  pull_request:
+  push:
+    branches: [dev, preprod, main]
+  workflow_dispatch:
+
+jobs:
+  imports:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: imports
+          POSTGRES_PASSWORD: imports
+          POSTGRES_DB: imports
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U imports"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      IMPORT_TEST_POSTGRES: "1"
+      IMPORT_TEST_USER: imports
+      IMPORT_TEST_PASSWORD: imports
+      IMPORT_TEST_DB: imports
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Check migrations
+        run: uv run python app-suivi-reconciliation/manage.py makemigrations --check --dry-run --settings=config.import_test_settings
+      - name: Real PostgreSQL transactions and workers
+        run: >-
+          uv run python app-suivi-reconciliation/manage.py test
+          imports_app.test_resumable imports_app.test_job_actions
+          imports_app.test_jobs imports_app.test_postgres_import
+          reconciliation.test_campaigns
+          --settings=config.import_test_settings --noinput

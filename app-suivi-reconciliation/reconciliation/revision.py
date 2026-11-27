@@ -38,11 +38,16 @@ def reopen_review(pk, user, *, version, group_version, source, comment):
         if not campaign.is_current:
             raise ValidationError("La campagne est close : révision impossible.")
     ReviewGroup.objects.select_for_update().get(pk=entry.group_id)
-    line = LineReview.objects.select_for_update().select_related("group", "transaction", "inventory_link").get(pk=pk)
+    # Garder les verrous groupe/source sans joindre le lien nullable : PostgreSQL
+    # interdit FOR UPDATE sur ce côté d'une jointure externe. decide recharge le lien.
+    line = LineReview.objects.select_for_update().select_related("group", "transaction").get(pk=pk)
     if not user.is_active or not ReconciliationTransaction.objects.visible_for(user).filter(pk=line.transaction_id).exists():
         raise PermissionDenied
     if line.state != "VALIDATED" or not comment.strip():
         raise ValidationError("La révision exige une validation existante et un motif.")
     values = {name: line.values.get(name, {"mode": "KEEP"}) for name in ("status", "amount", "document", "date")}
     return decide(pk, user, state="DRAFT", values=values, comment=comment.strip(),
-                  expected_version=version, expected_group_version=group_version, expected_source=source)
+                  expected_version=version, expected_group_version=group_version, expected_source=source,
+                  # La révision motivée confirme la sélection existante pour sa
+                  # réouverture uniquement ; toute nouvelle validation reste contrôlée.
+                  manual_confirm=True)

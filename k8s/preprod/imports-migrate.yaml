@@ -1,0 +1,52 @@
+# Bootstrap manuel uniquement ; PROD exige une validation humaine.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rappro-imports-migrate-preprod
+  namespace: user-hdkaramoko
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: migrate
+          image: ghcr.io/hdkaramoko/rappro-sage-atlas:preprod-<sha>
+          command: ["/app/.venv/bin/python", "/app/app-suivi-reconciliation/manage.py", "migrate", "--noinput"]
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          env:
+            - name: DJANGO_ENV
+              value: preprod
+            - name: DJANGO_DEBUG
+              value: "False"
+            - name: POSTGRESQL_ADDON_HOST
+              value: postgresql-cnpg-911218-rw
+            - name: POSTGRESQL_ADDON_PORT
+              value: "5432"
+            - name: POSTGRESQL_ADDON_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-cnpg-911218-app
+                  key: dbname
+            - name: POSTGRESQL_ADDON_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-cnpg-911218-app
+                  key: username
+            - name: POSTGRESQL_ADDON_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-cnpg-911218-app
+                  key: password

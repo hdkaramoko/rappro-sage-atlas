@@ -64,6 +64,9 @@ class MatchingJob(models.Model):
             ("SUCCESS", "Terminé"),
             ("DUPLICATE", "Déjà importé"),
             ("FAILED", "Échec"),
+            ("INTERRUPTED", "Interrompu"),
+            ("RETRYABLE", "Échec reprenable"),
+            ("ABANDONED", "Abandonné"),
         ],
     )
     active = models.BooleanField(default=True)
@@ -73,6 +76,18 @@ class MatchingJob(models.Model):
     groups_imported = models.PositiveIntegerField(default=0)
     bundle_name = models.CharField(max_length=255, blank=True)
     file_hash = models.CharField(max_length=64, blank=True, db_index=True)
+    source_size = models.PositiveBigIntegerField(default=0)
+    protocol_version = models.PositiveSmallIntegerField(default=0)
+    phase = models.CharField(max_length=80, blank=True)
+    checkpoint = models.JSONField(default=dict, blank=True)
+    next_offset = models.PositiveBigIntegerField(default=0)
+    line_number = models.PositiveBigIntegerField(default=0)
+    committed_batches = models.PositiveIntegerField(default=0)
+    heartbeat_at = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveIntegerField(default=0)
+    resumed_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    generation = models.UUIDField(null=True, blank=True)
 
     class Meta:
         ordering = ("-created_at",)
@@ -81,3 +96,15 @@ class MatchingJob(models.Model):
                 fields=("active",), condition=models.Q(active=True), name="one_active_matching_job"
             )
         ]
+
+
+class ImportIdentity(models.Model):
+    """Index durable des identités rencontrées, sans ensemble proportionnel au fichier."""
+
+    job = models.ForeignKey(MatchingJob, on_delete=models.CASCADE, related_name="identities")
+    section = models.CharField(max_length=24)
+    key = models.CharField(max_length=64)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("job", "section", "key"),
+                                               name="unique_import_identity")]

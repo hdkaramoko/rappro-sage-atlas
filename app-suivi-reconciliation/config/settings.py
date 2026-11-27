@@ -23,9 +23,40 @@ SQLITE_STATISTICS_AUTO = os.getenv("SQLITE_STATISTICS_AUTO", "true").lower() == 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"statistics_console": {"class": "logging.StreamHandler"}},
-    "loggers": {"reconciliation.sqlite_statistics": {
-        "handlers": ["statistics_console"], "level": "INFO", "propagate": False}},
+    "formatters": {
+        "standard": {
+            "format": "{asctime} [{levelname}] {name}: {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+            "stream": "ext://sys.stdout",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "WARNING",
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        "reconciliation": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
 }
 ALLOWED_HOSTS = [
     h.strip() for h in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")

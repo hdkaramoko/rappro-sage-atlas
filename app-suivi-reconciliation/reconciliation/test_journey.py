@@ -107,6 +107,39 @@ class JourneyTests(TestCase):
         self.assertEqual(self.line().events.first().snapshot["before"]["state"], "VALIDATED")
         self.assertTrue(self.inventory().business_events.filter(kind="DECISION").exists())
 
+    def test_revision_postgres_sql_keeps_source_locks_without_nullable_join(self):
+        """Compile les requêtes réellement utilisées sans ouvrir de connexion PostgreSQL."""
+        from unittest.mock import patch
+
+        from django.db.backends.postgresql.base import DatabaseWrapper
+        from django.db.models.query import QuerySet
+
+        self.confirm()
+        line = self.line()
+        self.assertIsNotNone(line.inventory_link_id)
+        pg = DatabaseWrapper({"ENGINE": "django.db.backends.postgresql", "NAME": "unused",
+                              "OPTIONS": {}, "TIME_ZONE": None}, alias="revision_sql_audit")
+        queries = []
+        original_get = QuerySet.get
+
+        def capture_get(queryset, *args, **kwargs):
+            if queryset.model is LineReview and queryset.query.select_for_update:
+                sql, _ = queryset.filter(*args, **kwargs).query.get_compiler(connection=pg).as_sql()
+                queries.append(sql)
+            return original_get(queryset, *args, **kwargs)
+
+        with patch.object(pg, "get_autocommit", return_value=False), patch.object(QuerySet, "get", capture_get):
+            reopen_review(line.pk, self.user, version=line.version, group_version=line.group.version,
+                          source=signature(line), comment="Contrôle SQL de révision")
+
+        self.assertEqual(len(queries), 2)  # reopen_review, puis decide.
+        for sql in queries:
+            self.assertIn('INNER JOIN "reconciliation_reconciliationtransaction"', sql)
+            self.assertNotIn("LEFT OUTER JOIN", sql)
+            self.assertTrue(sql.endswith("FOR UPDATE"))
+        self.assertEqual(self.line().state, "DRAFT")
+        self.assertFalse(ManualAllocation.objects.filter(entry__campaign=self.campaign, active=True).exists())
+
     def test_revision_requires_reason_permissions_and_versions(self):
         """Sans motif, sans accès ou avec version périmée, aucune écriture n'est libérée."""
         self.confirm()
